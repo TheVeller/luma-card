@@ -2,7 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { listEvents } from "@/lib/luma.functions";
+import { listEvents, type EventDTO } from "@/lib/luma.functions";
+import { useActiveCalendar } from "@/hooks/use-active-calendar";
+import { downloadEventsDataset } from "@/lib/export-events";
 
 export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
@@ -45,12 +47,14 @@ function proxied(url: string | null): string {
 
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
+  const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ["luma-events"],
-    queryFn: () => fetchEvents(),
+    queryKey: ["luma-events", activeCalendarId ?? "default"],
+    queryFn: () => fetchEvents({ data: { calendarId: activeCalendarId ?? undefined } }),
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
+  const [exportMenu, setExportMenu] = useState(false);
 
   const isMissingKey =
     error && (error as Error).message?.includes("NO_LUMA_KEY");
@@ -58,13 +62,25 @@ function EventsPage() {
   const filtered = useMemo(() => {
     if (!data) return [];
     const now = Date.now();
-    return data.filter((ev) => {
+    return data.filter((ev: EventDTO) => {
       const t = new Date(ev.startAt).getTime();
       if (filter === "upcoming") return t >= now;
       if (filter === "past") return t < now;
       return true;
     });
   }, [data, filter]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort(
+      (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
+    );
+  }, [filtered]);
+
+  function exportDataset(kind: "json" | "csv") {
+    if (!data) return;
+    downloadEventsDataset(data, kind, activeCalendarId ?? "default");
+    setExportMenu(false);
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -80,12 +96,39 @@ function EventsPage() {
             Pick an event to generate a personalized badge for it.
           </p>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="rounded-full border border-hairline px-4 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
-        >
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button
+              onClick={() => setExportMenu((v) => !v)}
+              disabled={!data || data.length === 0}
+              className="rounded-full border border-hairline px-4 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
+            >
+              Export ▾
+            </button>
+            {exportMenu && (
+              <div className="absolute right-0 top-full z-40 mt-1 w-40 overflow-hidden rounded-xl border border-hairline bg-surface shadow-xl">
+                <button
+                  onClick={() => exportDataset("json")}
+                  className="block w-full px-3 py-2 text-left text-xs font-medium hover:bg-surface-2"
+                >
+                  Download JSON
+                </button>
+                <button
+                  onClick={() => exportDataset("csv")}
+                  className="block w-full px-3 py-2 text-left text-xs font-medium hover:bg-surface-2"
+                >
+                  Download CSV
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="rounded-full border border-hairline px-4 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          >
+            {isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {data && data.length > 0 && (
@@ -151,11 +194,11 @@ function EventsPage() {
         <p className="mt-10 text-sm text-muted-foreground">No events on this calendar yet.</p>
       )}
 
-      {filtered.length > 0 && (
+      {sorted.length > 0 && (
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((ev) => (
+          {sorted.map((ev) => (
             <Link
-              key={ev.id}
+              key={`${ev.calendarId ?? "d"}:${ev.id}`}
               to="/e/$eventId"
               params={{ eventId: ev.id }}
               className="group overflow-hidden rounded-2xl border border-hairline bg-surface/70 transition hover:-translate-y-0.5 hover:border-white/20"
@@ -177,6 +220,11 @@ function EventsPage() {
                   <span>{formatDate(ev.startAt)}</span>
                   {ev.city && <span className="rounded-full bg-black/40 px-2 py-0.5">{ev.city}</span>}
                 </div>
+                {activeCalendarId === "__all__" && ev.calendarName && (
+                  <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+                    {ev.calendarName}
+                  </div>
+                )}
               </div>
               <div className="p-4">
                 <h3 className="line-clamp-2 font-display text-lg font-semibold leading-tight">
