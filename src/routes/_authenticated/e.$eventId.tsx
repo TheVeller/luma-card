@@ -13,7 +13,7 @@ import { CameraCapture } from "@/components/CameraCapture";
 import { EventBadgeGallery } from "@/components/EventBadgeGallery";
 import { supabase } from "@/integrations/supabase/client";
 
-export const Route = createFileRoute("/e/$eventId")({
+export const Route = createFileRoute("/_authenticated/e/$eventId")({
   head: ({ params }) => ({
     meta: [
       { title: `Generate your badge — event ${params.eventId}` },
