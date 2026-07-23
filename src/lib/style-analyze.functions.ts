@@ -19,21 +19,27 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
     const gateway = createAIGateway();
     const model = gateway("google/gemini-3.6-flash");
 
-    const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [
+    const content: Array<
+      { type: "text"; text: string } | { type: "image"; image: URL }
+    > = [
       {
         type: "text",
         text: `Event name: ${data.name}\n${data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""}\nAnalyze the cover art and produce a StyleSpec that captures its palette and vibe, so the badge feels native to this event.`,
       },
     ];
     if (data.coverUrl) {
-      content.push({ type: "image_url", image_url: { url: data.coverUrl } });
+      try {
+        content.push({ type: "image", image: new URL(data.coverUrl) });
+      } catch {
+        // ignore invalid URL
+      }
     }
 
     try {
       const { output } = await generateText({
         model,
         system: SYSTEM,
-        messages: [{ role: "user", content: content as never }],
+        messages: [{ role: "user", content }],
         output: Output.object({ schema: StyleSpecSchema }),
       });
       return normalizeStyleSpec(output as StyleSpec);
