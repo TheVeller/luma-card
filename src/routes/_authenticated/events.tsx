@@ -54,6 +54,9 @@ function EventsPage() {
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
+  const [sortMode, setSortMode] = useState<"nearest" | "newest" | "oldest">(
+    "nearest",
+  );
   const [exportMenu, setExportMenu] = useState(false);
 
   const isMissingKey =
@@ -71,10 +74,30 @@ function EventsPage() {
   }, [data, filter]);
 
   const sorted = useMemo(() => {
-    return [...filtered].sort(
-      (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
-    );
-  }, [filtered]);
+    const now = Date.now();
+    const arr = [...filtered];
+    if (sortMode === "newest") {
+      arr.sort(
+        (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
+      );
+    } else if (sortMode === "oldest") {
+      arr.sort(
+        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+      );
+    } else {
+      // nearest: upcoming ascending first (soonest → furthest), then past most-recent first
+      arr.sort((a, b) => {
+        const ta = new Date(a.startAt).getTime();
+        const tb = new Date(b.startAt).getTime();
+        const aUp = ta >= now;
+        const bUp = tb >= now;
+        if (aUp && bUp) return ta - tb;
+        if (!aUp && !bUp) return tb - ta;
+        return aUp ? -1 : 1;
+      });
+    }
+    return arr;
+  }, [filtered, sortMode]);
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
@@ -132,21 +155,45 @@ function EventsPage() {
       </div>
 
       {data && data.length > 0 && (
-        <div className="mt-6 inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
-          {(["all", "upcoming", "past"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={
-                "rounded-full px-4 py-1.5 capitalize transition " +
-                (filter === f
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground")
-              }
-            >
-              {f}
-            </button>
-          ))}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
+            {(["all", "upcoming", "past"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={
+                  "rounded-full px-4 py-1.5 capitalize transition " +
+                  (filter === f
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
+            {(
+              [
+                ["nearest", "Nearest"],
+                ["newest", "Newest"],
+                ["oldest", "Oldest"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSortMode(key)}
+                className={
+                  "rounded-full px-4 py-1.5 transition " +
+                  (sortMode === key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
