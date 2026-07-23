@@ -93,6 +93,7 @@ function EventBadgePage() {
             coverUrl: event.coverUrl,
             name: event.name,
             description: event.description,
+            eventUrl: event.url,
             pixelEvidence: evidence,
           },
         });
