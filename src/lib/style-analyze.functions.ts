@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { generateText, Output, NoObjectGeneratedError } from "ai";
+import { generateObject, NoObjectGeneratedError } from "ai";
 import { createAIGateway } from "./ai-gateway.server";
 import { StyleSpecSchema, normalizeStyleSpec, DEFAULT_STYLE_SPEC, type StyleSpec } from "./style-spec";
 
@@ -45,14 +45,16 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
     }
 
     try {
-      const { output } = await generateText({
+      const { object } = await generateObject({
         model,
         system: SYSTEM,
         messages: [{ role: "user", content }],
-        output: Output.object({ schema: StyleSpecSchema }),
+        schema: StyleSpecSchema,
+        mode: "json",
       });
-      return normalizeStyleSpec(output as StyleSpec);
+      return normalizeStyleSpec(object as StyleSpec);
     } catch (error) {
+      console.error("[style-analyze] failed:", error);
       if (NoObjectGeneratedError.isInstance(error)) {
         try {
           const parsed = JSON.parse(error.text ?? "{}");
@@ -61,6 +63,7 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
           return DEFAULT_STYLE_SPEC;
         }
       }
-      throw error;
+      // Last-resort fallback so the UI never blocks on AI failure.
+      return DEFAULT_STYLE_SPEC;
     }
   });
