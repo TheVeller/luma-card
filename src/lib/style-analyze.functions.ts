@@ -19,21 +19,24 @@ STEP 1 — Classify the cover into ONE of these buckets (put the id in \`style\`
 - "warm-paper"          Cream / paper background, muted colored accent (blue/rust/olive). Space Grotesk / Inter.
 - "vibrant-illustration" Multi-color cartoon/illustration cover. Round friendly sans (Fraunces, Manrope).
 
-STEP 2 — Emit a StyleSpec matching the bucket:
-- Colors are #rrggbb. Contrast must be legible: text on bg, accent on both bg AND surface.
-- accent = the single most distinctive hue of the cover. If the cover has NO chroma (pure B&W), accent MUST be near-black (#111111 or the darkest ink of the cover), NEVER a default blue.
-- text = the darkest legible ink; textMuted = ~55% of text on bg.
-- surface = a slightly lighter or darker version of bg (paper tile).
+STEP 2 — Emit a StyleSpec faithful to the ACTUAL cover:
+- All colors are #rrggbb.
+- USE THE PIXEL EVIDENCE. The user message lists hex colors physically present in the cover. Your \`bg\`, \`surface\`, \`accent\`, and \`text\` MUST be either verbatim entries from that list OR ±5 in each channel of one of them. Do NOT introduce hues that are not evidenced.
+- accent = the single most distinctive (highest-chroma) hue in the evidence. If the evidence says the cover is monochrome (isMonochrome=true), accent MUST equal the darkest ink from evidence, not blue.
+- bg   = a paper-tile color derived from the LIGHTEST evidence entry (or its faded version). Never pure white; add ~2–6% warmth or cool bias matching the cover's temperature.
+- surface = a version of bg that is 5–10% darker on light bgs, 5–10% lighter on dark bgs.
+- text = darkest legible ink. Ensure WCAG contrast(text, bg) ≥ 4.5.
+- textMuted = ~55% of text on bg (visually ~gray).
 - Fonts must be REAL Google Fonts. Allowed families:
     heading: "Space Grotesk", "Space Mono", "Archivo Black", "Bebas Neue", "DM Serif Display", "Instrument Serif", "Playfair Display", "Sora", "Syne", "Fraunces", "JetBrains Mono", "IBM Plex Mono"
     body:    "Inter", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "DM Mono", "Manrope", "Work Sans", "Fira Sans"
-  Prefer monospace pairs for "mono-terminal" and "industrial-mono" buckets.
+  Prefer monospace pairs for "mono-terminal" and "industrial-mono" buckets. Prefer serifs for "editorial-serif".
 - mood ≤ 8 words describing the cover ("cream paper editorial", "terminal-mono workshop", etc.).
 
 HARD RULES:
-- Do NOT default to #2970ef blue unless the cover clearly uses that blue.
-- Do NOT default to Space Grotesk when the cover is monospace/terminal.
-- Do NOT invent colors that don't appear in the cover.
+- NEVER default to #2970ef blue unless the pixel evidence contains a blue.
+- NEVER default to Space Grotesk on a monospace/terminal cover.
+- NEVER invent hues absent from the pixel evidence.
 
 OUTPUT — Return ONLY a JSON object (no markdown, no prose) with this exact shape:
 {"style":"mono-terminal","bg":"#f7f6f1","surface":"#efece2","text":"#111111","textMuted":"#5b5a56","accent":"#111111","fontHeading":"Space Mono","fontBody":"IBM Plex Mono","mood":"cream paper terminal"}`;
@@ -74,7 +77,7 @@ async function callVercelChat(
       { role: "system", content: SYSTEM },
       { role: "user", content: userContent },
     ],
-    temperature: 0.4,
+    temperature: 0.3,
   };
 
   const res = await fetch(VERCEL_CHAT_URL, {
@@ -97,14 +100,57 @@ async function callVercelChat(
   return { ok: true, text };
 }
 
+/** Map either the strict schema or a flat {fontHeading,fontBody,...} shape to StyleSpec. */
+function coerceLoose(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = raw as Record<string, unknown>;
+  if (o.palette && o.fonts) return o; // already correct shape
+  return {
+    style: o.style,
+    palette: {
+      bg: o.bg,
+      surface: o.surface,
+      accent: o.accent,
+      text: o.text,
+      textMuted: o.textMuted ?? o.text_muted,
+    },
+    fonts: {
+      heading: o.fontHeading ?? o.font_heading,
+      body: o.fontBody ?? o.font_body,
+    },
+    mood: o.mood,
+  };
+}
+
 export const analyzeEventArt = createServerFn({ method: "POST" })
-  .inputValidator((d: { coverUrl: string | null; name: string; description?: string }) => d)
+  .inputValidator((d: {
+    coverUrl: string | null;
+    name: string;
+    description?: string;
+    pixelEvidence?: {
+      dominants: string[];
+      darkest: string;
+      lightest: string;
+      isMonochrome: boolean;
+    } | null;
+  }) => d)
   .handler(async ({ data }): Promise<StyleSpec> => {
     const key = getVercelKey();
 
-    const userText = `Event name: ${data.name}\n${
-      data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""
-    }Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover.`;
+    const ev = data.pixelEvidence;
+    const evidenceBlock = ev
+      ? `PIXEL EVIDENCE (colors physically sampled from the cover):
+- dominants (top→): ${ev.dominants.join(", ") || "n/a"}
+- darkest ink: ${ev.darkest}
+- lightest paper: ${ev.lightest}
+- isMonochrome: ${ev.isMonochrome}`
+      : "PIXEL EVIDENCE: unavailable — infer purely from the image.";
+
+    const userText = `Event name: ${data.name}
+${data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""}
+${evidenceBlock}
+
+Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover and are consistent with the pixel evidence above.`;
 
     const models = ["google/gemini-2.5-pro", "google/gemini-2.5-flash"];
     const errors: string[] = [];
@@ -122,11 +168,11 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
         errors.push(`${model} → no JSON`);
         continue;
       }
-      const parsed = StyleSpecSchema.safeParse(raw);
+      const shaped = coerceLoose(raw);
+      const parsed = StyleSpecSchema.safeParse(shaped);
       if (parsed.success) return normalizeStyleSpec(parsed.data as StyleSpec);
-      // schema mismatch — try to salvage via normalize
       try {
-        return normalizeStyleSpec(raw as StyleSpec);
+        return normalizeStyleSpec(shaped as StyleSpec);
       } catch {
         errors.push(`${model} → schema mismatch`);
       }

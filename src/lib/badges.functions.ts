@@ -1,4 +1,4 @@
-// Authenticated server functions to read badges. Scoped by the caller's userId.
+// Server functions for reading + deleting badges.
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -15,6 +15,8 @@ export type BadgeEntry = {
   firstName: string;
   role: string | null;
   publicUrl: string;
+  imagePath: string;
+  ownerId: string | null;
   createdAt: string;
 };
 
@@ -54,7 +56,7 @@ export const listBadgesForEvent = createServerFn({ method: "GET" })
     const supabase = serverPublicClient();
     const { data: rows, error } = await (supabase as ReturnType<typeof serverPublicClient>)
       .from("badges" as never)
-      .select("id, first_name, role, image_path, created_at")
+      .select("id, first_name, role, image_path, user_id, created_at")
       .eq("event_id", data.eventId)
       .order("created_at", { ascending: false })
       .limit(data.limit);
@@ -67,17 +69,19 @@ export const listBadgesForEvent = createServerFn({ method: "GET" })
       first_name: string;
       role: string | null;
       image_path: string;
+      user_id: string | null;
       created_at: string;
     }>).map((r) => ({
       id: r.id,
       firstName: r.first_name,
       role: r.role,
       publicUrl: publicUrlFor(r.image_path),
+      imagePath: r.image_path,
+      ownerId: r.user_id,
       createdAt: r.created_at,
     }));
   });
 
-/** Every badge the authenticated user has created, across all events. */
 export const listAllBadgesForUser = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<UserBadgeEntry[]> => {
@@ -103,6 +107,57 @@ export const listAllBadgesForUser = createServerFn({ method: "GET" })
       firstName: r.first_name,
       role: r.role,
       publicUrl: publicUrlFor(r.image_path),
+      imagePath: r.image_path,
+      ownerId: context.userId,
       createdAt: r.created_at,
     }));
+  });
+
+const DeleteInput = z.object({ ids: z.array(z.string().uuid()).min(1).max(500) });
+
+export const deleteMyBadges = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => DeleteInput.parse(d))
+  .handler(async ({ context, data }): Promise<{ deleted: number }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Fetch rows owned by the caller
+    const { data: rows, error } = await supabaseAdmin
+      .from("badges" as never)
+      .select("id, image_path, user_id")
+      .in("id", data.ids);
+    if (error) throw new Error(error.message);
+    const owned = ((rows ?? []) as Array<{ id: string; image_path: string; user_id: string }>)
+      .filter((r) => r.user_id === context.userId);
+    if (owned.length === 0) return { deleted: 0 };
+
+    const paths = owned.map((r) => r.image_path);
+    const ids = owned.map((r) => r.id);
+    // Remove storage first (idempotent), then rows
+    await supabaseAdmin.storage.from("badges").remove(paths);
+    const { error: delErr } = await supabaseAdmin
+      .from("badges" as never)
+      .delete()
+      .in("id", ids);
+    if (delErr) throw new Error(delErr.message);
+    return { deleted: ids.length };
+  });
+
+export const wipeMyBadges = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ deleted: number }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: rows, error } = await supabaseAdmin
+      .from("badges" as never)
+      .select("id, image_path")
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    const list = (rows ?? []) as Array<{ id: string; image_path: string }>;
+    if (list.length === 0) return { deleted: 0 };
+    await supabaseAdmin.storage.from("badges").remove(list.map((r) => r.image_path));
+    const { error: delErr } = await supabaseAdmin
+      .from("badges" as never)
+      .delete()
+      .eq("user_id", context.userId);
+    if (delErr) throw new Error(delErr.message);
+    return { deleted: list.length };
   });
