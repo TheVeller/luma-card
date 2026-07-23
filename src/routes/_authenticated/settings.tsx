@@ -2,7 +2,13 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { deleteLumaKey, getLumaConfig, saveLumaKey } from "@/lib/user-luma-key.functions";
+import { getLumaConfig } from "@/lib/user-luma-key.functions";
+import {
+  addCalendar,
+  listCalendars,
+  removeCalendar,
+  setDefaultCalendar,
+} from "@/lib/user-luma-calendars.functions";
 import { listEvents } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
 import { seedHistoricalBadges, type SeedProgress } from "@/lib/seed-history";
@@ -14,9 +20,9 @@ export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
       { title: "Settings — Luma Badge Studio" },
-      { name: "description", content: "Save your Luma API key to enable event badges." },
+      { name: "description", content: "Manage your Luma calendars and API keys." },
       { property: "og:title", content: "Settings — Luma Badge Studio" },
-      { property: "og:description", content: "Configure your Luma calendar API key." },
+      { property: "og:description", content: "Configure the Luma calendars powering your badges." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -25,17 +31,19 @@ export const Route = createFileRoute("/_authenticated/settings")({
 });
 
 function SettingsPage() {
-  const fetchConfig = useServerFn(getLumaConfig);
+  const fetchList = useServerFn(listCalendars);
+  const add = useServerFn(addCalendar);
+  const remove = useServerFn(removeCalendar);
+  const setDefault = useServerFn(setDefaultCalendar);
   const fetchEvents = useServerFn(listEvents);
   const analyze = useServerFn(analyzeEventArt);
-  const save = useServerFn(saveLumaKey);
-  const remove = useServerFn(deleteLumaKey);
+  useServerFn(getLumaConfig); // kept warm — header pulls it separately
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: config, refetch, isLoading } = useQuery({
-    queryKey: ["luma-config"],
-    queryFn: () => fetchConfig(),
+  const { data: cals, refetch, isLoading } = useQuery({
+    queryKey: ["luma-calendars"],
+    queryFn: () => fetchList(),
   });
 
   const [apiKey, setApiKey] = useState("");
@@ -52,15 +60,31 @@ function SettingsPage() {
   const [seedBusy, setSeedBusy] = useState(false);
   const [seedLog, setSeedLog] = useState<string[]>([]);
 
-  async function onSave() {
+  async function onAdd() {
     if (!apiKey.trim()) return;
     setBusy(true);
     setError(null);
     setOk(null);
     try {
-      const res = await save({ data: { apiKey: apiKey.trim() } });
-      setOk(`Connected to ${res.calendar?.name ?? "your calendar"}`);
+      const res = await add({ data: { apiKey: apiKey.trim() } });
+      setOk(`Connected to ${res.name}`);
       setApiKey("");
+      await refetch();
+      qc.invalidateQueries({ queryKey: ["luma-config"] });
+      qc.invalidateQueries({ queryKey: ["luma-events"] });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove(id: string, name: string) {
+    if (!confirm(`Remove ${name}? Your API key for this calendar will be deleted.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await remove({ data: { id } });
       await refetch();
       qc.invalidateQueries();
     } catch (e) {
@@ -70,14 +94,12 @@ function SettingsPage() {
     }
   }
 
-  async function onRemove() {
-    if (!confirm("Remove your saved Luma API key?")) return;
+  async function onSetDefault(id: string) {
     setBusy(true);
-    setError(null);
     try {
-      await remove();
+      await setDefault({ data: { id } });
       await refetch();
-      qc.invalidateQueries();
+      qc.invalidateQueries({ queryKey: ["luma-config"] });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -101,14 +123,17 @@ function SettingsPage() {
     }
   }
 
+  const configured = (cals?.length ?? 0) > 0;
+
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
       <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
         · Settings
       </div>
-      <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Luma API key</h1>
+      <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Calendars</h1>
       <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-        Guardamos tu key cifrada (AES-256-GCM) atada a tu cuenta. Solo tú puedes leerla. Consíguela en{" "}
+        Conecta uno o más calendarios de Luma. Cada API key se guarda cifrada (AES-256-GCM) y
+        atada a tu cuenta. Consíguelas en{" "}
         <a
           href="https://docs.lu.ma/reference/getting-started-with-your-api"
           target="_blank"
@@ -121,63 +146,82 @@ function SettingsPage() {
       </p>
 
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          Status
-        </div>
-        {isLoading ? (
-          <p className="mt-3 text-sm">Checking…</p>
-        ) : config?.configured ? (
-          <div className="mt-3">
-            <div className="flex items-center gap-3">
-              {config.calendar?.avatarUrl ? (
-                <img
-                  src={config.calendar.avatarUrl}
-                  alt=""
-                  className="h-12 w-12 rounded-lg border border-hairline object-cover"
-                />
-              ) : null}
-              <div>
-                <div className="font-display text-lg font-semibold">{config.calendar?.name}</div>
-                {config.calendar?.url && (
-                  <a
-                    href={config.calendar.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground underline-offset-4 hover:underline"
-                  >
-                    {new URL(config.calendar.url).hostname}
-                    {new URL(config.calendar.url).pathname}
-                  </a>
-                )}
-              </div>
-            </div>
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => navigate({ to: "/events" })}
-                className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-              >
-                Browse events →
-              </button>
-              <button
-                onClick={onRemove}
-                disabled={busy}
-                className="rounded-full border border-destructive/40 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
-              >
-                Remove key
-              </button>
-            </div>
+        <div className="flex items-baseline justify-between">
+          <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+            Connected calendars · {cals?.length ?? 0}
           </div>
-        ) : (
+          {configured && (
+            <button
+              onClick={() => navigate({ to: "/events" })}
+              className="text-xs font-semibold text-accent hover:underline"
+            >
+              Browse events →
+            </button>
+          )}
+        </div>
+
+        {isLoading ? (
+          <p className="mt-3 text-sm">Loading…</p>
+        ) : !configured ? (
           <p className="mt-3 text-sm">
             <span className="mr-2 inline-block h-2 w-2 rounded-full bg-accent align-middle" />
-            No key configured yet.
+            No calendars yet. Add your first Luma API key below.
           </p>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {cals!.map((c) => (
+              <li
+                key={c.id}
+                className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
+              >
+                {c.avatarUrl ? (
+                  <img src={c.avatarUrl} alt="" className="h-10 w-10 rounded-lg border border-hairline object-cover" />
+                ) : (
+                  <div className="h-10 w-10 rounded-lg bg-surface-2" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-display text-sm font-semibold">{c.name}</span>
+                    {c.isDefault && (
+                      <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
+                        default
+                      </span>
+                    )}
+                  </div>
+                  {c.url && (
+                    <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {new URL(c.url).hostname}
+                      {new URL(c.url).pathname}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-1">
+                  {!c.isDefault && (
+                    <button
+                      onClick={() => onSetDefault(c.id)}
+                      disabled={busy}
+                      className="rounded-full border border-hairline px-3 py-1 text-[11px] font-semibold hover:bg-surface disabled:opacity-40"
+                    >
+                      Set default
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onRemove(c.id, c.name)}
+                    disabled={busy}
+                    className="rounded-full border border-destructive/40 px-3 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
       <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
         <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          {config?.configured ? "Replace key" : "Paste your Luma API key"}
+          {configured ? "Add another calendar" : "Paste your Luma API key"}
         </label>
         <input
           value={apiKey}
@@ -188,11 +232,11 @@ function SettingsPage() {
         />
         <div className="mt-4 flex items-center gap-3">
           <button
-            onClick={onSave}
+            onClick={onAdd}
             disabled={busy || !apiKey.trim()}
             className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Save & validate"}
+            {busy ? "Saving…" : "Add calendar"}
           </button>
           {ok && <span className="text-xs text-emerald-400">{ok}</span>}
           {error && <span className="text-xs text-destructive">{error}</span>}
@@ -210,13 +254,11 @@ function SettingsPage() {
           <h2 className="mt-1 font-display text-xl font-semibold">Seed historical gallery</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Renders a placeholder badge (<b>Ignacio Velásquez</b> · Founder, GPT Chain) for each
-            matched historical event: Code Brew, v0 Zero-to-Agent, GTM Hackathon, Cursor Meetup,
-            Cursor Buildathon SV, Code Brew SV, Vibe Code Fest. Idempotent — skips events that
-            already have your placeholder.
+            matched historical event. Idempotent — skips events that already have your placeholder.
           </p>
           <button
             onClick={onSeed}
-            disabled={seedBusy || !config?.configured}
+            disabled={seedBusy || !configured}
             className="mt-4 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-40"
           >
             {seedBusy ? "Seeding…" : "Seed my historical gallery"}

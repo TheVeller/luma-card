@@ -44,6 +44,48 @@ export type Database = {
         }
         Relationships: []
       }
+      user_luma_calendars: {
+        Row: {
+          api_key_ciphertext: string
+          calendar_avatar_url: string | null
+          calendar_id: string
+          calendar_name: string | null
+          calendar_slug: string | null
+          calendar_url: string | null
+          created_at: string
+          id: string
+          is_default: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_ciphertext: string
+          calendar_avatar_url?: string | null
+          calendar_id: string
+          calendar_name?: string | null
+          calendar_slug?: string | null
+          calendar_url?: string | null
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_ciphertext?: string
+          calendar_avatar_url?: string | null
+          calendar_id?: string
+          calendar_name?: string | null
+          calendar_slug?: string | null
+          calendar_url?: string | null
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_luma_keys: {
         Row: {
           api_key_ciphertext: string

@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedGalleryRouteImport } from './routes/_authenticated/gallery'
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 import { Route as AuthenticatedEEventIdRouteImport } from './routes/_authenticated/e.$eventId'
@@ -48,6 +49,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedGalleryRoute = AuthenticatedGalleryRouteImport.update({
+  id: '/gallery',
+  path: '/gallery',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedEventsRoute = AuthenticatedEventsRouteImport.update({
   id: '/events',
   path: '/events',
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/phase-2': typeof Phase2Route
   '/events': typeof AuthenticatedEventsRoute
+  '/gallery': typeof AuthenticatedGalleryRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -79,6 +86,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/phase-2': typeof Phase2Route
   '/events': typeof AuthenticatedEventsRoute
+  '/gallery': typeof AuthenticatedGalleryRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/phase-2': typeof Phase2Route
   '/_authenticated/events': typeof AuthenticatedEventsRoute
+  '/_authenticated/gallery': typeof AuthenticatedGalleryRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/_authenticated/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/phase-2'
     | '/events'
+    | '/gallery'
     | '/settings'
     | '/api/chat-badge'
     | '/e/$eventId'
@@ -113,6 +123,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/phase-2'
     | '/events'
+    | '/gallery'
     | '/settings'
     | '/api/chat-badge'
     | '/e/$eventId'
@@ -124,6 +135,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/phase-2'
     | '/_authenticated/events'
+    | '/_authenticated/gallery'
     | '/_authenticated/settings'
     | '/api/chat-badge'
     | '/_authenticated/e/$eventId'
@@ -183,6 +195,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/gallery': {
+      id: '/_authenticated/gallery'
+      path: '/gallery'
+      fullPath: '/gallery'
+      preLoaderRoute: typeof AuthenticatedGalleryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/events': {
       id: '/_authenticated/events'
       path: '/events'
@@ -209,12 +228,14 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedEventsRoute: typeof AuthenticatedEventsRoute
+  AuthenticatedGalleryRoute: typeof AuthenticatedGalleryRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedEEventIdRoute: typeof AuthenticatedEEventIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedEventsRoute: AuthenticatedEventsRoute,
+  AuthenticatedGalleryRoute: AuthenticatedGalleryRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedEEventIdRoute: AuthenticatedEEventIdRoute,
 }

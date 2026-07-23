@@ -76,25 +76,30 @@ function EventBadgePage() {
 
   const coverProxy = proxied(event?.coverUrl ?? null);
 
+  const runAnalyze = useMemo(
+    () => async () => {
+      if (!event) return;
+      setAnalyzing(true);
+      setAiError(null);
+      try {
+        const s = await analyze({
+          data: { coverUrl: event.coverUrl, name: event.name, description: event.description },
+        });
+        setSpec(s);
+      } catch (e) {
+        setAiError(`Style analysis failed: ${(e as Error).message}`);
+      } finally {
+        setAnalyzing(false);
+      }
+    },
+    [event, analyze],
+  );
+
   useEffect(() => {
     if (!event) return;
-    let cancelled = false;
-    setAnalyzing(true);
-    setAiError(null);
-    analyze({ data: { coverUrl: event.coverUrl, name: event.name, description: event.description } })
-      .then((s) => {
-        if (!cancelled) setSpec(s);
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setAiError(`Style analysis failed: ${e.message}`);
-      })
-      .finally(() => {
-        if (!cancelled) setAnalyzing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [event, analyze]);
+    runAnalyze();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.id]);
 
   useEffect(() => {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
@@ -424,8 +429,19 @@ function EventBadgePage() {
             </div>
 
             <div className="rounded-2xl border border-hairline bg-surface/60 p-4 text-xs text-muted-foreground">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.24em]">
-                {analyzing ? "AI analyzing art…" : "AI style"}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="font-mono text-[10px] uppercase tracking-[0.24em]">
+                  {analyzing ? "AI analyzing art…" : "AI style"}
+                </div>
+                <button
+                  type="button"
+                  onClick={runAnalyze}
+                  disabled={analyzing}
+                  className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2 disabled:opacity-40"
+                  title="Re-detect style from cover art"
+                >
+                  {analyzing ? "…" : "↻ Re-detect"}
+                </button>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(["bg", "surface", "accent", "text"] as const).map((k) => (
