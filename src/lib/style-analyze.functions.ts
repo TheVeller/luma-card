@@ -30,13 +30,13 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
     }
 
     try {
-      const { experimental_output } = await generateText({
+      const { output } = await generateText({
         model,
         system: SYSTEM,
         messages: [{ role: "user", content: content as never }],
-        experimental_output: Output.object({ schema: StyleSpecSchema }),
+        output: Output.object({ schema: StyleSpecSchema }),
       });
-      return normalizeStyleSpec(experimental_output as StyleSpec);
+      return normalizeStyleSpec(output as StyleSpec);
     } catch (error) {
       if (NoObjectGeneratedError.isInstance(error)) {
         try {
