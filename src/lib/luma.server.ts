@@ -59,6 +59,15 @@ export async function fetchAllEvents(): Promise<LumaEvent[]> {
 }
 
 export async function fetchEvent(eventId: string): Promise<LumaEvent> {
-  const data = await lumaFetch<{ event: LumaEvent }>("/event/get", { event_api_id: eventId });
-  return data.event;
+  // Try the direct endpoint first, then fall back to the list.
+  try {
+    const data = await lumaFetch<{ event: LumaEvent }>("/event/get", { api_id: eventId });
+    if (data?.event) return data.event;
+  } catch {
+    // fall through
+  }
+  const all = await fetchAllEvents();
+  const found = all.find((e) => e.api_id === eventId);
+  if (!found) throw new Error(`Event ${eventId} not found on this calendar`);
+  return found;
 }
