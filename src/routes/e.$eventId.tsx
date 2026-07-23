@@ -200,7 +200,28 @@ function EventBadgePage() {
     a.click();
   }
 
-  async function share() {
+  function shareMessage(): string {
+    if (!event) return "";
+    return `Voy a asistir a ${event.name} 🎟️ ¡Nos vemos ahí!`;
+  }
+
+  function shareOnX() {
+    if (!event) return;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+      shareMessage(),
+    )}&url=${encodeURIComponent(event.url)}`;
+    window.open(url, "_blank", "noopener,noreferrer,width=600,height=600");
+  }
+
+  function shareOnLinkedIn() {
+    if (!event) return;
+    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
+      event.url,
+    )}`;
+    window.open(url, "_blank", "noopener,noreferrer,width=600,height=600");
+  }
+
+  async function nativeShare() {
     if (!canvasRef.current || !event) return;
     canvasRef.current.toBlob(async (blob) => {
       if (!blob) return;
@@ -214,7 +235,7 @@ function EventBadgePage() {
           await nav.share({
             files: [file],
             title: event.name,
-            text: `I'm going to ${event.name} — join me on Luma`,
+            text: shareMessage(),
             url: event.url,
           });
           return;
@@ -365,10 +386,25 @@ function EventBadgePage() {
               {badgeUrl && (
                 <>
                   <button onClick={download} className="rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold">
-                    PNG
+                    ↓ PNG
                   </button>
                   <button
-                    onClick={share}
+                    onClick={shareOnX}
+                    className="rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    title="Share on X"
+                  >
+                    Share on 𝕏
+                  </button>
+                  <button
+                    onClick={shareOnLinkedIn}
+                    className="rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    style={{ backgroundColor: "#0A66C2" }}
+                    title="Share on LinkedIn"
+                  >
+                    in — LinkedIn
+                  </button>
+                  <button
+                    onClick={nativeShare}
                     className="rounded-md px-4 py-2 text-sm font-semibold text-[#f2efe6]"
                     style={{ backgroundColor: accent }}
                   >
