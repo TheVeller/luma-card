@@ -6,7 +6,12 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { fetchAllEvents, fetchEvent, type LumaEvent } from "./luma.server";
 import { resolveUserLumaKey } from "./user-luma-key.functions";
-import { resolveAllKeys } from "./user-luma-calendars.functions";
+import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
+import {
+  readScrapedEventsForCalendar,
+  readScrapedEventById,
+  type ScrapedEventDTO,
+} from "./luma-scrape.functions";
 
 export type EventDTO = {
   id: string;
@@ -51,13 +56,14 @@ export const listEvents = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => ListInput.parse(d) ?? {})
   .handler(async ({ data, context }): Promise<EventDTO[]> => {
     const calendarId = data?.calendarId;
+    const allRows = await readUserCalendars(context.userId);
 
-    // Combined view: fan out across every linked calendar.
+    // Combined view: fan out across every linked calendar + scraped ones.
     if (calendarId === "__all__") {
-      const all = await resolveAllKeys(context.userId);
-      if (all.length === 0) throw new NoLumaKeyError();
-      const results = await Promise.all(
-        all.map(async ({ key, row }) => {
+      if (allRows.length === 0) throw new NoLumaKeyError();
+      const apiKeys = await resolveAllKeys(context.userId);
+      const apiResults = await Promise.all(
+        apiKeys.map(async ({ key, row }) => {
           try {
             const events = await fetchAllEvents(key);
             return events.map((e) =>
@@ -69,20 +75,42 @@ export const listEvents = createServerFn({ method: "GET" })
           }
         }),
       );
-      // Dedup by (calendarId, event id)
-      const seen = new Set<string>();
+      const scrapedRows = allRows.filter((r) => r.source === "scrape");
+      const scrapedResults: ScrapedEventDTO[][] = await Promise.all(
+        scrapedRows.map((r) =>
+          readScrapedEventsForCalendar(
+            context.userId,
+            r.id,
+            r.calendar_id,
+            r.calendar_name ?? "Imported",
+          ),
+        ),
+      );
       const merged: EventDTO[] = [];
-      for (const arr of results) {
+      const seen = new Set<string>();
+      for (const arr of [...apiResults, ...scrapedResults]) {
         for (const ev of arr) {
           const k = `${ev.calendarId}:${ev.id}`;
           if (seen.has(k)) continue;
           seen.add(k);
-          merged.push(ev);
+          merged.push(ev as EventDTO);
         }
       }
       return merged;
     }
 
+    // Specific calendar — could be scraped (source='scrape') or api.
+    const row = calendarId
+      ? allRows.find((r) => r.calendar_id === calendarId)
+      : allRows.find((r) => r.is_default) ?? allRows[0];
+    if (row?.source === "scrape") {
+      return readScrapedEventsForCalendar(
+        context.userId,
+        row.id,
+        row.calendar_id,
+        row.calendar_name ?? "Imported",
+      );
+    }
     const key = await resolveUserLumaKey(context.userId, calendarId);
     if (!key) throw new NoLumaKeyError();
     const events = await fetchAllEvents(key);
