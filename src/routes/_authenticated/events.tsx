@@ -54,6 +54,9 @@ function EventsPage() {
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
+  const [sortMode, setSortMode] = useState<"nearest" | "newest" | "oldest">(
+    "nearest",
+  );
   const [exportMenu, setExportMenu] = useState(false);
 
   const isMissingKey =
@@ -71,10 +74,30 @@ function EventsPage() {
   }, [data, filter]);
 
   const sorted = useMemo(() => {
-    return [...filtered].sort(
-      (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
-    );
-  }, [filtered]);
+    const now = Date.now();
+    const arr = [...filtered];
+    if (sortMode === "newest") {
+      arr.sort(
+        (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
+      );
+    } else if (sortMode === "oldest") {
+      arr.sort(
+        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+      );
+    } else {
+      // nearest: upcoming ascending first (soonest → furthest), then past most-recent first
+      arr.sort((a, b) => {
+        const ta = new Date(a.startAt).getTime();
+        const tb = new Date(b.startAt).getTime();
+        const aUp = ta >= now;
+        const bUp = tb >= now;
+        if (aUp && bUp) return ta - tb;
+        if (!aUp && !bUp) return tb - ta;
+        return aUp ? -1 : 1;
+      });
+    }
+    return arr;
+  }, [filtered, sortMode]);
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
