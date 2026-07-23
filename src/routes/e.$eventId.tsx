@@ -332,8 +332,7 @@ function EventBadgePage() {
                 <button
                   type="button"
                   onClick={() => setCameraOpen(true)}
-                  className="flex-1 rounded-md border-2 px-4 py-2 text-sm font-semibold"
-                  style={{ borderColor: accent, color: accent }}
+                  className="flex-1 rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold text-[#17150f]"
                 >
                   📷 Take photo
                 </button>
