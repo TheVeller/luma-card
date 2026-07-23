@@ -13,6 +13,7 @@ import { Route as Phase2RouteImport } from './routes/phase-2'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EEventIdRouteImport } from './routes/e.$eventId'
+import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 
 const Phase2Route = Phase2RouteImport.update({
@@ -35,6 +36,11 @@ const EEventIdRoute = EEventIdRouteImport.update({
   path: '/e/$eventId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiChatBadgeRoute = ApiChatBadgeRouteImport.update({
+  id: '/api/chat-badge',
+  path: '/api/chat-badge',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
   id: '/api/public/image',
   path: '/api/public/image',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
@@ -60,19 +68,33 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/events' | '/phase-2' | '/e/$eventId' | '/api/public/image'
+  fullPaths:
+    | '/'
+    | '/events'
+    | '/phase-2'
+    | '/api/chat-badge'
+    | '/e/$eventId'
+    | '/api/public/image'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/events' | '/phase-2' | '/e/$eventId' | '/api/public/image'
+  to:
+    | '/'
+    | '/events'
+    | '/phase-2'
+    | '/api/chat-badge'
+    | '/e/$eventId'
+    | '/api/public/image'
   id:
     | '__root__'
     | '/'
     | '/events'
     | '/phase-2'
+    | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
   fileRoutesById: FileRoutesById
@@ -81,6 +103,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EventsRoute: typeof EventsRoute
   Phase2Route: typeof Phase2Route
+  ApiChatBadgeRoute: typeof ApiChatBadgeRoute
   EEventIdRoute: typeof EEventIdRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
 }
@@ -115,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EEventIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chat-badge': {
+      id: '/api/chat-badge'
+      path: '/api/chat-badge'
+      fullPath: '/api/chat-badge'
+      preLoaderRoute: typeof ApiChatBadgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/image': {
       id: '/api/public/image'
       path: '/api/public/image'
@@ -129,6 +159,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EventsRoute: EventsRoute,
   Phase2Route: Phase2Route,
+  ApiChatBadgeRoute: ApiChatBadgeRoute,
   EEventIdRoute: EEventIdRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,
 }
