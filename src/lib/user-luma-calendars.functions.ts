@@ -13,6 +13,7 @@ export type UserCalendarDTO = {
   avatarUrl: string | null;
   url: string | null;
   isDefault: boolean;
+  source: "api" | "scrape";
 };
 
 type Row = {
@@ -23,8 +24,9 @@ type Row = {
   calendar_slug: string | null;
   calendar_avatar_url: string | null;
   calendar_url: string | null;
-  api_key_ciphertext: string;
+  api_key_ciphertext: string | null;
   is_default: boolean;
+  source?: "api" | "scrape" | null;
 };
 
 function toDTO(r: Row): UserCalendarDTO {
