@@ -508,6 +508,7 @@ function EventBadgePage() {
           onClose={() => setCameraOpen(false)}
         />
       )}
-    </div>
+    </>
+
   );
 }
