@@ -371,8 +371,7 @@ function EventBadgePage() {
               <button
                 onClick={makeHero}
                 disabled={heroBusy || analyzing}
-                className="rounded-md border-2 px-4 py-2 text-sm font-semibold disabled:opacity-40"
-                style={{ borderColor: accent, color: accent }}
+                className="rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold text-[#17150f] disabled:opacity-40"
               >
                 {heroBusy ? "Generating hero…" : heroDataUrl ? "Regenerate hero" : "Generate AI hero"}
               </button>
