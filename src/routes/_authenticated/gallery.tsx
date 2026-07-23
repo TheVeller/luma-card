@@ -1,9 +1,14 @@
 // Unified gallery of every badge the signed-in user has created.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { listAllBadgesForUser, type UserBadgeEntry } from "@/lib/badges.functions";
+import {
+  listAllBadgesForUser,
+  deleteMyBadges,
+  wipeMyBadges,
+  type UserBadgeEntry,
+} from "@/lib/badges.functions";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 
@@ -26,6 +31,9 @@ type Sort = "recent" | "oldest" | "name" | "event";
 function GalleryPage() {
   const fetchBadges = useServerFn(listAllBadgesForUser);
   const fetchEvents = useServerFn(listEvents);
+  const del = useServerFn(deleteMyBadges);
+  const wipe = useServerFn(wipeMyBadges);
+  const qc = useQueryClient();
   const { activeCalendarId } = useActiveCalendar();
 
   const { data: badges, isLoading } = useQuery({
@@ -35,6 +43,22 @@ function GalleryPage() {
   const { data: events } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
     queryFn: () => fetchEvents({ data: { calendarId: activeCalendarId ?? undefined } }),
+  });
+
+  const delMut = useMutation({
+    mutationFn: (ids: string[]) => del({ data: { ids } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["all-badges"] });
+      qc.invalidateQueries({ queryKey: ["badges"] });
+      setSelected(null);
+    },
+  });
+  const wipeMut = useMutation({
+    mutationFn: () => wipe(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["all-badges"] });
+      qc.invalidateQueries({ queryKey: ["badges"] });
+    },
   });
 
   const eventById = useMemo(() => {
