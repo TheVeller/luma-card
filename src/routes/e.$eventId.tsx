@@ -200,7 +200,28 @@ function EventBadgePage() {
     a.click();
   }
 
-  async function share() {
+  function shareMessage(): string {
+    if (!event) return "";
+    return `Voy a asistir a ${event.name} 🎟️ ¡Nos vemos ahí!`;
+  }
+
+  function shareOnX() {
+    if (!event) return;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+      shareMessage(),
+    )}&url=${encodeURIComponent(event.url)}`;
+    window.open(url, "_blank", "noopener,noreferrer,width=600,height=600");
+  }
+
+  function shareOnLinkedIn() {
+    if (!event) return;
+    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
+      event.url,
+    )}`;
+    window.open(url, "_blank", "noopener,noreferrer,width=600,height=600");
+  }
+
+  async function nativeShare() {
     if (!canvasRef.current || !event) return;
     canvasRef.current.toBlob(async (blob) => {
       if (!blob) return;
@@ -214,7 +235,7 @@ function EventBadgePage() {
           await nav.share({
             files: [file],
             title: event.name,
-            text: `I'm going to ${event.name} — join me on Luma`,
+            text: shareMessage(),
             url: event.url,
           });
           return;
