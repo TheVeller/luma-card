@@ -1,72 +1,114 @@
-# Plan: AI style fix, dataset export, unified gallery, multi-calendar
+# Plan: Kill AI hero + fix composition & style auto-detection
 
-## 1. AI style — arreglar y añadir botón de re-detectar
+## Diagnóstico de la simulación
 
-**Diagnóstico (a confirmar en la ejecución):** El `useEffect` en `e.$eventId.tsx` corre `analyze` en cada montaje pero no hay retry ni forma de reintentar cuando falla o cuando cambia el cover. Además, si el server fn lanza (por schema/timeout), la UI queda en `DEFAULT_STYLE_SPEC` sin feedback claro y sin manera de reintentar.
+Comparando la cover (`Agents That Ship`, monocromo terminal negro/crema) vs el resultado:
 
-**Cambios en `src/routes/_authenticated/e.$eventId.tsx`:**
-- Extraer la lógica de análisis en una función `runAnalyze()` que setea `analyzing`, `aiError` y `spec`. El `useEffect` la llama al montar; el nuevo botón la vuelve a llamar.
-- Añadir botón **"Re-detect style"** dentro del panel "AI style" (al lado del label), habilitado siempre que `!analyzing`. Muestra spinner mientras corre.
-- Mostrar el mensaje de error del server de forma legible (ya existe `aiError`, revisar que se pinte también cuando cae en el fallback default).
-- Cuando cambia el `spec`, invalidar `heroDataUrl` y `badgeUrl` para forzar coherencia visual.
+1. **AI no detectó el estilo**: la cover es negro sobre crema con tipografía pixel/mono; el badge salió con `accent = #2970ef` (default azul) y `heading = Space Grotesk`. Nada del análisis se pegó → o el modelo devolvió el default, o el fallback tapó el error silenciosamente.
+2. **Colisión de texto en el header**: `LU.MA` (subtitle) se dibuja encima de `AUGUST 1 — 9:00 AM` (date). Ver el screenshot: las letras se pisan.
+3. **Caption bajo la foto** es `· LU.MA ·`, redundante y feo — debería mostrar la fecha o el nombre corto del evento.
+4. **Foto con corner brackets azules gruesos** rompe cuando el evento es monocromo — el accent domina y no es del evento.
+5. **Header derecha (seal circular)** funciona, pero el resto del badge no honra el lenguaje visual de la cover.
+6. **AI hero** ya no lo quieres → borrar botón + endpoint + campos del spec.
 
-**Verificar en el server (`src/lib/style-analyze.functions.ts`):** revisar logs con `stack_modern--server-function-logs` para confirmar la causa real (esquema, URL de cover inválida, timeout de Vercel). Si es por el URL del cover no llegando (Luma CDN), pasar la versión proxied `/api/public/image?url=…` como fallback cuando la URL directa falla.
+## 1. Eliminar "Generate AI hero"
 
-## 2. Descargar dataset de eventos
+- Borrar `src/lib/hero-generate.functions.ts`.
+- Quitar de `src/routes/_authenticated/e.$eventId.tsx`: import de `generateHeroArt`, estado `heroDataUrl` y `heroBusy`, función `makeHero`, botón "Generate AI hero", y el paso de `heroDataUrl` a `renderBadge`.
+- En `src/lib/badge-render.ts`: quitar el parámetro `heroDataUrl` y todo el bloque "Hero band (behind header)". El header queda limpio sobre el paper del `bg`.
+- En `src/lib/style-spec.ts`: eliminar `heroPrompt` y `heroStyle` del schema y del default.
+- En `src/routes/api/chat-badge.ts` (si referencia `heroPrompt` como tool arg): quitar esa herramienta / esos campos.
+- En `src/lib/seed-history.ts`: quitar cualquier referencia a hero (no genera hero, pero verificar).
 
-**En `src/routes/_authenticated/events.tsx`:**
-- Al lado del botón "Refresh", añadir botón **"Export JSON"** y **"Export CSV"** (o un split button "Export ▾"). Genera cliente-side desde `data` (ya cargada), ordenada por `startAt` desc.
-- Campos incluidos: `id, name, url, startAt, endAt, city, coverUrl, description` (todo lo que ya trae `EventDTO`).
-- CSV: escape correcto de comas/quotes/newlines. Nombre de archivo: `luma-events-{calendarSlug|calendarId}-{YYYY-MM-DD}.{ext}`.
-- Sin cambios de backend.
+## 2. Rediseñar la auto-detección de AI style
 
-## 3. Galería unificada de badges generados
+Objetivo: que la cover `Agents That Ship` (mono negro/crema, mono/pixel) produzca **accent = casi-negro, text = negro, bg = crema/beige, heading = "Space Mono" o "JetBrains Mono", body = "IBM Plex Mono"**, no el default azul.
 
-**Nueva ruta `src/routes/_authenticated/gallery.tsx`:**
-- Server fn nueva `listAllBadgesForUser` en `src/lib/badges.functions.ts` (autenticada, filtra por `user_id = context.userId`, RLS-friendly). Devuelve badges con `event_id, first_name, role, image_path, created_at, publicUrl`, más el join lógico con eventos vía cache client-side (o incluye `event_name` derivándolo de un `listEvents()` en paralelo).
-- UI:
-  - Header con conteo y export CSV del dataset de badges.
-  - Filtros: por evento (dropdown poblado con eventos que tienen ≥1 badge), search por nombre/role, sort (recientes / alfabético por nombre / por evento).
-  - Grid tipo `EventBadgeGallery` pero con badge del evento (chip) debajo de cada card.
-  - Click abre modal con detalle + link al evento.
-- Enlace "Gallery" en el header del layout autenticado (`src/routes/_authenticated/route.tsx`) — al lado de "Events" y "Settings".
+Cambios en `src/lib/style-analyze.functions.ts`:
 
-## 4. Soporte multi-calendario
+- **Subir de modelo**: `google/gemini-2.5-flash` → `google/gemini-3-pro` (o `google/gemini-2.5-pro`) para vision más fiel. Fallback al flash si el pro falla.
+- **Reescribir el system prompt** con:
+  - Un **taxonomy fijo** de 6 estilos visuales que el modelo debe clasificar la cover primero: `mono-terminal`, `editorial-serif`, `bold-punk`, `industrial-mono`, `warm-paper`, `dark-mode-tech`, `vibrant-illustration`, y para cada uno el rango de paleta y font pair recomendado (basado en las eras del history repo). El modelo primero clasifica, luego adapta.
+  - Regla dura: **el accent tiene que ser el color más distintivo de la cover, no un gris**. Si la cover es blanco-y-negro sin croma, el accent va casi-negro `#111` y el `bg` va crema `#efe9d8` (era paper). Nunca devolver el default azul cuando la cover no lo justifica.
+  - Regla dura: la font pair tiene que existir en Google Fonts. Ampliar la lista permitida incluyendo mono: `Space Mono`, `JetBrains Mono`, `IBM Plex Mono`, `DM Mono`, `Fira Code`, `Geist Mono` (Space Mono como sustituto portable).
+- **Multimodal correcto**: el actual usa `{ type: "image", image: new URL(coverUrl) }`. Con Vercel Gateway + Google models, la ruta chat-completions espera `{ type: "image_url", image_url: { url } }`. Cambiar y pasar la URL directamente. Si `coverUrl` es de `lumacdn.com`, proxear vía `/api/public/image?url=` para evitar 403.
+- **Guardar el classifier bucket** en el objeto retornado (`style: "mono-terminal"` etc.) para debuggear + mostrar en el panel "AI style".
+- **Log de fallo real** al panel: si el AI devuelve default, marcarlo `aiError = "AI returned default — modelo no clasificó"` en vez de silenciar.
+- **Warm-up**: precargar la font pair del spec en el DOM apenas llega la respuesta (ya lo hace `loadGoogleFontPair`, verificar que corre antes del primer render del canvas).
 
-**Schema — nueva migración:**
+## 3. Corregir la composición del badge
 
-```text
-convertir user_luma_keys en tabla de N filas por usuario
-  → PK compuesta (user_id, calendar_id) o id uuid + unique(user_id, calendar_id)
-añadir columna `is_default boolean not null default false`
-grants a authenticated preservados, RLS scoped a auth.uid()
+En `src/lib/badge-render.ts`:
+
+### 3.1 Header sin colisiones
+
+- Reorganizar el header como grid vertical estricto:
+  - Kicker (`· WHAT'S BREWING?`) — y0
+  - Headline (evento) 1-2 líneas, auto-fit — y1 (después del kicker)
+  - Row inferior: **city (izq)** + **date (der)** en la misma línea, tipografía chica mono, sin pisarse. La `subtitle` con font display gigante se elimina — era la fuente de la colisión.
+- Header bottom baja a `~360` para dejar respirar la foto.
+
+### 3.2 Foto — corner brackets adaptativos
+
+- Reducir grosor: `cornerThick 8 → 5`, `cornerLen 44 → 36`.
+- Color de corner brackets: si `accent` tiene baja saturación (mono), usar `text` en su lugar. Regla: si `chroma(accent) < 0.06` en OKLCH → brackets = `text` con alpha 0.8.
+- Frame outer (`strokeRect` con accent): mismo criterio — usar `text` con alpha 0.5 cuando el accent es mono para no forzar un accent inexistente.
+
+### 3.3 Caption bajo la foto
+
+- Reemplazar `· LU.MA ·` por el `dateLine` real en mono pequeño, centrado. Si el nombre del evento cabe corto (<20 chars), alternar con `· ${event.name.toUpperCase()} ·`.
+
+### 3.4 Name band
+
+- Bajar `NAME_TOP` de `PHOTO_BOTTOM + 44` a `+ 60` para separar más del caption.
+- Nombre a 2 líneas si supera el ancho (ej. "IGNACIO VELÁSQUEZ" cabe en 1 con auto-fit, pero nombres largos como "MARÍA JOSÉ FERNÁNDEZ" hoy se comprimen; permitir wrapLines con maxLines=2 a partir de umbral).
+
+### 3.5 Role / divider
+
+- Divider: hoy es un bloque accent + hairline. Con accent mono, el bloque se pierde — usar `text` cuando accent es mono (misma regla que brackets).
+
+### 3.6 QR / footer
+
+- Sin cambios de layout, solo colores adaptativos con la misma regla mono-vs-cromo.
+- Footer text: hoy dice `event.name.toLowerCase() · powered by luma_`. Mantener.
+
+### 3.7 Regla helper compartida
+
+Añadir en `badge-render.ts` (o `style-spec.ts`):
+
+```ts
+function isMonoPalette(spec: StyleSpec): boolean {
+  // devuelve true cuando accent no tiene suficiente chroma para leerse como color
+  // (compara accent vs text en distancia euclidiana RGB simple).
+}
+function effectiveAccent(spec: StyleSpec): string {
+  return isMonoPalette(spec) ? spec.palette.text : spec.palette.accent;
+}
 ```
 
-Migración detallada:
-1. `CREATE TABLE user_luma_calendars` con la misma forma (encrypted key, calendar meta, is_default) — nueva tabla para no romper nada.
-2. Copiar filas de `user_luma_keys` a `user_luma_calendars` con `is_default=true`.
-3. Dejar `user_luma_keys` en su lugar por ahora (fallback) — se retira en un cleanup posterior.
-4. GRANT + RLS por `auth.uid() = user_id`.
+Y usar `effectiveAccent(spec)` en: frame outer, corner brackets, divider, role text color, kicker.
 
-**Backend:**
-- Nuevo `src/lib/user-luma-calendars.functions.ts` con: `listCalendars`, `addCalendar` (encripta key, llama `/calendar/get`, guarda meta), `removeCalendar`, `setDefaultCalendar`.
-- `resolveUserLumaKey(userId, calendarId?)` acepta un `calendarId` opcional; sin él, usa el default.
-- `listEvents` y `getEvent` aceptan `calendarId?` en el input; si no viene, default.
+## 4. UI del panel "AI style"
 
-**UI — selector de calendarios (arriba-izquierda, como pide el user):**
-- En el layout `_authenticated/route.tsx`, reemplazar el bloque "avatar + nombre calendar" por un **dropdown de comunidades** (avatar + nombre del calendario activo, chevron). Al abrir muestra la lista de calendarios del user + entry "+ Add calendar".
-- Estado del calendario activo en `localStorage` (`activeCalendarId`) + React Query keyed por calendarId. Cambiar de calendario invalida `["luma-events", calendarId]`.
-- `/settings`: sección "Calendars" con lista de calendarios (avatar, nombre, badge "default"), botones set default / remove, y un formulario "Add calendar" (input key → server fn valida + guarda). El campo Luma key legacy se mantiene por retrocompatibilidad pero migra silenciosamente a la primera fila de `user_luma_calendars`.
-- Nueva vista opcional "All calendars combined" (toggle en el dropdown → `calendarId = "__all__"`): server fn hace fan-out en paralelo a las N keys y concatena, marcando cada `EventDTO` con `calendarId` y `calendarName` para poder filtrar en events grid.
+En `src/routes/_authenticated/e.$eventId.tsx`:
 
-## Notas técnicas
-
-- Ficheros nuevos: `src/routes/_authenticated/gallery.tsx`, `src/lib/user-luma-calendars.functions.ts`, `src/components/CalendarSwitcher.tsx`, migración SQL.
-- Ficheros modificados: `e.$eventId.tsx` (re-detect + invalidación con calendarId), `events.tsx` (export + calendarId), `route.tsx` (switcher), `settings.tsx` (multi-calendar section), `luma.functions.ts` (calendarId), `user-luma-key.functions.ts` (mantener + delegar), `badges.functions.ts` (listAll).
-- Sin cambios en `renderBadge`, en el pipeline de style-analyze salvo el fallback proxied de cover, ni en auth.
-- Verificación: probar re-detect, exports, gallery filters, y añadir un segundo calendario con otra API key para confirmar que el switch funciona y "All combined" mergea.
+- Añadir chip con el **estilo clasificado** (`mono-terminal`, etc.) arriba de los swatches.
+- El botón "↻ Re-detect" ya existe (se agregó turno pasado). Verificar que fuerza nueva llamada y no cachea.
 
 ## Fuera de alcance
 
-- Retirar la tabla legacy `user_luma_keys` (se hará en un cleanup posterior una vez estable).
-- Compartir calendarios entre users, roles, workspaces.
+- No cambio schema DB.
+- No cambio flow auth ni multi-calendar.
+- No tocar la galería ni el export dataset (ya funcionan).
+- No cambio la generación real de hero (se elimina completa).
+
+## Verificación
+
+Después de aplicar:
+1. Abrir el evento "Agents That Ship" y llamar re-detect. El panel debe mostrar `style: mono-terminal`, accent casi-negro, heading = Space Mono o similar.
+2. Generar badge → chequear que:
+   - No hay overlap de `LU.MA` con la fecha.
+   - Corner brackets son finos y color texto (no azul).
+   - Caption bajo la foto muestra la fecha real, no `· LU.MA ·`.
+   - Divider y kicker heredan el color texto.
+3. Correr en un evento cromático (ej. GTM Hackathon con cover roja) para asegurar que la regla mono-vs-cromo no rompe el path colorido — el accent rojo debe seguir apareciendo.
