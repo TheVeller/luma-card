@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { deleteLumaKey, getLumaConfig, saveLumaKey } from "@/lib/user-luma-key.functions";
 import { listEvents } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
@@ -44,10 +44,9 @@ function SettingsPage() {
   const [ok, setOk] = useState<string | null>(null);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  useState(() => {
+  useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
-    return undefined;
-  });
+  }, []);
 
   const isAdmin = userEmail === ADMIN_EMAIL;
   const [seedBusy, setSeedBusy] = useState(false);
