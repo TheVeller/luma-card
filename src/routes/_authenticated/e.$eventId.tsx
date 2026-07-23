@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEvent } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
-import { generateHeroArt } from "@/lib/hero-generate.functions";
+
 import { renderBadge, type EventTheme } from "@/lib/badge-render";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
 import { loadGoogleFontPair } from "@/lib/google-fonts";
@@ -53,7 +53,6 @@ function EventBadgePage() {
   const { eventId } = Route.useParams();
   const fetchEvent = useServerFn(getEvent);
   const analyze = useServerFn(analyzeEventArt);
-  const genHero = useServerFn(generateHeroArt);
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["luma-event", eventId],
@@ -64,9 +63,7 @@ function EventBadgePage() {
   const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
-  const [heroDataUrl, setHeroDataUrl] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [heroBusy, setHeroBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
