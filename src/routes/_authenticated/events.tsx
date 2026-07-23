@@ -58,6 +58,13 @@ function EventsPage() {
     "nearest",
   );
   const [exportMenu, setExportMenu] = useState(false);
+  const [sortMenu, setSortMenu] = useState(false);
+
+  const SORT_LABEL: Record<typeof sortMode, string> = {
+    nearest: "Nearest",
+    newest: "Newest",
+    oldest: "Oldest",
+  };
 
   const isMissingKey =
     error && (error as Error).message?.includes("NO_LUMA_KEY");
@@ -122,9 +129,55 @@ function EventsPage() {
         <div className="flex items-center gap-2">
           <div className="relative">
             <button
-              onClick={() => setExportMenu((v) => !v)}
+              onClick={() => {
+                setSortMenu((v) => !v);
+                setExportMenu(false);
+              }}
               disabled={!data || data.length === 0}
-              className="rounded-full border border-hairline px-4 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
+              title="Sort events"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M6 12h12M10 18h4" />
+              </svg>
+              {SORT_LABEL[sortMode]}
+              <span className="text-[9px] opacity-60">▾</span>
+            </button>
+            {sortMenu && (
+              <div className="absolute right-0 top-full z-40 mt-1 w-36 overflow-hidden rounded-xl border border-hairline bg-surface shadow-xl">
+                {(
+                  [
+                    ["nearest", "Nearest"],
+                    ["newest", "Newest"],
+                    ["oldest", "Oldest"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setSortMode(key);
+                      setSortMenu(false);
+                    }}
+                    className={
+                      "flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium hover:bg-surface-2 " +
+                      (sortMode === key ? "text-foreground" : "text-muted-foreground")
+                    }
+                  >
+                    {label}
+                    {sortMode === key && <span className="text-accent">•</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => {
+                setExportMenu((v) => !v);
+                setSortMenu(false);
+              }}
+              disabled={!data || data.length === 0}
+              className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
             >
               Export ▾
             </button>
@@ -147,7 +200,7 @@ function EventsPage() {
           </div>
           <button
             onClick={() => refetch()}
-            className="rounded-full border border-hairline px-4 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+            className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
           >
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
@@ -169,28 +222,6 @@ function EventsPage() {
                 }
               >
                 {f}
-              </button>
-            ))}
-          </div>
-          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
-            {(
-              [
-                ["nearest", "Nearest"],
-                ["newest", "Newest"],
-                ["oldest", "Oldest"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setSortMode(key)}
-                className={
-                  "rounded-full px-4 py-1.5 transition " +
-                  (sortMode === key
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground")
-                }
-              >
-                {label}
               </button>
             ))}
           </div>

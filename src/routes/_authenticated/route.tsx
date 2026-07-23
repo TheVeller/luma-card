@@ -3,6 +3,7 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { CalendarSwitcher } from "@/components/CalendarSwitcher";
+import { ThemeToggle } from "@/components/ThemeProvider";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -53,6 +54,7 @@ function AuthedShell() {
             >
               Settings
             </Link>
+            <ThemeToggle className="ml-1" />
             <div className="ml-2 flex items-center gap-2 rounded-full border border-hairline bg-surface/70 py-1 pl-1 pr-3">
               {user.user_metadata?.avatar_url ? (
                 <img
