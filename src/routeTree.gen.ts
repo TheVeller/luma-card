@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as Phase2RouteImport } from './routes/phase-2'
 import { Route as EventsRouteImport } from './routes/events'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EEventIdRouteImport } from './routes/e.$eventId'
 import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 
 const Phase2Route = Phase2RouteImport.update({
@@ -24,6 +27,15 @@ const Phase2Route = Phase2RouteImport.update({
 const EventsRoute = EventsRouteImport.update({
   id: '/events',
   path: '/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -41,6 +53,11 @@ const ApiChatBadgeRoute = ApiChatBadgeRouteImport.update({
   path: '/api/chat-badge',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
   id: '/api/public/image',
   path: '/api/public/image',
@@ -49,16 +66,20 @@ const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
@@ -66,8 +87,11 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
   '/events': typeof EventsRoute
   '/phase-2': typeof Phase2Route
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
@@ -76,24 +100,31 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/events'
     | '/phase-2'
+    | '/settings'
     | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/events'
     | '/phase-2'
+    | '/settings'
     | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
+    | '/auth'
     | '/events'
     | '/phase-2'
+    | '/_authenticated/settings'
     | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
@@ -101,6 +132,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
   EventsRoute: typeof EventsRoute
   Phase2Route: typeof Phase2Route
   ApiChatBadgeRoute: typeof ApiChatBadgeRoute
@@ -124,6 +157,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -145,6 +192,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatBadgeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/public/image': {
       id: '/api/public/image'
       path: '/api/public/image'
@@ -155,8 +209,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
   EventsRoute: EventsRoute,
   Phase2Route: Phase2Route,
   ApiChatBadgeRoute: ApiChatBadgeRoute,
