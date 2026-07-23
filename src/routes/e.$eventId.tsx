@@ -140,6 +140,35 @@ function EventBadgePage() {
     reader.readAsDataURL(file);
   }
 
+  async function persistBadge(canvas: HTMLCanvasElement) {
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/png"),
+    );
+    if (!blob) return;
+    const id = crypto.randomUUID();
+    const path = `${eventId}/${id}.png`;
+    const { error: upErr } = await supabase.storage
+      .from("badges")
+      .upload(path, blob, { contentType: "image/png", upsert: false });
+    if (upErr) {
+      console.error("upload failed", upErr);
+      return;
+    }
+    const { error: dbErr } = await supabase
+      .from("badges" as never)
+      .insert({
+        event_id: eventId,
+        first_name: firstName.trim(),
+        role: role.trim() || null,
+        image_path: path,
+      } as never);
+    if (dbErr) {
+      console.error("db insert failed", dbErr);
+      return;
+    }
+    setGalleryKey((k) => k + 1);
+  }
+
   async function generate() {
     if (!theme || !photoDataUrl || !firstName.trim()) return;
     setBusy(true);
@@ -156,6 +185,8 @@ function EventBadgePage() {
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
+      // fire-and-forget: save to gallery
+      persistBadge(canvas).catch((e) => console.error(e));
     } finally {
       setBusy(false);
     }
