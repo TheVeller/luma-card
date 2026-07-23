@@ -91,6 +91,14 @@ export function CalendarSwitcher() {
                     <div className="h-7 w-7 rounded-md bg-surface-2" />
                   )}
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
+                  {c.source === "scrape" && (
+                    <span
+                      title="Imported by link (scraped)"
+                      className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
+                      link
+                    </span>
+                  )}
                   {c.isDefault && (
                     <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
                       default

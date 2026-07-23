@@ -198,6 +198,12 @@ function EventsPage() {
               </div>
             )}
           </div>
+          <Link
+            to="/import"
+            className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          >
+            + Import link
+          </Link>
           <button
             onClick={() => refetch()}
             className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"

@@ -13,6 +13,7 @@ export const StyleSpecSchema = z.object({
   fonts: z.object({
     heading: z.string(),
     body: z.string(),
+    source: z.enum(["firecrawl", "ai", "default"]).optional(),
   }),
   mood: z.string(),
 });
@@ -38,6 +39,7 @@ export function normalizeStyleSpec(input: Partial<StyleSpec> | StyleSpec): Style
     fonts: {
       heading: input.fonts?.heading || d.fonts.heading,
       body: input.fonts?.body || d.fonts.body,
+      source: input.fonts?.source ?? d.fonts.source,
     },
     mood: (input.mood || d.mood).slice(0, 120),
   };
@@ -60,6 +62,7 @@ export const DEFAULT_STYLE_SPEC: StyleSpec = {
   fonts: {
     heading: "Space Grotesk",
     body: "Inter",
+    source: "default",
   },
   mood: "editorial minimal",
 };

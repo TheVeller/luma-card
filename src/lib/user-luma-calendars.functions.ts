@@ -13,6 +13,7 @@ export type UserCalendarDTO = {
   avatarUrl: string | null;
   url: string | null;
   isDefault: boolean;
+  source: "api" | "scrape";
 };
 
 type Row = {
@@ -23,8 +24,9 @@ type Row = {
   calendar_slug: string | null;
   calendar_avatar_url: string | null;
   calendar_url: string | null;
-  api_key_ciphertext: string;
+  api_key_ciphertext: string | null;
   is_default: boolean;
+  source?: "api" | "scrape" | null;
 };
 
 function toDTO(r: Row): UserCalendarDTO {
@@ -36,6 +38,7 @@ function toDTO(r: Row): UserCalendarDTO {
     avatarUrl: r.calendar_avatar_url,
     url: r.calendar_url,
     isDefault: r.is_default,
+    source: (r.source ?? "api") as "api" | "scrape",
   };
 }
 
@@ -44,7 +47,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source",
     )
     .eq("user_id", userId)
     .order("is_default", { ascending: false })
@@ -53,6 +56,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
 }
 
 async function resolveKeyFromRow(row: Row): Promise<string | null> {
+  if (!row.api_key_ciphertext) return null;
   const { decryptString } = await import("./crypto.server");
   try {
     return decryptString(row.api_key_ciphertext);

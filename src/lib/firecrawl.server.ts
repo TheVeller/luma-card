@@ -1,0 +1,211 @@
+// Server-only Firecrawl helpers. Direct API mode (fc-* key).
+// Only imported from server functions and server routes.
+
+const FIRECRAWL_V2 = "https://api.firecrawl.dev/v2";
+
+function requireKey(): string {
+  const key = process.env.FIRECRAWL_API_KEY;
+  if (!key) throw new Error("FIRECRAWL_API_KEY missing");
+  return key;
+}
+
+export function hasFirecrawl(): boolean {
+  return Boolean(process.env.FIRECRAWL_API_KEY);
+}
+
+async function fcCall<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${FIRECRAWL_V2}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${requireKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(`Firecrawl ${path} [${res.status}]: ${raw.slice(0, 400)}`);
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(`Firecrawl ${path} returned non-JSON: ${raw.slice(0, 200)}`);
+  }
+}
+
+export type FirecrawlBranding = {
+  colorScheme?: "light" | "dark";
+  logo?: string;
+  colors?: Partial<{
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    textPrimary: string;
+    textSecondary: string;
+  }>;
+  fonts?: Array<{ family: string }>;
+  typography?: {
+    fontFamilies?: Partial<{ primary: string; heading: string; code: string }>;
+  };
+  images?: Partial<{ logo: string; favicon: string; ogImage: string }>;
+};
+
+type ScrapeResponse<Extra = Record<string, unknown>> = {
+  success?: boolean;
+  data?: {
+    markdown?: string;
+    html?: string;
+    links?: string[];
+    metadata?: Record<string, unknown>;
+    branding?: FirecrawlBranding;
+    json?: unknown;
+    summary?: string;
+  } & Extra;
+  markdown?: string;
+  branding?: FirecrawlBranding;
+  metadata?: Record<string, unknown>;
+  json?: unknown;
+};
+
+/** Normalize v2 response shape: fields can be top-level or under `data`. */
+function pickBody<T extends ScrapeResponse>(res: T) {
+  const d = res.data ?? {};
+  return {
+    markdown: (res.markdown ?? d.markdown) as string | undefined,
+    branding: (res.branding ?? d.branding) as FirecrawlBranding | undefined,
+    metadata: (res.metadata ?? d.metadata) as Record<string, unknown> | undefined,
+    json: (res.json ?? d.json) as unknown,
+    links: d.links as string[] | undefined,
+  };
+}
+
+export async function firecrawlBranding(
+  url: string,
+): Promise<FirecrawlBranding | null> {
+  try {
+    const res = await fcCall<ScrapeResponse>("/scrape", {
+      url,
+      formats: ["branding"],
+      onlyMainContent: true,
+    });
+    return pickBody(res).branding ?? null;
+  } catch (e) {
+    console.error("[firecrawl] branding failed:", (e as Error).message);
+    return null;
+  }
+}
+
+/** Scrape a Luma event page and extract structured event data. */
+export async function firecrawlScrapeEvent(url: string): Promise<{
+  name: string;
+  description: string | null;
+  coverUrl: string | null;
+  city: string | null;
+  startAt: string | null;
+  endAt: string | null;
+  hostName: string | null;
+  branding: FirecrawlBranding | null;
+  ogImage: string | null;
+} | null> {
+  const schema = {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      description: { type: "string" },
+      coverUrl: { type: "string" },
+      city: { type: "string" },
+      startAt: { type: "string" },
+      endAt: { type: "string" },
+      hostName: { type: "string" },
+    },
+    required: ["name"],
+  } as const;
+
+  try {
+    const res = await fcCall<ScrapeResponse>("/scrape", {
+      url,
+      formats: [
+        "markdown",
+        "branding",
+        {
+          type: "json",
+          schema,
+          prompt:
+            "Extract the event's name, one-paragraph description, cover image URL, city (or 'Online'), ISO start date, ISO end date, and host/organizer name from this Luma event page.",
+        },
+      ],
+      onlyMainContent: true,
+    });
+    const body = pickBody(res);
+    const j = (body.json ?? {}) as Partial<{
+      name: string;
+      description: string;
+      coverUrl: string;
+      city: string;
+      startAt: string;
+      endAt: string;
+      hostName: string;
+    }>;
+    const meta = body.metadata ?? {};
+    const ogImage =
+      (meta["og:image"] as string | undefined) ??
+      (meta.ogImage as string | undefined) ??
+      body.branding?.images?.ogImage ??
+      null;
+    const name = (j.name ?? (meta.title as string | undefined) ?? "").trim();
+    if (!name) return null;
+    return {
+      name,
+      description:
+        j.description ?? (meta.description as string | undefined) ?? null,
+      coverUrl: j.coverUrl ?? ogImage ?? null,
+      city: j.city ?? null,
+      startAt: j.startAt ?? null,
+      endAt: j.endAt ?? null,
+      hostName: j.hostName ?? null,
+      branding: body.branding ?? null,
+      ogImage,
+    };
+  } catch (e) {
+    console.error("[firecrawl] scrapeEvent failed:", (e as Error).message);
+    return null;
+  }
+}
+
+/** Discover Luma event URLs under a calendar page. */
+export async function firecrawlDiscoverLumaEvents(
+  calendarUrl: string,
+  limit: number,
+): Promise<string[]> {
+  const host = new URL(calendarUrl).host; // e.g. lu.ma
+  try {
+    const res = await fcCall<{ success?: boolean; links?: string[] }>("/map", {
+      url: calendarUrl,
+      limit,
+      includeSubdomains: false,
+    });
+    const links = (res.links ?? []).filter((u) => {
+      try {
+        const p = new URL(u);
+        if (p.host !== host) return false;
+        // Luma event slugs: single path segment, alphanumeric-ish, not calendar routes.
+        const seg = p.pathname.replace(/^\/+|\/+$/g, "");
+        if (!seg || seg.includes("/")) return false;
+        if (
+          [
+            "home", "discover", "signin", "signup", "create", "help",
+            "pricing", "terms", "privacy", "about", "settings", "cal",
+          ].includes(seg.toLowerCase())
+        ) return false;
+        return /^[a-z0-9\-_]{3,}$/i.test(seg);
+      } catch {
+        return false;
+      }
+    });
+    return Array.from(new Set(links)).slice(0, limit);
+  } catch (e) {
+    console.error("[firecrawl] map failed:", (e as Error).message);
+    return [];
+  }
+}
