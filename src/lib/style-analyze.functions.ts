@@ -122,11 +122,77 @@ function coerceLoose(raw: unknown): unknown {
   };
 }
 
+const GOOGLE_HEADING = new Set([
+  "Space Grotesk", "Space Mono", "Archivo Black", "Bebas Neue",
+  "DM Serif Display", "Instrument Serif", "Playfair Display",
+  "Sora", "Syne", "Fraunces", "JetBrains Mono", "IBM Plex Mono", "Inter",
+]);
+const GOOGLE_BODY = new Set([
+  "Inter", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "DM Mono",
+  "Manrope", "Work Sans", "Fira Sans",
+]);
+// Common web fonts → nearest Google Font family we already load.
+const FONT_ALIAS: Record<string, string> = {
+  "helvetica": "Inter",
+  "helvetica neue": "Inter",
+  "arial": "Inter",
+  "roboto": "Inter",
+  "sf pro": "Inter",
+  "sf pro display": "Inter",
+  "sf pro text": "Inter",
+  "system-ui": "Inter",
+  "-apple-system": "Inter",
+  "georgia": "Playfair Display",
+  "times": "Playfair Display",
+  "times new roman": "Playfair Display",
+  "courier": "IBM Plex Mono",
+  "courier new": "IBM Plex Mono",
+  "menlo": "JetBrains Mono",
+  "consolas": "JetBrains Mono",
+  "monaco": "JetBrains Mono",
+};
+
+function normalizeFontFamily(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  // Strip fallbacks: `"Inter", sans-serif, ...` → `Inter`.
+  const first = raw.split(",")[0]?.trim().replace(/^["']|["']$/g, "") ?? "";
+  if (!first) return null;
+  const alias = FONT_ALIAS[first.toLowerCase()];
+  if (alias) return alias;
+  // Title-case each word to match Google Fonts casing.
+  return first
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function pickFontsFromBranding(
+  branding: { fonts?: Array<{ family: string }>; typography?: { fontFamilies?: Partial<{ primary: string; heading: string; code: string }> } } | null,
+): { heading: string | null; body: string | null } {
+  if (!branding) return { heading: null, body: null };
+  const heading = normalizeFontFamily(
+    branding.typography?.fontFamilies?.heading ??
+      branding.fonts?.[0]?.family ?? null,
+  );
+  const body = normalizeFontFamily(
+    branding.typography?.fontFamilies?.primary ??
+      branding.fonts?.[1]?.family ??
+      branding.fonts?.[0]?.family ??
+      null,
+  );
+  return {
+    heading: heading && (GOOGLE_HEADING.has(heading) ? heading : heading) || null,
+    body: body && (GOOGLE_BODY.has(body) ? body : body) || null,
+  };
+}
+
 export const analyzeEventArt = createServerFn({ method: "POST" })
   .inputValidator((d: {
     coverUrl: string | null;
     name: string;
     description?: string;
+    eventUrl?: string | null;
     pixelEvidence?: {
       dominants: string[];
       darkest: string;
@@ -137,6 +203,19 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<StyleSpec> => {
     const key = getVercelKey();
 
+    // Firecrawl branding evidence (optional).
+    let branding: Awaited<ReturnType<typeof import("./firecrawl.server").firecrawlBranding>> = null;
+    if (data.eventUrl) {
+      try {
+        const { hasFirecrawl, firecrawlBranding } = await import("./firecrawl.server");
+        if (hasFirecrawl()) branding = await firecrawlBranding(data.eventUrl);
+      } catch (e) {
+        console.error("[style-analyze] firecrawl branding threw:", e);
+      }
+    }
+    const brandFonts = pickFontsFromBranding(branding);
+    const brandColors = branding?.colors ?? {};
+
     const ev = data.pixelEvidence;
     const evidenceBlock = ev
       ? `PIXEL EVIDENCE (colors physically sampled from the cover):
@@ -146,11 +225,20 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
 - isMonochrome: ${ev.isMonochrome}`
       : "PIXEL EVIDENCE: unavailable — infer purely from the image.";
 
+    const brandBlock = branding
+      ? `FIRECRAWL BRANDING (from the event's public page):
+- colors: ${JSON.stringify(brandColors)}
+- fonts: heading=${brandFonts.heading ?? "?"}, body=${brandFonts.body ?? "?"}
+- colorScheme: ${branding.colorScheme ?? "?"}`
+      : "FIRECRAWL BRANDING: not available for this event.";
+
     const userText = `Event name: ${data.name}
 ${data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""}
 ${evidenceBlock}
 
-Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover and are consistent with the pixel evidence above.`;
+${brandBlock}
+
+Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover and are consistent with the evidence above. If Firecrawl fonts look reasonable, prefer them.`;
 
     const models = ["google/gemini-2.5-pro", "google/gemini-2.5-flash"];
     const errors: string[] = [];
@@ -170,12 +258,31 @@ Analyze the cover. First classify it into one of the seven buckets, then emit a 
       }
       const shaped = coerceLoose(raw);
       const parsed = StyleSpecSchema.safeParse(shaped);
-      if (parsed.success) return normalizeStyleSpec(parsed.data as StyleSpec);
-      try {
-        return normalizeStyleSpec(shaped as StyleSpec);
-      } catch {
-        errors.push(`${model} → schema mismatch`);
+      let spec: StyleSpec | null = parsed.success
+        ? normalizeStyleSpec(parsed.data as StyleSpec)
+        : null;
+      if (!spec) {
+        try {
+          spec = normalizeStyleSpec(shaped as StyleSpec);
+        } catch {
+          errors.push(`${model} → schema mismatch`);
+          continue;
+        }
       }
+      // Merge Firecrawl fonts if available — they are hard evidence.
+      if (brandFonts.heading || brandFonts.body) {
+        spec = normalizeStyleSpec({
+          ...spec,
+          fonts: {
+            heading: brandFonts.heading ?? spec.fonts.heading,
+            body: brandFonts.body ?? spec.fonts.body,
+            source: "firecrawl",
+          },
+        });
+      } else {
+        spec = normalizeStyleSpec({ ...spec, fonts: { ...spec.fonts, source: "ai" } });
+      }
+      return spec;
     }
 
     throw new Error(`Style analysis failed: ${errors.join(" · ")}`);
