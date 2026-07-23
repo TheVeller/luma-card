@@ -155,21 +155,45 @@ function EventsPage() {
       </div>
 
       {data && data.length > 0 && (
-        <div className="mt-6 inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
-          {(["all", "upcoming", "past"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={
-                "rounded-full px-4 py-1.5 capitalize transition " +
-                (filter === f
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground")
-              }
-            >
-              {f}
-            </button>
-          ))}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
+            {(["all", "upcoming", "past"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={
+                  "rounded-full px-4 py-1.5 capitalize transition " +
+                  (filter === f
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
+            {(
+              [
+                ["nearest", "Nearest"],
+                ["newest", "Newest"],
+                ["oldest", "Oldest"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSortMode(key)}
+                className={
+                  "rounded-full px-4 py-1.5 transition " +
+                  (sortMode === key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
