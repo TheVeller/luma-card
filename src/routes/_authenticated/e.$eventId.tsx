@@ -368,13 +368,6 @@ function EventBadgePage() {
               >
                 {busy ? "Composing…" : badgeUrl ? "Re-render" : "Render badge →"}
               </button>
-              <button
-                onClick={makeHero}
-                disabled={heroBusy || analyzing}
-                className="rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface disabled:opacity-40"
-              >
-                {heroBusy ? "Generating hero…" : heroDataUrl ? "Regenerate hero" : "Generate AI hero"}
-              </button>
               {badgeUrl && (
                 <>
                   <button
@@ -434,6 +427,7 @@ function EventBadgePage() {
                 ))}
               </div>
               <div className="mt-2 space-y-0.5 text-foreground">
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">style: {spec.style}</div>
                 <div>heading: <b>{spec.fonts.heading}</b></div>
                 <div>body: <b>{spec.fonts.body}</b></div>
                 <div className="text-muted-foreground">mood: {spec.mood}</div>
@@ -470,19 +464,6 @@ function EventBadgePage() {
                   src={coverProxy!}
                   alt=""
                   className="mt-1 w-full rounded-xl border border-hairline"
-                />
-              </div>
-            )}
-            {heroDataUrl && (
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                  AI hero
-                </div>
-                <img
-                  src={heroDataUrl}
-                  alt=""
-                  className="mt-1 w-full rounded-xl border-2"
-                  style={{ borderColor: accent }}
                 />
               </div>
             )}
