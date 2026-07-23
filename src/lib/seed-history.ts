@@ -1,21 +1,30 @@
-// Client-side seed util: renders placeholder badges for a fixed set of
-// historical event names using Ignacio Velásquez as the placeholder attendee.
-// Idempotent — skips events that already have an Ignacio badge for this user.
-import { renderBadge, type EventTheme } from "@/lib/badge-render";
-import { DEFAULT_STYLE_SPEC, normalizeStyleSpec, type StyleSpec } from "@/lib/style-spec";
-import { loadGoogleFontPair } from "@/lib/google-fonts";
+// Admin seed util: uploads the CANONICAL pre-rendered historical badges from
+// crafter-station/event-badge-history (code-brew-bog eras) as placeholder
+// badges for Ignacio Velásquez. No local rendering — just fetch → upload.
 import { supabase } from "@/integrations/supabase/client";
-import ignacioAsset from "@/assets/ignacio.jpeg.asset.json";
 import type { EventDTO } from "@/lib/luma.functions";
 
-export const HISTORIC_EVENT_NAMES = [
-  "Code Brew",
-  "v0 Zero-to-Agent",
-  "GTM Hackathon",
-  "Cursor Meetup",
-  "Cursor Buildathon SV",
-  "Code Brew SV",
-  "Vibe Code Fest",
+import era1 from "@/assets/history/era1-code-brew.png";
+import era2 from "@/assets/history/era2-v0-zero-to-agents.png";
+import era3 from "@/assets/history/era3-gtm-hackathon.png";
+import era4 from "@/assets/history/era4-cursor-meetup.png";
+import era5 from "@/assets/history/era5-cursor-buildathon-sv.png";
+import era6 from "@/assets/history/era6-codebrew-sv.png";
+
+export type HistoricEra = {
+  id: string;
+  canonical: string;
+  aliases: string[];
+  asset: string;
+};
+
+export const HISTORIC_ERAS: HistoricEra[] = [
+  { id: "era1", canonical: "Code Brew (original)", aliases: ["Code Brew", "Code Brew Bogotá", "Code Brew Bogota"], asset: era1 },
+  { id: "era2", canonical: "v0 / Zero to Agent", aliases: ["v0 Zero-to-Agent", "Zero to Agent", "v0 Zero to Agent"], asset: era2 },
+  { id: "era3", canonical: "The GTM Hackathon", aliases: ["GTM Hackathon"], asset: era3 },
+  { id: "era4", canonical: "Cursor Meetup", aliases: ["Cursor Meetup Bogotá", "Cursor Meetup Bogota", "Cursor Bogotá"], asset: era4 },
+  { id: "era5", canonical: "Cursor Buildathon El Salvador 2026", aliases: ["Cursor Buildathon", "Buildathon SV", "Cursor Buildathon SV", "Cursor Buildathon El Salvador"], asset: era5 },
+  { id: "era6", canonical: "Code Brew El Salvador", aliases: ["Code Brew SV", "Code Brew San Salvador"], asset: era6 },
 ];
 
 export const IGNACIO = {
@@ -37,10 +46,12 @@ function tokens(s: string): string[] {
   return normalize(s).split(" ").filter((t) => t.length > 1);
 }
 
-function scoreMatch(target: string, candidate: string): number {
+function scoreOne(target: string, candidate: string): number {
   const tN = normalize(target);
   const cN = normalize(candidate);
-  if (cN.includes(tN) || tN.includes(cN)) return 1;
+  if (!tN || !cN) return 0;
+  if (cN === tN) return 1;
+  if (cN.includes(tN) || tN.includes(cN)) return 0.95;
   const t = new Set(tokens(target));
   const c = new Set(tokens(candidate));
   if (t.size === 0 || c.size === 0) return 0;
@@ -48,64 +59,40 @@ function scoreMatch(target: string, candidate: string): number {
   t.forEach((tok) => {
     if (c.has(tok)) inter++;
   });
-  return inter / Math.max(t.size, 1);
+  // Jaccard-ish; favor coverage of the shorter set (usually target).
+  return inter / Math.min(t.size, c.size);
+}
+
+function scoreEra(era: HistoricEra, candidate: string): number {
+  let best = scoreOne(era.canonical, candidate);
+  for (const alias of era.aliases) {
+    const s = scoreOne(alias, candidate);
+    if (s > best) best = s;
+  }
+  return best;
 }
 
 export function matchHistoricEvents(events: EventDTO[]): Array<{
-  target: string;
+  era: HistoricEra;
   event: EventDTO;
   score: number;
 }> {
-  const matches: Array<{ target: string; event: EventDTO; score: number }> = [];
+  const matches: Array<{ era: HistoricEra; event: EventDTO; score: number }> = [];
   const usedIds = new Set<string>();
-  for (const target of HISTORIC_EVENT_NAMES) {
+  const THRESHOLD = 0.6;
+  for (const era of HISTORIC_ERAS) {
     let best: { event: EventDTO; score: number } | null = null;
     for (const ev of events) {
       if (usedIds.has(ev.id)) continue;
-      const score = scoreMatch(target, ev.name);
-      if (score >= 0.5 && (!best || score > best.score)) {
-        best = { event: ev, score };
-      }
+      const s = scoreEra(era, ev.name);
+      if (s >= THRESHOLD && (!best || s > best.score)) best = { event: ev, score: s };
     }
     if (best) {
       usedIds.add(best.event.id);
-      matches.push({ target, event: best.event, score: best.score });
+      matches.push({ era, event: best.event, score: best.score });
     }
   }
   return matches;
-}
-
-async function fetchAsDataUrl(url: string): Promise<string> {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result as string);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-}
-
-function proxied(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.hostname.endsWith("lumacdn.com") || u.hostname === "cdn.lu.ma") {
-      return `/api/public/image?url=${encodeURIComponent(url)}`;
-    }
-  } catch {}
-  return url;
-}
-
-function formatDateLine(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const date = d.toLocaleDateString(undefined, { month: "long", day: "numeric" }).toUpperCase();
-    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toUpperCase();
-    return `${date} — ${time}`;
-  } catch {
-    return iso;
-  }
 }
 
 export type SeedProgress =
@@ -118,11 +105,11 @@ export type SeedProgress =
 
 export async function seedHistoricalBadges(
   events: EventDTO[],
-  analyze: (args: { data: { coverUrl: string | null; name: string; description?: string } }) => Promise<Partial<StyleSpec>>,
+  _unusedAnalyze: unknown,
   onProgress: (p: SeedProgress) => void,
 ): Promise<void> {
   const matches = matchHistoricEvents(events);
-  onProgress({ phase: "matching", matched: matches.length, total: HISTORIC_EVENT_NAMES.length });
+  onProgress({ phase: "matching", matched: matches.length, total: HISTORIC_ERAS.length });
 
   const { data: userRes } = await supabase.auth.getUser();
   const userId = userRes.user?.id ?? null;
@@ -131,18 +118,15 @@ export async function seedHistoricalBadges(
     return;
   }
 
-  // Load Ignacio photo as data URL
-  const photoDataUrl = await fetchAsDataUrl(ignacioAsset.url);
-
   let created = 0;
   let skipped = 0;
 
   for (let i = 0; i < matches.length; i++) {
-    const { event } = matches[i];
+    const { era, event } = matches[i];
     onProgress({ phase: "rendering", index: i + 1, total: matches.length, eventName: event.name });
 
     try {
-      // Idempotency check
+      // Idempotency: skip if the same user already seeded a badge for this event.
       const { data: existing } = await supabase
         .from("badges" as never)
         .select("id")
@@ -156,41 +140,10 @@ export async function seedHistoricalBadges(
         continue;
       }
 
-      // Style analysis (best-effort — fall back to default)
-      let spec: StyleSpec = DEFAULT_STYLE_SPEC;
-      try {
-        const s = await analyze({
-          data: { coverUrl: event.coverUrl, name: event.name, description: event.description },
-        });
-        spec = normalizeStyleSpec(s as Partial<StyleSpec>);
-      } catch {
-        // keep default
-      }
-
-      await loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
-
-      const theme: EventTheme = {
-        eventId: event.id,
-        name: event.name,
-        subtitle: event.city ?? "LU.MA",
-        url: event.url,
-        coverUrl: proxied(event.coverUrl),
-        dateLine: formatDateLine(event.startAt),
-      };
-
-      const canvas = await renderBadge({
-        theme,
-        spec,
-        heroDataUrl: null,
-        photoDataUrl,
-        firstName: IGNACIO.firstName,
-        role: IGNACIO.role,
-      });
-
-      const blob: Blob | null = await new Promise((res) =>
-        canvas.toBlob((b) => res(b), "image/png"),
-      );
-      if (!blob) throw new Error("canvas produced no blob");
+      // Fetch the canonical historical PNG bundled with the app.
+      const res = await fetch(era.asset);
+      if (!res.ok) throw new Error(`asset fetch ${res.status}`);
+      const blob = await res.blob();
 
       const id = crypto.randomUUID();
       const path = `${event.id}/${id}.png`;

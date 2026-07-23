@@ -65,7 +65,57 @@
 :root {
   --radius: 0.875rem;
 
-  /* Base surfaces — warm charcoal */
+  /* Light theme — Luma-style warm paper */
+  --background: oklch(0.985 0.006 85);
+  --foreground: oklch(0.18 0.012 60);
+  --surface: oklch(0.965 0.008 80);
+  --surface-2: oklch(0.935 0.010 78);
+  --hairline: color-mix(in oklab, black 8%, transparent);
+
+  --card: oklch(0.975 0.006 82);
+  --card-foreground: oklch(0.18 0.012 60);
+  --popover: oklch(0.975 0.006 82);
+  --popover-foreground: oklch(0.18 0.012 60);
+
+  /* Primary = high-contrast dark pill */
+  --primary: oklch(0.18 0.012 60);
+  --primary-foreground: oklch(0.985 0.006 85);
+
+  --secondary: oklch(0.935 0.010 78);
+  --secondary-foreground: oklch(0.18 0.012 60);
+
+  --muted: oklch(0.935 0.010 78);
+  --muted-foreground: oklch(0.42 0.012 65);
+
+  /* Warm Luma-style accent (works on both themes) */
+  --accent: oklch(0.66 0.175 45);
+  --accent-foreground: oklch(0.985 0.006 85);
+
+  --destructive: oklch(0.585 0.215 25);
+  --destructive-foreground: oklch(0.985 0.006 85);
+
+  --border: color-mix(in oklab, black 9%, transparent);
+  --input: color-mix(in oklab, black 12%, transparent);
+  --ring: color-mix(in oklab, black 22%, transparent);
+
+  --chart-1: oklch(0.66 0.175 45);
+  --chart-2: oklch(0.62 0.13 200);
+  --chart-3: oklch(0.58 0.16 300);
+  --chart-4: oklch(0.68 0.15 140);
+  --chart-5: oklch(0.62 0.20 20);
+
+  --sidebar: oklch(0.965 0.008 80);
+  --sidebar-foreground: oklch(0.18 0.012 60);
+  --sidebar-primary: oklch(0.66 0.175 45);
+  --sidebar-primary-foreground: oklch(0.985 0.006 85);
+  --sidebar-accent: oklch(0.935 0.010 78);
+  --sidebar-accent-foreground: oklch(0.18 0.012 60);
+  --sidebar-border: color-mix(in oklab, black 9%, transparent);
+  --sidebar-ring: color-mix(in oklab, black 22%, transparent);
+}
+
+.dark {
+  /* Dark theme — warm charcoal (previous default) */
   --background: oklch(0.145 0.008 60);
   --foreground: oklch(0.965 0.005 80);
   --surface: oklch(0.185 0.008 60);
@@ -77,7 +127,6 @@
   --popover: oklch(0.185 0.008 60);
   --popover-foreground: oklch(0.965 0.005 80);
 
-  /* Primary = high-contrast light pill (Luma "Continue" button) */
   --primary: oklch(0.965 0.005 80);
   --primary-foreground: oklch(0.145 0.008 60);
 
@@ -87,7 +136,6 @@
   --muted: oklch(0.225 0.008 60);
   --muted-foreground: oklch(0.68 0.012 70);
 
-  /* Warm Luma-style accent */
   --accent: oklch(0.735 0.165 55);
   --accent-foreground: oklch(0.145 0.008 60);
 
@@ -97,12 +145,6 @@
   --border: color-mix(in oklab, white 9%, transparent);
   --input: color-mix(in oklab, white 12%, transparent);
   --ring: color-mix(in oklab, white 22%, transparent);
-
-  --chart-1: oklch(0.735 0.165 55);
-  --chart-2: oklch(0.72 0.12 200);
-  --chart-3: oklch(0.68 0.15 300);
-  --chart-4: oklch(0.78 0.14 140);
-  --chart-5: oklch(0.72 0.19 20);
 
   --sidebar: oklch(0.185 0.008 60);
   --sidebar-foreground: oklch(0.965 0.005 80);
@@ -112,29 +154,6 @@
   --sidebar-accent-foreground: oklch(0.965 0.005 80);
   --sidebar-border: color-mix(in oklab, white 9%, transparent);
   --sidebar-ring: color-mix(in oklab, white 22%, transparent);
-}
-
-.dark {
-  /* Same as :root — app ships single dark theme */
-  --background: oklch(0.145 0.008 60);
-  --foreground: oklch(0.965 0.005 80);
-  --card: oklch(0.185 0.008 60);
-  --card-foreground: oklch(0.965 0.005 80);
-  --popover: oklch(0.185 0.008 60);
-  --popover-foreground: oklch(0.965 0.005 80);
-  --primary: oklch(0.965 0.005 80);
-  --primary-foreground: oklch(0.145 0.008 60);
-  --secondary: oklch(0.225 0.008 60);
-  --secondary-foreground: oklch(0.965 0.005 80);
-  --muted: oklch(0.225 0.008 60);
-  --muted-foreground: oklch(0.68 0.012 70);
-  --accent: oklch(0.735 0.165 55);
-  --accent-foreground: oklch(0.145 0.008 60);
-  --destructive: oklch(0.665 0.205 25);
-  --destructive-foreground: oklch(0.965 0.005 80);
-  --border: color-mix(in oklab, white 9%, transparent);
-  --input: color-mix(in oklab, white 12%, transparent);
-  --ring: color-mix(in oklab, white 22%, transparent);
 }
 
 @layer base {
