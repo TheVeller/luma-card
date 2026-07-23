@@ -42,9 +42,8 @@ export const listBadgesForEvent = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => InputSchema.parse(d))
   .handler(async ({ data }): Promise<BadgeEntry[]> => {
     const supabase = serverPublicClient();
-    const { data: rows, error } = await supabase
-      // @ts-expect-error - types will regen after migration
-      .from("badges")
+    const { data: rows, error } = await (supabase as ReturnType<typeof serverPublicClient>)
+      .from("badges" as never)
       .select("id, first_name, role, image_path, created_at")
       .eq("event_id", data.eventId)
       .order("created_at", { ascending: false })
