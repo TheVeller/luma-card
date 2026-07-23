@@ -17,7 +17,7 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
   .inputValidator((d: { coverUrl: string | null; name: string; description?: string }) => d)
   .handler(async ({ data }): Promise<StyleSpec> => {
     const gateway = createAIGateway();
-    const model = gateway("google/gemini-3.6-flash");
+    const model = gateway("google/gemini-2.5-flash");
 
     const content: Array<
       { type: "text"; text: string } | { type: "image"; image: URL }

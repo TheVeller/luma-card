@@ -36,7 +36,7 @@ export const Route = createFileRoute("/api/chat-badge")({
         const currentSpec = JSON.stringify(body.spec ?? {}, null, 2);
 
         const gateway = createAIGateway();
-        const model = gateway("google/gemini-3.6-flash");
+        const model = gateway("google/gemini-2.5-flash");
 
         const result = streamText({
           model,
