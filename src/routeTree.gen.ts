@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
 import { Route as AuthenticatedTemplatesRouteImport } from './routes/_authenticated/templates'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
 import { Route as AuthenticatedGalleryRouteImport } from './routes/_authenticated/gallery'
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
@@ -55,6 +56,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedImportRoute = AuthenticatedImportRouteImport.update({
+  id: '/import',
+  path: '/import',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedGalleryRoute = AuthenticatedGalleryRouteImport.update({
   id: '/gallery',
   path: '/gallery',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/phase-2': typeof Phase2Route
   '/events': typeof AuthenticatedEventsRoute
   '/gallery': typeof AuthenticatedGalleryRoute
+  '/import': typeof AuthenticatedImportRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/phase-2': typeof Phase2Route
   '/events': typeof AuthenticatedEventsRoute
   '/gallery': typeof AuthenticatedGalleryRoute
+  '/import': typeof AuthenticatedImportRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/phase-2': typeof Phase2Route
   '/_authenticated/events': typeof AuthenticatedEventsRoute
   '/_authenticated/gallery': typeof AuthenticatedGalleryRoute
+  '/_authenticated/import': typeof AuthenticatedImportRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
     | '/phase-2'
     | '/events'
     | '/gallery'
+    | '/import'
     | '/settings'
     | '/templates'
     | '/api/chat-badge'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/phase-2'
     | '/events'
     | '/gallery'
+    | '/import'
     | '/settings'
     | '/templates'
     | '/api/chat-badge'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
     | '/phase-2'
     | '/_authenticated/events'
     | '/_authenticated/gallery'
+    | '/_authenticated/import'
     | '/_authenticated/settings'
     | '/_authenticated/templates'
     | '/api/chat-badge'
@@ -214,6 +226,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/import': {
+      id: '/_authenticated/import'
+      path: '/import'
+      fullPath: '/import'
+      preLoaderRoute: typeof AuthenticatedImportRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/gallery': {
       id: '/_authenticated/gallery'
       path: '/gallery'
@@ -248,6 +267,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedEventsRoute: typeof AuthenticatedEventsRoute
   AuthenticatedGalleryRoute: typeof AuthenticatedGalleryRoute
+  AuthenticatedImportRoute: typeof AuthenticatedImportRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTemplatesRoute: typeof AuthenticatedTemplatesRoute
   AuthenticatedEEventIdRoute: typeof AuthenticatedEEventIdRoute
@@ -256,6 +276,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedEventsRoute: AuthenticatedEventsRoute,
   AuthenticatedGalleryRoute: AuthenticatedGalleryRoute,
+  AuthenticatedImportRoute: AuthenticatedImportRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTemplatesRoute: AuthenticatedTemplatesRoute,
   AuthenticatedEEventIdRoute: AuthenticatedEEventIdRoute,
