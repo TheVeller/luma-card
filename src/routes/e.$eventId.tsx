@@ -435,8 +435,8 @@ function EventBadgePage() {
             · PREVIEW ·
           </div>
           <div
-            className="mt-3 flex justify-center rounded-lg border-2 p-6"
-            style={{ borderColor: "rgba(23,21,15,0.16)", backgroundColor: spec.palette.surface }}
+            className="mt-3 flex justify-center rounded-lg border-2 bg-[#f2efe6] p-6"
+            style={{ borderColor: "rgba(23,21,15,0.16)" }}
           >
             {badgeUrl ? (
               <img src={badgeUrl} alt="Your generated badge" className="w-full max-w-md rounded-md shadow-md" />
