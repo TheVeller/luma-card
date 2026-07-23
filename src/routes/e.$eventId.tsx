@@ -386,10 +386,25 @@ function EventBadgePage() {
               {badgeUrl && (
                 <>
                   <button onClick={download} className="rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold">
-                    PNG
+                    ↓ PNG
                   </button>
                   <button
-                    onClick={share}
+                    onClick={shareOnX}
+                    className="rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    title="Share on X"
+                  >
+                    Share on 𝕏
+                  </button>
+                  <button
+                    onClick={shareOnLinkedIn}
+                    className="rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    style={{ backgroundColor: "#0A66C2" }}
+                    title="Share on LinkedIn"
+                  >
+                    in — LinkedIn
+                  </button>
+                  <button
+                    onClick={nativeShare}
                     className="rounded-md px-4 py-2 text-sm font-semibold text-[#f2efe6]"
                     style={{ backgroundColor: accent }}
                   >
