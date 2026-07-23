@@ -76,7 +76,6 @@ function EventBadgePage() {
 
   const coverProxy = proxied(event?.coverUrl ?? null);
 
-  // Kick off AI style analysis on load.
   useEffect(() => {
     if (!event) return;
     let cancelled = false;
@@ -97,7 +96,6 @@ function EventBadgePage() {
     };
   }, [event, analyze]);
 
-  // Load Google Fonts whenever spec.fonts changes.
   useEffect(() => {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
   }, [spec.fonts.heading, spec.fonts.body]);
@@ -156,15 +154,13 @@ function EventBadgePage() {
       console.error("upload failed", upErr);
       return;
     }
-    const { error: dbErr } = await supabase
-      .from("badges" as never)
-      .insert({
-        event_id: eventId,
-        first_name: firstName.trim(),
-        role: role.trim() || null,
-        image_path: path,
-        user_id: userId,
-      } as never);
+    const { error: dbErr } = await supabase.from("badges" as never).insert({
+      event_id: eventId,
+      first_name: firstName.trim(),
+      role: role.trim() || null,
+      image_path: path,
+      user_id: userId,
+    } as never);
     if (dbErr) {
       console.error("db insert failed", dbErr);
       return;
@@ -188,7 +184,6 @@ function EventBadgePage() {
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
-      // fire-and-forget: save to gallery
       persistBadge(canvas).catch((e) => console.error(e));
     } finally {
       setBusy(false);
@@ -218,9 +213,7 @@ function EventBadgePage() {
 
   function shareOnLinkedIn() {
     if (!event) return;
-    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
-      event.url,
-    )}`;
+    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(event.url)}`;
     window.open(url, "_blank", "noopener,noreferrer,width=600,height=600");
   }
 
@@ -249,7 +242,11 @@ function EventBadgePage() {
   }
 
   if (isLoading) {
-    return <div className="grid min-h-[50vh] place-items-center font-mono text-sm">LOADING…</div>;
+    return (
+      <div className="grid min-h-[50vh] place-items-center font-mono text-sm text-muted-foreground">
+        LOADING…
+      </div>
+    );
   }
   if (error || !event) {
     const msg = error ? String((error as Error).message) : "";
@@ -259,16 +256,19 @@ function EventBadgePage() {
         <div>
           {isMissingKey ? (
             <>
-              <p className="font-mono text-sm">Add your Luma API key to load this event.</p>
-              <Link to="/settings" className="mt-4 inline-block rounded-md bg-[#17150f] px-4 py-2 text-sm font-semibold text-[#f2efe6]">
+              <p className="text-sm">Add your Luma API key to load this event.</p>
+              <Link
+                to="/settings"
+                className="mt-4 inline-block rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
+              >
                 Go to Settings →
               </Link>
             </>
           ) : (
             <>
-              <p className="font-mono text-sm">Event not found or Luma error.</p>
-              <p className="mt-2 max-w-md text-xs text-red-700">{msg}</p>
-              <Link to="/events" className="mt-4 inline-block underline">
+              <p className="text-sm">Event not found or Luma error.</p>
+              <p className="mt-2 max-w-md text-xs text-destructive">{msg}</p>
+              <Link to="/events" className="mt-4 inline-block text-accent underline">
                 Back to events
               </Link>
             </>
@@ -284,54 +284,60 @@ function EventBadgePage() {
   return (
     <>
       <div className="mx-auto max-w-7xl px-6 pt-6">
-        <Link to="/events" className="font-mono text-xs tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
-          ← ALL EVENTS
+        <Link
+          to="/events"
+          className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground hover:text-foreground"
+        >
+          ← All events
         </Link>
       </div>
 
-      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-10 lg:grid-cols-[360px_1fr_380px]">
+      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-8 lg:grid-cols-[360px_1fr_380px]">
         {/* LEFT: inputs */}
         <div>
-          <div className="mb-4 inline-block border-2 border-[#17150f] px-2 py-0.5 text-[10px] tracking-[0.34em] text-[#17150f]">
-            · WHAT'S BREWING?
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+            What's brewing
           </div>
-          <h1 className="text-3xl font-black leading-tight">
+          <h1 className="font-display text-3xl font-semibold leading-tight tracking-tight">
             {event.name}
           </h1>
-          <div className="mt-2 font-mono text-xs tracking-[0.2em]" style={{ color: "rgba(23,21,15,0.55)" }}>
+          <div className="mt-2 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
             {formatDateLine(event.startAt)}
             {event.city ? ` · ${event.city.toUpperCase()}` : ""}
           </div>
 
           <div className="mt-6 space-y-4">
             <div>
-              <label className="font-mono text-xs tracking-[0.2em]">FIRST NAME</label>
+              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                First name
+              </label>
               <input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value.slice(0, 24))}
                 maxLength={24}
-                placeholder="MARTINA"
-                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 text-lg font-bold uppercase tracking-wide focus:outline-none"
-                style={{ borderColor: "rgba(23,21,15,0.24)" }}
+                placeholder="Martina"
+                className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
               />
             </div>
             <div>
-              <label className="font-mono text-xs tracking-[0.2em]">ROLE / COMPANY</label>
+              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                Role / Company
+              </label>
               <input
                 value={role}
                 onChange={(e) => setRole(e.target.value.slice(0, 60))}
                 maxLength={60}
                 placeholder="e.g. Designer, Acme Inc"
-                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 font-mono tracking-wide focus:outline-none"
-                style={{ borderColor: "rgba(23,21,15,0.24)" }}
+                className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
               />
             </div>
             <div>
-              <label className="font-mono text-xs tracking-[0.2em]">YOUR PHOTO</label>
+              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                Your photo
+              </label>
               <div className="mt-1 flex gap-2">
-                <label
-                  className="flex-1 cursor-pointer rounded-md bg-[#17150f] px-4 py-2 text-center text-sm font-semibold text-[#f2efe6] hover:opacity-90"
-                >
+                <label className="flex-1 cursor-pointer rounded-full bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground hover:opacity-90">
                   Upload
                   <input
                     type="file"
@@ -343,7 +349,7 @@ function EventBadgePage() {
                 <button
                   type="button"
                   onClick={() => setCameraOpen(true)}
-                  className="flex-1 rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold text-[#17150f]"
+                  className="flex-1 rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface"
                 >
                   📷 Take photo
                 </button>
@@ -353,8 +359,7 @@ function EventBadgePage() {
                   <img
                     src={photoDataUrl}
                     alt="Your photo"
-                    className="h-16 w-16 rounded-md border-2 object-cover"
-                    style={{ borderColor: "rgba(23,21,15,0.24)" }}
+                    className="h-16 w-16 rounded-xl border border-hairline object-cover"
                   />
                   <button
                     type="button"
@@ -362,8 +367,7 @@ function EventBadgePage() {
                       setPhotoDataUrl(null);
                       setBadgeUrl(null);
                     }}
-                    className="font-mono text-[10px] underline"
-                    style={{ color: "rgba(23,21,15,0.55)" }}
+                    className="font-mono text-[10px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
                   >
                     remove
                   </button>
@@ -375,32 +379,35 @@ function EventBadgePage() {
               <button
                 onClick={generate}
                 disabled={!canGenerate || busy}
-                className="inline-flex items-center rounded-md bg-[#17150f] px-4 py-2 text-sm font-semibold text-[#f2efe6] disabled:opacity-40"
+                className="inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
               >
                 {busy ? "Composing…" : badgeUrl ? "Re-render" : "Render badge →"}
               </button>
               <button
                 onClick={makeHero}
                 disabled={heroBusy || analyzing}
-                className="rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold text-[#17150f] disabled:opacity-40"
+                className="rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface disabled:opacity-40"
               >
                 {heroBusy ? "Generating hero…" : heroDataUrl ? "Regenerate hero" : "Generate AI hero"}
               </button>
               {badgeUrl && (
                 <>
-                  <button onClick={download} className="rounded-md border-2 border-[#17150f] px-4 py-2 text-sm font-semibold">
+                  <button
+                    onClick={download}
+                    className="rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface"
+                  >
                     ↓ PNG
                   </button>
                   <button
                     onClick={shareOnX}
-                    className="rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
                     title="Share on X"
                   >
                     Share on 𝕏
                   </button>
                   <button
                     onClick={shareOnLinkedIn}
-                    className="rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    className="rounded-full px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
                     style={{ backgroundColor: "#0A66C2" }}
                     title="Share on LinkedIn"
                   >
@@ -408,7 +415,7 @@ function EventBadgePage() {
                   </button>
                   <button
                     onClick={nativeShare}
-                    className="rounded-md bg-[#17150f] px-4 py-2 text-sm font-semibold text-[#f2efe6]"
+                    className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
                   >
                     Share ↗
                   </button>
@@ -416,46 +423,40 @@ function EventBadgePage() {
               )}
             </div>
 
-            <div className="rounded-md border-2 border-dashed p-3 text-xs font-mono" style={{ borderColor: "rgba(23,21,15,0.24)", color: "rgba(23,21,15,0.7)" }}>
-              <div className="mb-2 tracking-[0.2em]">
-                {analyzing ? "AI ANALYZING ART…" : "AI STYLE"}
+            <div className="rounded-2xl border border-hairline bg-surface/60 p-4 text-xs text-muted-foreground">
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.24em]">
+                {analyzing ? "AI analyzing art…" : "AI style"}
               </div>
-              <div className="flex flex-wrap items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {(["bg", "surface", "accent", "text"] as const).map((k) => (
                   <span
                     key={k}
                     title={`${k}: ${spec.palette[k]}`}
-                    className="inline-block h-5 w-5 rounded border"
-                    style={{ backgroundColor: spec.palette[k], borderColor: "rgba(23,21,15,0.24)" }}
+                    className="inline-block h-5 w-5 rounded border border-hairline"
+                    style={{ backgroundColor: spec.palette[k] }}
                   />
                 ))}
               </div>
-              <div className="mt-2 space-y-0.5">
+              <div className="mt-2 space-y-0.5 text-foreground">
                 <div>heading: <b>{spec.fonts.heading}</b></div>
                 <div>body: <b>{spec.fonts.body}</b></div>
-                <div>mood: {spec.mood}</div>
+                <div className="text-muted-foreground">mood: {spec.mood}</div>
               </div>
-              {aiError && <div className="mt-2 text-red-700">{aiError}</div>}
+              {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
             </div>
           </div>
         </div>
 
         {/* CENTER: preview */}
         <div className="flex flex-col">
-          <div className="font-mono text-xs tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
-            · PREVIEW ·
+          <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+            · Preview
           </div>
-          <div
-            className="mt-3 flex justify-center rounded-lg border-2 bg-[#f2efe6] p-6"
-            style={{ borderColor: "rgba(23,21,15,0.16)" }}
-          >
+          <div className="mt-3 flex justify-center rounded-2xl border border-hairline bg-surface/50 p-6">
             {badgeUrl ? (
-              <img src={badgeUrl} alt="Your generated badge" className="w-full max-w-md rounded-md shadow-md" />
+              <img src={badgeUrl} alt="Your generated badge" className="w-full max-w-md rounded-xl shadow-2xl" />
             ) : (
-              <div
-                className="flex aspect-[27/40] w-full max-w-md items-center justify-center border-2 border-dashed text-center font-mono text-xs"
-                style={{ borderColor: "rgba(23,21,15,0.3)" }}
-              >
+              <div className="flex aspect-[27/40] w-full max-w-md items-center justify-center rounded-xl border border-dashed border-hairline text-center font-mono text-xs text-muted-foreground">
                 <div>
                   <div className="text-2xl">↴</div>
                   <div className="mt-2 tracking-[0.24em]">FILL IN, THEN RENDER</div>
@@ -466,25 +467,34 @@ function EventBadgePage() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             {event.coverUrl && (
               <div>
-                <div className="font-mono text-[10px] tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
-                  EVENT ART
+                <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                  Event art
                 </div>
-                <img src={coverProxy!} alt="" className="mt-1 w-full rounded-md border-2" style={{ borderColor: "rgba(23,21,15,0.16)" }} />
+                <img
+                  src={coverProxy!}
+                  alt=""
+                  className="mt-1 w-full rounded-xl border border-hairline"
+                />
               </div>
             )}
             {heroDataUrl && (
               <div>
-                <div className="font-mono text-[10px] tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
-                  AI HERO
+                <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                  AI hero
                 </div>
-                <img src={heroDataUrl} alt="" className="mt-1 w-full rounded-md border-2" style={{ borderColor: accent }} />
+                <img
+                  src={heroDataUrl}
+                  alt=""
+                  className="mt-1 w-full rounded-xl border-2"
+                  style={{ borderColor: accent }}
+                />
               </div>
             )}
           </div>
         </div>
 
         {/* RIGHT: AI chat */}
-        <div className="h-[600px]">
+        <div className="h-[620px]">
           <BadgeChat spec={spec} eventName={event.name} onSpecChange={setSpec} />
         </div>
       </div>
@@ -509,6 +519,5 @@ function EventBadgePage() {
         />
       )}
     </>
-
   );
 }
