@@ -50,7 +50,6 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
         system: SYSTEM,
         messages: [{ role: "user", content }],
         schema: StyleSpecSchema,
-        mode: "json",
       });
       return normalizeStyleSpec(object as StyleSpec);
     } catch (error) {
