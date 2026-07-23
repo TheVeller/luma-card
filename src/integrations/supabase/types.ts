@@ -14,7 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      badges: {
+        Row: {
+          created_at: string
+          event_id: string
+          first_name: string
+          id: string
+          image_path: string
+          role: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          first_name: string
+          id?: string
+          image_path: string
+          role?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          first_name?: string
+          id?: string
+          image_path?: string
+          role?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
