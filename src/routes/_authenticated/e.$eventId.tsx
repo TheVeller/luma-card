@@ -448,6 +448,41 @@ function EventBadgePage() {
               </div>
               {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
             </div>
+
+            {templates && templates.length > 0 && (
+              <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                    · Templates
+                  </div>
+                  <Link
+                    to="/templates"
+                    className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground"
+                  >
+                    all →
+                  </Link>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {templates.slice(0, 6).map((t: TemplateDTO) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setSpec(t.styleSpec)}
+                      title={`Apply "${t.name}"`}
+                      className="group rounded-lg border border-hairline p-1.5 text-left hover:border-accent/60"
+                    >
+                      <div
+                        className="mb-1 h-10 w-full rounded"
+                        style={{
+                          background: `linear-gradient(135deg, ${t.styleSpec.palette.bg} 0%, ${t.styleSpec.palette.bg} 45%, ${t.styleSpec.palette.accent} 45%, ${t.styleSpec.palette.accent} 60%, ${t.styleSpec.palette.surface} 60%)`,
+                        }}
+                      />
+                      <div className="truncate text-[10px] font-semibold">{t.name}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -486,7 +521,17 @@ function EventBadgePage() {
 
         {/* RIGHT: AI chat */}
         <div className="h-[620px]">
-          <BadgeChat spec={spec} eventName={event.name} onSpecChange={setSpec} />
+          <BadgeChat
+            spec={spec}
+            eventContext={{
+              name: event.name,
+              city: event.city ?? null,
+              dateLine: formatDateLine(event.startAt),
+              description: event.description ?? null,
+              coverUrl: event.coverUrl,
+            }}
+            onSpecChange={setSpec}
+          />
         </div>
       </div>
 
