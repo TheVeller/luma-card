@@ -450,6 +450,26 @@ function EventBadgePage() {
           <BadgeChat spec={spec} eventName={event.name} onSpecChange={setSpec} />
         </div>
       </div>
+
+      <div className="mx-auto max-w-7xl px-6 pb-16">
+        <EventBadgeGallery
+          eventId={eventId}
+          accent={accent}
+          textColor={spec.palette.text}
+          refreshKey={galleryKey}
+        />
+      </div>
+
+      {cameraOpen && (
+        <CameraCapture
+          onCapture={(dataUrl) => {
+            setPhotoDataUrl(dataUrl);
+            setBadgeUrl(null);
+            setCameraOpen(false);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
     </div>
   );
 }
