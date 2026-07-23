@@ -44,6 +44,68 @@ export type Database = {
         }
         Relationships: []
       }
+      scraped_events: {
+        Row: {
+          calendar_id: string | null
+          city: string | null
+          cover_url: string | null
+          created_at: string
+          description: string | null
+          end_at: string | null
+          event_key: string
+          host_name: string | null
+          id: string
+          name: string
+          payload: Json
+          source_url: string
+          start_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          calendar_id?: string | null
+          city?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          end_at?: string | null
+          event_key: string
+          host_name?: string | null
+          id?: string
+          name: string
+          payload?: Json
+          source_url: string
+          start_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          calendar_id?: string | null
+          city?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          end_at?: string | null
+          event_key?: string
+          host_name?: string | null
+          id?: string
+          name?: string
+          payload?: Json
+          source_url?: string
+          start_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scraped_events_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "user_luma_calendars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       templates: {
         Row: {
           created_at: string
@@ -88,7 +150,7 @@ export type Database = {
       }
       user_luma_calendars: {
         Row: {
-          api_key_ciphertext: string
+          api_key_ciphertext: string | null
           calendar_avatar_url: string | null
           calendar_id: string
           calendar_name: string | null
@@ -97,11 +159,12 @@ export type Database = {
           created_at: string
           id: string
           is_default: boolean
+          source: string
           updated_at: string
           user_id: string
         }
         Insert: {
-          api_key_ciphertext: string
+          api_key_ciphertext?: string | null
           calendar_avatar_url?: string | null
           calendar_id: string
           calendar_name?: string | null
@@ -110,11 +173,12 @@ export type Database = {
           created_at?: string
           id?: string
           is_default?: boolean
+          source?: string
           updated_at?: string
           user_id: string
         }
         Update: {
-          api_key_ciphertext?: string
+          api_key_ciphertext?: string | null
           calendar_avatar_url?: string | null
           calendar_id?: string
           calendar_name?: string | null
@@ -123,6 +187,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_default?: boolean
+          source?: string
           updated_at?: string
           user_id?: string
         }
