@@ -22,6 +22,7 @@ export type Database = {
           id: string
           image_path: string
           role: string | null
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -30,6 +31,7 @@ export type Database = {
           id?: string
           image_path: string
           role?: string | null
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -38,6 +40,43 @@ export type Database = {
           id?: string
           image_path?: string
           role?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_luma_keys: {
+        Row: {
+          api_key_ciphertext: string
+          calendar_avatar_url: string | null
+          calendar_id: string | null
+          calendar_name: string | null
+          calendar_slug: string | null
+          calendar_url: string | null
+          created_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_ciphertext: string
+          calendar_avatar_url?: string | null
+          calendar_id?: string | null
+          calendar_name?: string | null
+          calendar_slug?: string | null
+          calendar_url?: string | null
+          created_at?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_ciphertext?: string
+          calendar_avatar_url?: string | null
+          calendar_id?: string | null
+          calendar_name?: string | null
+          calendar_slug?: string | null
+          calendar_url?: string | null
+          created_at?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
