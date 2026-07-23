@@ -49,6 +49,12 @@ function AuthedShell() {
               Gallery
             </Link>
             <Link
+              to="/templates"
+              className="rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+            >
+              Templates
+            </Link>
+            <Link
               to="/settings"
               className="rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
             >
