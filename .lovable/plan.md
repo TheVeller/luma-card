@@ -1,97 +1,79 @@
-## Objetivo
+# Plan: Seed histórico + rediseño Luma
 
-Convertir la app en multi-tenant: cada usuario entra con Google, guarda su propia **Luma API key**, y ve solo sus eventos + su galería. Además: auto-detectar el **nombre y logo del calendario** (ya no mostrar el ID) y arreglar el **AI style analysis** que dejó de funcionar tras migrar a Vercel AI Gateway.
+## 1. Seed histórico placeholder (solo tu cuenta)
 
----
+**Alcance:** 7 badges placeholder — los 6 eras del history repo + Vibe Code Fest:
+- Code Brew, v0 Zero-to-Agent, GTM Hackathon, Cursor Meetup, Cursor Buildathon SV, Code Brew SV, Vibe Code Fest
 
-## 1) Auth con Google (Lovable Cloud)
+**Datos del placeholder:**
+- Nombre: `Ignacio Velásquez`
+- Rol: `Founder, GPT Chain`
+- Foto: subida vía `lovable-assets` desde `/mnt/user-uploads/Ignacio_Velásquez.jpeg` → JSON pointer en `src/assets/ignacio-placeholder.png.asset.json`
 
-- Activar Google sign-in gestionado por Lovable Cloud (default managed OAuth, sin BYOK).
-- Nuevo layout `_authenticated` que redirige a `/auth` cuando no hay sesión.
-- Página `/auth`: card con **Continuar con Google** (usa `lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin })`).
-- Header con avatar/email + botón "Sign out".
-- Rutas protegidas: `/` (dashboard tras login), `/events`, `/e/$eventId`. Landing pública queda en `/auth` (o rediseñamos `/` como landing pública con CTA sign in — recomendado, para preservar shareability).
+**Ejecución:** un botón admin visible solo si `session.user.email === "ivelasquezfr@gmail.com"`, ubicado en `/settings` ("Seed my historical gallery"). Al pulsarlo:
+1. Client trae `listEvents()` y hace fuzzy-match por nombre contra los 7 títulos objetivo (case-insensitive, contains + fallback a la mejor coincidencia por token overlap).
+2. Para cada match: fetch cover → `analyzeEventArt` para style spec → `renderBadge()` con la foto+datos de Ignacio → `supabase.storage.upload` bucket `badges` → `INSERT` en `badges` con `user_id` del usuario.
+3. Idempotente: antes de insertar, chequea si ya existe un badge con `first_name='Ignacio Velásquez'` para ese `event_id` y skippea.
+4. UI: progress log ("Matched 6/7 events · rendered 6/6").
 
-## 2) Luma API key **por usuario** (backend)
+Sin cambios de schema (la tabla ya soporta todo). Sin backend privilegiado — corre en el navegador del user autenticado, respetando RLS de insert.
 
-- Tabla `public.user_luma_keys` en Lovable Cloud:
-  ```
-  user_id uuid PK  (fk auth.users, on delete cascade)
-  api_key_ciphertext text NOT NULL
-  calendar_id text
-  calendar_name text
-  calendar_slug text
-  calendar_avatar_url text
-  calendar_url text
-  updated_at timestamptz
-  ```
-  RLS: solo el owner puede leer/escribir su fila; `service_role` full.
-- Cifrado AES-256-GCM en el servidor con `APP_ENCRYPTION_KEY` (autogenerada, 32 bytes base64) — nunca guardar la key en texto plano.
-- Server functions (`requireSupabaseAuth`):
-  - `saveLumaKey({ apiKey })` → valida contra `/calendar/get`, cifra, upsert (guarda también name/slug/avatar).
-  - `getLumaConfig()` → `{ configured, calendar: {name, slug, avatarUrl, url} | null }`.
-  - `deleteLumaKey()`.
-- Refactor `src/lib/luma.server.ts`: `fetchAllEvents(apiKey)` / `fetchEvent(apiKey, id)` / `fetchCalendar(apiKey)` reciben la key como parámetro (no leer `process.env.LUMA_API_KEY` global).
-- Refactor `src/lib/luma.functions.ts`: cada server fn resuelve la key del usuario autenticado antes de llamar a Luma.
-- Nuevo secret runtime: seed inicial — el `LUMA_API_KEY` existente **se importa a la fila de `ivelasquezfr@gmail.com`** la primera vez que se loguee (una sola migración one-shot). Después el env var se puede ignorar.
+## 2. Rediseño global con look de Luma
 
-## 3) Onboarding + header con nombre/logo del calendario
+**Referencias del lenguaje visual Luma:**
+- Fondo casi-negro cálido con textura sutil, tipografía **Inter** (o similar sans compacto), acentos color de brand del evento pero contenidos.
+- Cards con `border-radius: 16-20px`, bordes hairline `rgba(255,255,255,0.08)`, superficies apiladas con overlay translúcido y blur suave.
+- Botones pill primarios sobre superficie clara alta-contraste; secundarios outline hairline.
+- Metadata en mayúsculas dispersas para labels (`FEATURED`, `SOLD OUT`) — mantenemos esta convención que ya usamos.
+- Imágenes hero grandes con overlay gradiente inferior; sin bordes duros.
 
-- Nueva ruta `/settings` (o modal en dashboard) para pegar la Luma API key. Al guardar se valida llamando a `GET /calendar/get` (comprobado: devuelve `name`, `slug`, `avatar_url`, `url`).
-- Si el usuario no tiene key configurada → redirect a `/settings` con mensaje.
-- Header global (en `_authenticated`): logo del calendario + nombre (ej. **Hack0 Community**) en vez del ID de calendario. Link a `/settings` para reemplazar la key.
-- El header pasa a las páginas `events` y `e/$eventId` (hoy dicen "· LUMA BADGE STUDIO", ahora "· HACK0 COMMUNITY" con avatar).
+**Cambios concretos:**
 
-## 4) Aislar datos por usuario
+### 2.1 Design tokens — `src/styles.css`
+Reemplazar la paleta cream por sistema oscuro Luma-like:
+- `--background: oklch(0.14 0.008 60)` (charcoal cálido)
+- `--surface: oklch(0.18 0.008 60)`, `--surface-2: oklch(0.22 0.008 60)`
+- `--foreground: oklch(0.96 0.005 60)`, `--muted: oklch(0.65 0.01 60)`
+- `--accent: oklch(0.72 0.18 55)` (naranja cálido Luma-style, como default; se sigue permitiendo override por-evento en el badge canvas)
+- `--hairline: color-mix(in oklab, white 8%, transparent)`
+- Cargar Inter + Inter Tight vía `<link>` en `__root.tsx` head; token `--font-sans: "Inter"`, `--font-display: "Inter Tight"`.
 
-- Tabla `public.badges` ya existe. Añadir columna `user_id uuid` (nullable para retro-compat, luego se puede filtrar por usuario si el owner del evento coincide). RLS: insert por `authenticated` con `user_id = auth.uid()`; select público sigue permitido para la galería del evento (mantiene el loop social — badges de otras personas del mismo evento son visibles).
-- La galería `EventBadgeGallery` sigue mostrando todos los badges del evento; el "mis badges" se filtra por `user_id`.
+### 2.2 Shell — `src/routes/_authenticated/route.tsx`
+- Header traslúcido con blur (`backdrop-filter`), hairline inferior, avatar del calendario circular pequeño + nombre + email a la derecha, botón Sign out ghost.
+- Fondo global oscuro con grain sutil vía `@utility grain { &::after {…} }`.
 
-## 5) Fix AI style analysis
+### 2.3 Landing — `src/routes/index.tsx`
+Full redesign: hero centrado tipo Luma discovery, tipografía tight, un CTA primario ("Continue with Google") + link secundario. Feature grid en 3 columnas con iconos monoline.
 
-Actualmente falla probablemente porque `Output.object` + `google/gemini-2.5-flash` sobre openai-compatible con Vercel Gateway no siempre respeta `response_format: json_schema` en modelos Gemini vía ese path. Diagnóstico + fix:
-- Añadir logging del error real vía `stack_modern--server-function-logs` para confirmar la causa.
-- Fix: usar `generateObject` (en vez de `generateText` + `Output.object`) con `mode: "json"` sobre Gemini, o cambiar el modelo a `openai/gpt-4o-mini` / `openai/gpt-5-mini` para análisis multimodal donde `json_schema` es sólido. Preferencia: mantener Gemini si funciona; fallback OpenAI si no.
-- Mantener el fallback existente `NoObjectGeneratedError` → `JSON.parse(error.text)` → `DEFAULT_STYLE_SPEC`.
+### 2.4 Auth — `src/routes/auth.tsx`
+Card centrada 420px sobre fondo oscuro, borde hairline, botón Google grande con logo, mensaje pequeño de privacidad.
 
-## 6) Restricción de uso (fase 1)
+### 2.5 Events grid — `src/routes/_authenticated/events.tsx`
+Cards Luma-style: cover 1:1 con radio 16px, overlay inferior con date/city, título en display font, hover eleva con shadow. Sección Upcoming/Past si hay dato de fecha. Botón filtro pill.
 
-- El usuario pide que "cualquiera pueda usar la app, pero por ahora solo yo (ivelasquezfr@gmail.com) uso la Luma key configurada actualmente". Con la refactor:
-  - Todos pueden hacer sign up con Google.
-  - Cada uno debe configurar **su propia** Luma API key en `/settings`.
-  - La key actual queda asociada solo a `ivelasquezfr@gmail.com` en el seed inicial.
-- No hay allowlist ni bloqueos adicionales — modelo self-serve.
+### 2.6 Event page — `src/routes/_authenticated/e.$eventId.tsx`
+- Chrome oscuro (inputs, chat, botones) usando tokens.
+- El canvas del badge (`renderBadge`) **no se toca** — sigue leyendo el `StyleSpec` del AI.
+- Los swatches del "AI style" panel y el chat visualmente adoptan el theme oscuro.
+- Preview del badge sobre superficie oscura con hairline en vez de cream.
+- Botones share: X/LinkedIn/Native mantienen sus brand colors, resto pill.
 
----
+### 2.7 Settings — `src/routes/_authenticated/settings.tsx`
+Card única con input del Luma key, estado del calendario detectado (avatar + nombre), botón save/test. Añade el nuevo botón "Seed my historical gallery" al final (solo visible para tu email).
+
+### 2.8 Componentes internos
+- `EventBadgeGallery` — grid oscuro, cards con hairline.
+- `BadgeChat` — burbujas sobre surface-2, input pill, botón send con accent.
+- `CameraCapture` — modal oscuro con hairline.
+
+**Fuera de alcance de este plan:**
+- No cambio de la lógica del `renderBadge` ni del pipeline AI. El badge en sí sigue reflejando el brand del evento (esa era la petición previa).
+- No cambio de esquema DB, ni de rutas, ni de auth flow.
 
 ## Detalles técnicos
 
-- Providers: mantener Vercel AI Gateway para chat/analysis; Lovable AI para image gen (ya está así).
-- Encryption module: `src/lib/crypto.server.ts` con `encryptString`/`decryptString` (AES-256-GCM, IV+tag+ct base64).
-- Migrations (una sola, ordenada): `user_luma_keys` + `badges.user_id` + GRANTs + RLS + policies.
-- Google sign-in flow ya soporta iframes de Lovable via `@lovable.dev/cloud-auth-js`; usar exactamente el patrón documentado.
-- No tocar `src/integrations/supabase/*` autogenerado. Middleware `attachSupabaseAuth` ya está registrado.
-
-## Fuera de alcance (no ahora)
-
-- Rotación de key, revocación, admin dashboard, uso compartido de una key entre miembros de un workspace.
-- Login con métodos distintos a Google (se puede añadir email/password luego).
-- Phase 2 (scraping sin API key).
-
----
-
-## Riesgos
-
-- Si Vercel Gateway sigue rompiendo structured output con Gemini, caemos a OpenAI para análisis (misma calidad multimodal, ligeramente más caro).
-- La primera vez cualquier usuario ve `/settings` vacío — hay que dejar copy claro con dónde obtener la Luma API key (https://docs.lu.ma/reference/getting-started-with-your-api).
-
-## Checklist ejecución
-
-1. Enable Google auth + configure_social_auth.
-2. Crear migración: `user_luma_keys`, `badges.user_id`, RLS + grants.
-3. `src/lib/crypto.server.ts` + `APP_ENCRYPTION_KEY` (generate_secret 32 bytes base64).
-4. Refactor `luma.server.ts` / `luma.functions.ts` para recibir key por usuario + añadir `fetchCalendar`.
-5. Rutas: `/auth`, `_authenticated` layout, `/settings`, dashboard con header calendario, protección de `/events` y `/e/$eventId`.
-6. Seed one-shot: al login de `ivelasquezfr@gmail.com`, migrar el env `LUMA_API_KEY` a su fila cifrada.
-7. Fix `style-analyze` con logs + `generateObject` / fallback OpenAI.
-8. Verificar end-to-end con Playwright (login → settings → events con header "Hack0 Community" → generar badge → galería propia).
+- **Foto de Ignacio:** subida como Lovable Asset (`lovable-assets create --file /mnt/user-uploads/Ignacio_Velásquez.jpeg`) → import del `.asset.json` → fetch de la URL para convertir a dataURL antes de pasar a `renderBadge`.
+- **Match fuzzy** implementado en cliente: normalize (lowercase, sin diacríticos), check substring bidireccional + token overlap ≥ 0.5 como fallback.
+- **Idempotencia del seed:** query previa `select id from badges where event_id=? and first_name='Ignacio Velásquez' and user_id=auth.uid()` antes de cada insert.
+- **Fonts:** `<link rel="preconnect" href="https://fonts.googleapis.com">` + Inter/Inter Tight en el head de `__root.tsx`. Google Fonts dinámicos del badge (`google-fonts.ts`) siguen funcionando aparte.
+- **Grain:** una capa `::after` fixed con SVG noise inline como data-URI, `opacity: 0.03`, `pointer-events: none`.
