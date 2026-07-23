@@ -1,13 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { generateText } from "ai";
-import { createAIGateway } from "./ai-gateway.server";
 import {
   StyleSpecSchema,
   normalizeStyleSpec,
   type StyleSpec,
 } from "./style-spec";
+import { getVercelKey } from "./ai-gateway.server";
 
-
+const VERCEL_CHAT_URL = "https://ai-gateway.vercel.sh/v1/chat/completions";
 
 const SYSTEM = `You are a senior brand designer. You look at an event cover and produce a StyleSpec that lets a canvas renderer compose a philatelic-stamp badge whose color, typography, and mood are FAITHFUL to the cover.
 
@@ -34,80 +33,104 @@ STEP 2 — Emit a StyleSpec matching the bucket:
 HARD RULES:
 - Do NOT default to #2970ef blue unless the cover clearly uses that blue.
 - Do NOT default to Space Grotesk when the cover is monospace/terminal.
-- Do NOT invent colors that don't appear in the cover.`;
+- Do NOT invent colors that don't appear in the cover.
+
+OUTPUT — Return ONLY a JSON object (no markdown, no prose) with this exact shape:
+{"style":"mono-terminal","bg":"#f7f6f1","surface":"#efece2","text":"#111111","textMuted":"#5b5a56","accent":"#111111","fontHeading":"Space Mono","fontBody":"IBM Plex Mono","mood":"cream paper terminal"}`;
+
+function extractJson(text: string): unknown | null {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function callVercelChat(
+  key: string,
+  model: string,
+  userText: string,
+  coverUrl: string | null,
+): Promise<{ ok: true; text: string } | { ok: false; status: number; body: string }> {
+  const userContent: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  > = [{ type: "text", text: userText }];
+
+  if (coverUrl) {
+    userContent.push({ type: "image_url", image_url: { url: coverUrl } });
+  }
+
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: userContent },
+    ],
+    temperature: 0.4,
+  };
+
+  const res = await fetch(VERCEL_CHAT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    return { ok: false, status: res.status, body: errBody };
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const text = json.choices?.[0]?.message?.content ?? "";
+  return { ok: true, text };
+}
 
 export const analyzeEventArt = createServerFn({ method: "POST" })
   .inputValidator((d: { coverUrl: string | null; name: string; description?: string }) => d)
   .handler(async ({ data }): Promise<StyleSpec> => {
-    const gateway = createAIGateway();
-
-    // Prefer stronger vision when available; fall back to flash.
-    const primary = gateway("google/gemini-2.5-pro");
-    const fallback = gateway("google/gemini-2.5-flash");
+    const key = getVercelKey();
 
     const userText = `Event name: ${data.name}\n${
       data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""
     }Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover.`;
 
-    const content: Array<
-      | { type: "text"; text: string }
-      | { type: "image"; image: URL }
-    > = [{ type: "text", text: userText }];
+    const models = ["google/gemini-2.5-pro", "google/gemini-2.5-flash"];
+    const errors: string[] = [];
 
-    if (data.coverUrl) {
+    for (const model of models) {
+      const result = await callVercelChat(key, model, userText, data.coverUrl);
+      if (!result.ok) {
+        console.error(`[style-analyze] ${model} HTTP ${result.status}:`, result.body);
+        errors.push(`${model} → ${result.status}`);
+        continue;
+      }
+      const raw = extractJson(result.text);
+      if (!raw) {
+        console.error(`[style-analyze] ${model} produced no JSON:`, result.text.slice(0, 200));
+        errors.push(`${model} → no JSON`);
+        continue;
+      }
+      const parsed = StyleSpecSchema.safeParse(raw);
+      if (parsed.success) return normalizeStyleSpec(parsed.data as StyleSpec);
+      // schema mismatch — try to salvage via normalize
       try {
-        content.push({ type: "image", image: new URL(data.coverUrl) });
+        return normalizeStyleSpec(raw as StyleSpec);
       } catch {
-        // invalid URL — proceed without image
+        errors.push(`${model} → schema mismatch`);
       }
     }
 
-    const JSON_INSTRUCTION = `\n\nReturn ONLY a valid JSON object matching this shape (no markdown, no code fences):\n{"style":"...","bg":"#rrggbb","surface":"#rrggbb","text":"#rrggbb","textMuted":"#rrggbb","accent":"#rrggbb","fontHeading":"Google Font","fontBody":"Google Font","mood":"..."}`;
-    const augmentedContent = [
-      { type: "text" as const, text: userText + JSON_INSTRUCTION },
-      ...content.slice(1),
-    ];
-
-    function extractJson(text: string): unknown | null {
-      const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        const match = trimmed.match(/\{[\s\S]*\}/);
-        if (!match) return null;
-        try {
-          return JSON.parse(match[0]);
-        } catch {
-          return null;
-        }
-      }
-    }
-
-    async function attempt(model: ReturnType<typeof gateway>): Promise<StyleSpec | null> {
-      try {
-        const { text } = await generateText({
-          model,
-          system: SYSTEM,
-          messages: [{ role: "user", content: augmentedContent }],
-        });
-        const raw = extractJson(text);
-        if (!raw) return null;
-        const parsed = StyleSpecSchema.safeParse(raw);
-        if (!parsed.success) {
-          // Fall back to normalize which fills defaults for missing fields.
-          return normalizeStyleSpec(raw as StyleSpec);
-        }
-        return normalizeStyleSpec(parsed.data as StyleSpec);
-      } catch (error) {
-        console.error("[style-analyze] model failed:", error);
-        return null;
-      }
-    }
-
-    const first = await attempt(primary);
-    if (first) return first;
-    const second = await attempt(fallback);
-    if (second) return second;
-
-    throw new Error("Style analysis failed on both primary and fallback models");
+    throw new Error(`Style analysis failed: ${errors.join(" · ")}`);
   });
