@@ -1,12 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
-import { generateObject, NoObjectGeneratedError } from "ai";
+import { generateText } from "ai";
 import { createAIGateway } from "./ai-gateway.server";
 import {
   StyleSpecSchema,
   normalizeStyleSpec,
-  DEFAULT_STYLE_SPEC,
   type StyleSpec,
 } from "./style-spec";
+
+
 
 const SYSTEM = `You are a senior brand designer. You look at an event cover and produce a StyleSpec that lets a canvas renderer compose a philatelic-stamp badge whose color, typography, and mood are FAITHFUL to the cover.
 
