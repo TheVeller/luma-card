@@ -19,21 +19,24 @@ export type LumaListResponse = {
   next_cursor?: string | null;
 };
 
+export type LumaCalendar = {
+  id: string;
+  name: string;
+  slug: string | null;
+  avatar_url: string | null;
+  cover_image_url: string | null;
+  url: string | null;
+};
+
 const LUMA_BASE = "https://api.lu.ma/public/v1";
 
-function requireKey(): string {
-  const key = process.env.LUMA_API_KEY;
-  if (!key) throw new Error("LUMA_API_KEY is not configured");
-  return key;
-}
-
-async function lumaFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
+async function lumaFetch<T>(apiKey: string, path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(LUMA_BASE + path);
   if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = await fetch(url.toString(), {
     headers: {
       accept: "application/json",
-      "x-luma-api-key": requireKey(),
+      "x-luma-api-key": apiKey,
     },
   });
   if (!res.ok) {
@@ -43,14 +46,34 @@ async function lumaFetch<T>(path: string, params?: Record<string, string>): Prom
   return (await res.json()) as T;
 }
 
-export async function fetchAllEvents(): Promise<LumaEvent[]> {
+export async function fetchCalendar(apiKey: string): Promise<LumaCalendar> {
+  const data = await lumaFetch<{ calendar: {
+    id: string;
+    name: string;
+    slug: string | null;
+    avatar_url: string | null;
+    cover_image_url: string | null;
+    social_image_url: string | null;
+    url: string | null;
+  } }>(apiKey, "/calendar/get");
+  const c = data.calendar;
+  return {
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    avatar_url: c.avatar_url,
+    cover_image_url: c.cover_image_url ?? c.social_image_url ?? null,
+    url: c.url,
+  };
+}
+
+export async function fetchAllEvents(apiKey: string): Promise<LumaEvent[]> {
   const out: LumaEvent[] = [];
   let cursor: string | undefined;
-  // Cap pages defensively
   for (let i = 0; i < 10; i++) {
     const params: Record<string, string> = { pagination_limit: "50" };
     if (cursor) params.pagination_cursor = cursor;
-    const data = await lumaFetch<LumaListResponse>("/calendar/list-events", params);
+    const data = await lumaFetch<LumaListResponse>(apiKey, "/calendar/list-events", params);
     for (const entry of data.entries ?? []) out.push(entry.event);
     if (!data.has_more || !data.next_cursor) break;
     cursor = data.next_cursor;
@@ -58,15 +81,14 @@ export async function fetchAllEvents(): Promise<LumaEvent[]> {
   return out;
 }
 
-export async function fetchEvent(eventId: string): Promise<LumaEvent> {
-  // Try the direct endpoint first, then fall back to the list.
+export async function fetchEvent(apiKey: string, eventId: string): Promise<LumaEvent> {
   try {
-    const data = await lumaFetch<{ event: LumaEvent }>("/event/get", { api_id: eventId });
+    const data = await lumaFetch<{ event: LumaEvent }>(apiKey, "/event/get", { api_id: eventId });
     if (data?.event) return data.event;
   } catch {
     // fall through
   }
-  const all = await fetchAllEvents();
+  const all = await fetchAllEvents(apiKey);
   const found = all.find((e) => e.api_id === eventId);
   if (!found) throw new Error(`Event ${eventId} not found on this calendar`);
   return found;
