@@ -1,35 +1,42 @@
-// Single point of migration: to switch to OmniRoute (self-hosted OpenAI-compatible
-// gateway) later, change BASE_URL + AUTH_HEADER here.
+// Vercel AI Gateway (OpenAI-compatible).
+// Chat/text goes through Vercel. Image generation stays on Lovable's
+// /v1/images/generations because Vercel AI Gateway doesn't expose that route.
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
-const BASE_URL = "https://ai.gateway.lovable.dev/v1";
-const AUTH_HEADER = "Lovable-API-Key"; // OmniRoute: "Authorization" with "Bearer <key>"
+const VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+const LOVABLE_BASE_URL = "https://ai.gateway.lovable.dev/v1";
 
-export function getGatewayKey(): string {
+export function getVercelKey(): string {
+  const key = process.env.VERCEL_AI_GATEWAY_API_KEY;
+  if (!key) throw new Error("VERCEL_AI_GATEWAY_API_KEY missing");
+  return key;
+}
+
+export function getLovableKey(): string {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("LOVABLE_API_KEY missing");
   return key;
 }
 
+// Text/chat provider — Vercel AI Gateway.
 export function createAIGateway() {
-  const key = getGatewayKey();
+  const key = getVercelKey();
   return createOpenAICompatible({
-    name: "lovable",
-    baseURL: BASE_URL,
+    name: "vercel",
+    baseURL: VERCEL_BASE_URL,
     headers: {
-      [AUTH_HEADER]: key,
-      "X-Lovable-AIG-SDK": "vercel-ai-sdk",
+      Authorization: `Bearer ${key}`,
     },
   });
 }
 
-// Direct fetch for image generation endpoint (AI SDK doesn't wrap it).
+// Image generation via Lovable AI Gateway (Vercel gateway has no /images route).
 export async function callImageGeneration(body: unknown): Promise<Response> {
-  const key = getGatewayKey();
-  return fetch(`${BASE_URL}/images/generations`, {
+  const key = getLovableKey();
+  return fetch(`${LOVABLE_BASE_URL}/images/generations`, {
     method: "POST",
     headers: {
-      [AUTH_HEADER]: key,
+      "Lovable-API-Key": key,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
