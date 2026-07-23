@@ -9,6 +9,9 @@ import { renderBadge, type EventTheme } from "@/lib/badge-render";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
 import { loadGoogleFontPair } from "@/lib/google-fonts";
 import { BadgeChat } from "@/components/BadgeChat";
+import { CameraCapture } from "@/components/CameraCapture";
+import { EventBadgeGallery } from "@/components/EventBadgeGallery";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/e/$eventId")({
   head: ({ params }) => ({
@@ -58,7 +61,7 @@ function EventBadgePage() {
   });
 
   const [firstName, setFirstName] = useState("");
-  const [role, setRole] = useState("CREATOR");
+  const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
   const [heroDataUrl, setHeroDataUrl] = useState<string | null>(null);
@@ -67,6 +70,8 @@ function EventBadgePage() {
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [galleryKey, setGalleryKey] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const coverProxy = proxied(event?.coverUrl ?? null);
@@ -135,6 +140,35 @@ function EventBadgePage() {
     reader.readAsDataURL(file);
   }
 
+  async function persistBadge(canvas: HTMLCanvasElement) {
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/png"),
+    );
+    if (!blob) return;
+    const id = crypto.randomUUID();
+    const path = `${eventId}/${id}.png`;
+    const { error: upErr } = await supabase.storage
+      .from("badges")
+      .upload(path, blob, { contentType: "image/png", upsert: false });
+    if (upErr) {
+      console.error("upload failed", upErr);
+      return;
+    }
+    const { error: dbErr } = await supabase
+      .from("badges" as never)
+      .insert({
+        event_id: eventId,
+        first_name: firstName.trim(),
+        role: role.trim() || null,
+        image_path: path,
+      } as never);
+    if (dbErr) {
+      console.error("db insert failed", dbErr);
+      return;
+    }
+    setGalleryKey((k) => k + 1);
+  }
+
   async function generate() {
     if (!theme || !photoDataUrl || !firstName.trim()) return;
     setBusy(true);
@@ -151,6 +185,8 @@ function EventBadgePage() {
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
+      // fire-and-forget: save to gallery
+      persistBadge(canvas).catch((e) => console.error(e));
     } finally {
       setBusy(false);
     }
@@ -254,28 +290,59 @@ function EventBadgePage() {
               />
             </div>
             <div>
-              <label className="font-mono text-xs tracking-[0.2em]">ROLE / VIBE</label>
+              <label className="font-mono text-xs tracking-[0.2em]">ROLE / COMPANY</label>
               <input
                 value={role}
-                onChange={(e) => setRole(e.target.value.slice(0, 32))}
-                maxLength={32}
-                placeholder="CREATOR"
-                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 font-mono uppercase tracking-wide focus:outline-none"
+                onChange={(e) => setRole(e.target.value.slice(0, 60))}
+                maxLength={60}
+                placeholder="e.g. Designer, Acme Inc"
+                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 font-mono tracking-wide focus:outline-none"
                 style={{ borderColor: "rgba(23,21,15,0.24)" }}
               />
             </div>
             <div>
               <label className="font-mono text-xs tracking-[0.2em]">YOUR PHOTO</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && onPickPhoto(e.target.files[0])}
-                className="mt-1 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#17150f] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#f2efe6] hover:file:opacity-90"
-              />
+              <div className="mt-1 flex gap-2">
+                <label
+                  className="flex-1 cursor-pointer rounded-md bg-[#17150f] px-4 py-2 text-center text-sm font-semibold text-[#f2efe6] hover:opacity-90"
+                >
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files?.[0] && onPickPhoto(e.target.files[0])}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setCameraOpen(true)}
+                  className="flex-1 rounded-md border-2 px-4 py-2 text-sm font-semibold"
+                  style={{ borderColor: accent, color: accent }}
+                >
+                  📷 Take photo
+                </button>
+              </div>
               {photoDataUrl && (
-                <p className="mt-1 font-mono text-[10px]" style={{ color: "rgba(23,21,15,0.55)" }}>
-                  ✓ photo selected
-                </p>
+                <div className="mt-2 flex items-center gap-3">
+                  <img
+                    src={photoDataUrl}
+                    alt="Your photo"
+                    className="h-16 w-16 rounded-md border-2 object-cover"
+                    style={{ borderColor: "rgba(23,21,15,0.24)" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoDataUrl(null);
+                      setBadgeUrl(null);
+                    }}
+                    className="font-mono text-[10px] underline"
+                    style={{ color: "rgba(23,21,15,0.55)" }}
+                  >
+                    remove
+                  </button>
+                </div>
               )}
             </div>
 
@@ -383,6 +450,26 @@ function EventBadgePage() {
           <BadgeChat spec={spec} eventName={event.name} onSpecChange={setSpec} />
         </div>
       </div>
+
+      <div className="mx-auto max-w-7xl px-6 pb-16">
+        <EventBadgeGallery
+          eventId={eventId}
+          accent={accent}
+          textColor={spec.palette.text}
+          refreshKey={galleryKey}
+        />
+      </div>
+
+      {cameraOpen && (
+        <CameraCapture
+          onCapture={(dataUrl) => {
+            setPhotoDataUrl(dataUrl);
+            setBadgeUrl(null);
+            setCameraOpen(false);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
     </div>
   );
 }
