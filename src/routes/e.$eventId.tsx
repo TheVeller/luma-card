@@ -9,6 +9,9 @@ import { renderBadge, type EventTheme } from "@/lib/badge-render";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
 import { loadGoogleFontPair } from "@/lib/google-fonts";
 import { BadgeChat } from "@/components/BadgeChat";
+import { CameraCapture } from "@/components/CameraCapture";
+import { EventBadgeGallery } from "@/components/EventBadgeGallery";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/e/$eventId")({
   head: ({ params }) => ({
