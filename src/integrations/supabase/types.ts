@@ -44,6 +44,48 @@ export type Database = {
         }
         Relationships: []
       }
+      templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_system: boolean
+          name: string
+          preview_path: string | null
+          slug: string
+          source_url: string | null
+          style_spec: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_system?: boolean
+          name: string
+          preview_path?: string | null
+          slug: string
+          source_url?: string | null
+          style_spec: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_system?: boolean
+          name?: string
+          preview_path?: string | null
+          slug?: string
+          source_url?: string | null
+          style_spec?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_luma_calendars: {
         Row: {
           api_key_ciphertext: string
