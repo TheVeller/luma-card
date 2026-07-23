@@ -1,68 +1,95 @@
 import { createServerFn } from "@tanstack/react-start";
 import { generateObject, NoObjectGeneratedError } from "ai";
 import { createAIGateway } from "./ai-gateway.server";
-import { StyleSpecSchema, normalizeStyleSpec, DEFAULT_STYLE_SPEC, type StyleSpec } from "./style-spec";
+import {
+  StyleSpecSchema,
+  normalizeStyleSpec,
+  DEFAULT_STYLE_SPEC,
+  type StyleSpec,
+} from "./style-spec";
 
-const SYSTEM = `You are a senior brand designer trained on the Crafter Station "code-brew-bog" philatelic stamp badge system. You look at the cover art of an event and return a StyleSpec that a canvas renderer uses to compose a stamp-style badge native to the event.
+const SYSTEM = `You are a senior brand designer. You look at an event cover and produce a StyleSpec that lets a canvas renderer compose a philatelic-stamp badge whose color, typography, and mood are FAITHFUL to the cover.
 
-Reference eras (proven palettes from crafter-station/event-badge-history — use them as taste anchors, do NOT copy verbatim unless the cover matches):
-- Era 1 · Code Brew: bg #f5f5f5, ink #0a0a0a, accent #f03d44 (punk red)
-- Era 2 · v0 Zero-to-Agent: bg #0a0a0a, surface #1a1a1a, text #f5f5f5, accent #f03d44 (dark mode)
-- Era 3 · GTM Hackathon: bg #fafafa, ink #22242f, accent #f03d44
-- Era 4 · Cursor Meetup: bg #fafafa, ink #26251e, accent #22242f (mono-industrial)
-- Era 5 · Cursor Buildathon SV: bg #f7f6f1, ink #16100b, accent #f04e1f (warm orange)
-- Era 6 · Code Brew SV: bg #e9e5d8 paper, tile #f2efe6, ink #17150f, accent #2970ef
+STEP 1 — Classify the cover into ONE of these buckets (put the id in \`style\`):
+- "mono-terminal"       Black/near-black on cream or off-white. Pixel or terminal typography (Space Mono, JetBrains Mono, IBM Plex Mono). Very low chroma.
+- "industrial-mono"     Cool grays and near-black, hairline geometry. Neue-Haas / IBM Plex feel.
+- "editorial-serif"     Warm off-white with high-contrast serif display (Playfair, Instrument Serif, DM Serif Display).
+- "bold-punk"           Saturated red/orange accent (#f03d44 / #f04e1f) on cream or black. Archivo Black / Bebas Neue.
+- "dark-mode-tech"      Deep near-black background, bright neon accent, sans display (Sora, Syne).
+- "warm-paper"          Cream / paper background, muted colored accent (blue/rust/olive). Space Grotesk / Inter.
+- "vibrant-illustration" Multi-color cartoon/illustration cover. Round friendly sans (Fraunces, Manrope).
 
-Typography lineage: Geist / Geist Mono are the house pair. Portable Google Fonts equivalents to reach for: heading = "Space Grotesk", "Archivo Black", "Bebas Neue", "DM Serif Display", "Instrument Serif", "Playfair Display", "Sora", "Syne"; body/mono = "Inter", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "Manrope".
+STEP 2 — Emit a StyleSpec matching the bucket:
+- Colors are #rrggbb. Contrast must be legible: text on bg, accent on both bg AND surface.
+- accent = the single most distinctive hue of the cover. If the cover has NO chroma (pure B&W), accent MUST be near-black (#111111 or the darkest ink of the cover), NEVER a default blue.
+- text = the darkest legible ink; textMuted = ~55% of text on bg.
+- surface = a slightly lighter or darker version of bg (paper tile).
+- Fonts must be REAL Google Fonts. Allowed families:
+    heading: "Space Grotesk", "Space Mono", "Archivo Black", "Bebas Neue", "DM Serif Display", "Instrument Serif", "Playfair Display", "Sora", "Syne", "Fraunces", "JetBrains Mono", "IBM Plex Mono"
+    body:    "Inter", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "DM Mono", "Manrope", "Work Sans", "Fira Sans"
+  Prefer monospace pairs for "mono-terminal" and "industrial-mono" buckets.
+- mood ≤ 8 words describing the cover ("cream paper editorial", "terminal-mono workshop", etc.).
 
-Rules:
-- Return hex colors like #rrggbb. Palette must have strong contrast: text on bg legible; accent must pop against bg AND against surface.
-- Pick 1 accent that echoes the cover's most distinctive hue (not gray/near-white/near-black).
-- Pair a distinctive heading font with a clean body/mono. Fonts must exist on Google Fonts (verify names).
-- heroPrompt describes a background/hero illustration for the badge. NO text, NO letters, NO logos, NO overlays, NO UI mockups. <400 chars.
-- heroStyle ∈ {"illustration","photo","abstract","3d"}. mood ≤ 8 words.`;
+HARD RULES:
+- Do NOT default to #2970ef blue unless the cover clearly uses that blue.
+- Do NOT default to Space Grotesk when the cover is monospace/terminal.
+- Do NOT invent colors that don't appear in the cover.`;
 
 export const analyzeEventArt = createServerFn({ method: "POST" })
   .inputValidator((d: { coverUrl: string | null; name: string; description?: string }) => d)
   .handler(async ({ data }): Promise<StyleSpec> => {
     const gateway = createAIGateway();
-    const model = gateway("google/gemini-2.5-flash");
+
+    // Prefer stronger vision when available; fall back to flash.
+    const primary = gateway("google/gemini-2.5-pro");
+    const fallback = gateway("google/gemini-2.5-flash");
+
+    const userText = `Event name: ${data.name}\n${
+      data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""
+    }Analyze the cover. First classify it into one of the seven buckets, then emit a StyleSpec whose palette + fonts feel native to THIS cover.`;
 
     const content: Array<
-      { type: "text"; text: string } | { type: "image"; image: URL }
-    > = [
-      {
-        type: "text",
-        text: `Event name: ${data.name}\n${data.description ? `Description: ${data.description.slice(0, 400)}\n` : ""}\nAnalyze the cover art and produce a StyleSpec that captures its palette and vibe, so the badge feels native to this event.`,
-      },
-    ];
+      | { type: "text"; text: string }
+      | { type: "image"; image: URL }
+    > = [{ type: "text", text: userText }];
+
     if (data.coverUrl) {
       try {
         content.push({ type: "image", image: new URL(data.coverUrl) });
       } catch {
-        // ignore invalid URL
+        // invalid URL — proceed without image
       }
     }
 
-    try {
-      const { object } = await generateObject({
-        model,
-        system: SYSTEM,
-        messages: [{ role: "user", content }],
-        schema: StyleSpecSchema,
-      });
-      return normalizeStyleSpec(object as StyleSpec);
-    } catch (error) {
-      console.error("[style-analyze] failed:", error);
-      if (NoObjectGeneratedError.isInstance(error)) {
-        try {
-          const parsed = JSON.parse(error.text ?? "{}");
-          return normalizeStyleSpec(parsed);
-        } catch {
-          return DEFAULT_STYLE_SPEC;
+    async function attempt(model: ReturnType<typeof gateway>): Promise<StyleSpec | null> {
+      try {
+        const { object } = await generateObject({
+          model,
+          system: SYSTEM,
+          messages: [{ role: "user", content }],
+          schema: StyleSpecSchema,
+        });
+        return normalizeStyleSpec(object as StyleSpec);
+      } catch (error) {
+        console.error("[style-analyze] model failed:", error);
+        if (NoObjectGeneratedError.isInstance(error)) {
+          try {
+            const parsed = JSON.parse(error.text ?? "{}");
+            return normalizeStyleSpec(parsed);
+          } catch {
+            return null;
+          }
         }
+        return null;
       }
-      // Last-resort fallback so the UI never blocks on AI failure.
-      return DEFAULT_STYLE_SPEC;
     }
+
+    const first = await attempt(primary);
+    if (first) return first;
+    const second = await attempt(fallback);
+    if (second) return second;
+
+    // If both attempts return null, throw so the UI surfaces the failure
+    // instead of silently displaying the default.
+    throw new Error("Style analysis failed on both primary and fallback models");
   });

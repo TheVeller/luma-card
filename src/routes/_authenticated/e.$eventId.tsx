@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEvent } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
-import { generateHeroArt } from "@/lib/hero-generate.functions";
+
 import { renderBadge, type EventTheme } from "@/lib/badge-render";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
 import { loadGoogleFontPair } from "@/lib/google-fonts";
@@ -53,7 +53,6 @@ function EventBadgePage() {
   const { eventId } = Route.useParams();
   const fetchEvent = useServerFn(getEvent);
   const analyze = useServerFn(analyzeEventArt);
-  const genHero = useServerFn(generateHeroArt);
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["luma-event", eventId],
@@ -64,9 +63,7 @@ function EventBadgePage() {
   const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
-  const [heroDataUrl, setHeroDataUrl] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [heroBusy, setHeroBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -105,22 +102,6 @@ function EventBadgePage() {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
   }, [spec.fonts.heading, spec.fonts.body]);
 
-  async function makeHero() {
-    if (!event) return;
-    setHeroBusy(true);
-    setAiError(null);
-    try {
-      const { dataUrl } = await genHero({
-        data: { spec, eventName: event.name, coverUrl: event.coverUrl ?? undefined },
-      });
-      setHeroDataUrl(dataUrl);
-      setBadgeUrl(null);
-    } catch (e) {
-      setAiError(`Hero generation failed: ${(e as Error).message}`);
-    } finally {
-      setHeroBusy(false);
-    }
-  }
 
   const theme: EventTheme | null = useMemo(() => {
     if (!event) return null;
@@ -182,7 +163,6 @@ function EventBadgePage() {
       const canvas = await renderBadge({
         theme,
         spec,
-        heroDataUrl,
         photoDataUrl,
         firstName: firstName.trim(),
         role: role.trim() || "CREATOR",
@@ -388,13 +368,6 @@ function EventBadgePage() {
               >
                 {busy ? "Composing…" : badgeUrl ? "Re-render" : "Render badge →"}
               </button>
-              <button
-                onClick={makeHero}
-                disabled={heroBusy || analyzing}
-                className="rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface disabled:opacity-40"
-              >
-                {heroBusy ? "Generating hero…" : heroDataUrl ? "Regenerate hero" : "Generate AI hero"}
-              </button>
               {badgeUrl && (
                 <>
                   <button
@@ -454,6 +427,7 @@ function EventBadgePage() {
                 ))}
               </div>
               <div className="mt-2 space-y-0.5 text-foreground">
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">style: {spec.style}</div>
                 <div>heading: <b>{spec.fonts.heading}</b></div>
                 <div>body: <b>{spec.fonts.body}</b></div>
                 <div className="text-muted-foreground">mood: {spec.mood}</div>
@@ -490,19 +464,6 @@ function EventBadgePage() {
                   src={coverProxy!}
                   alt=""
                   className="mt-1 w-full rounded-xl border border-hairline"
-                />
-              </div>
-            )}
-            {heroDataUrl && (
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                  AI hero
-                </div>
-                <img
-                  src={heroDataUrl}
-                  alt=""
-                  className="mt-1 w-full rounded-xl border-2"
-                  style={{ borderColor: accent }}
                 />
               </div>
             )}
