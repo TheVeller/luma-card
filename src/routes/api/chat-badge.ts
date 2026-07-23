@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
-import { z } from "zod";
 import { createAIGateway } from "@/lib/ai-gateway.server";
 import { StyleSpecSchema } from "@/lib/style-spec";
 
@@ -12,7 +11,7 @@ type Body = {
 
 const SYSTEM = (eventName: string, currentSpec: string) => `You help a user iterate on the visual design of a philatelic-stamp-style badge for the event "${eventName}".
 
-The badge is rendered by a canvas from a StyleSpec (palette + Google Fonts + hero prompt). When the user asks for a change ("make it darker", "use a serif heading", "more punk"), respond briefly (1-2 sentences) AND call the "update_style" tool with the NEW complete StyleSpec.
+The badge is rendered by a canvas from a StyleSpec (style bucket + palette + Google Fonts). When the user asks for a change ("make it darker", "use a serif heading", "more punk"), respond briefly (1-2 sentences) AND call the "update_style" tool with the NEW complete StyleSpec.
 
 Current StyleSpec:
 ${currentSpec}
@@ -21,7 +20,6 @@ Rules:
 - Every StyleSpec property is REQUIRED. Do not omit fields — copy unchanged values from the current spec.
 - Colors are #rrggbb hex.
 - Fonts are real Google Fonts family names.
-- heroPrompt describes the badge background image — NO text, NO letters, NO logos, NO overlays.
 - If the user only wants to chat (no visual change), don't call the tool.`;
 
 export const Route = createFileRoute("/api/chat-badge")({

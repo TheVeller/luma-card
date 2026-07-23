@@ -1,22 +1,21 @@
 import { z } from "zod";
 
-// StyleSpec: contrato entre AI y canvas. Sin bounds duros en el schema
-// (regla ai-sdk-lovable-gateway). Los rangos van en el prompt; clampamos en código.
+// StyleSpec: contrato entre AI y canvas. Sin bounds duros en el schema.
+// Los rangos van en el prompt; clampamos en código.
 export const StyleSpecSchema = z.object({
+  style: z.string(), // classifier bucket (mono-terminal, editorial-serif, ...)
   palette: z.object({
-    bg: z.string(),        // hex, fondo del badge
-    surface: z.string(),   // hex, superficie interior / tiles
-    accent: z.string(),    // hex, color de acento
-    text: z.string(),      // hex, texto principal
-    textMuted: z.string(), // hex, texto secundario
+    bg: z.string(),
+    surface: z.string(),
+    accent: z.string(),
+    text: z.string(),
+    textMuted: z.string(),
   }),
   fonts: z.object({
-    heading: z.string(),   // Google Font family (ej. "Space Grotesk")
-    body: z.string(),      // Google Font family (ej. "Inter")
+    heading: z.string(),
+    body: z.string(),
   }),
-  mood: z.string(),        // descripción libre ("cyberpunk neon", "editorial minimal")
-  heroPrompt: z.string(),  // prompt para image gen — SIN texto, SIN overlays
-  heroStyle: z.string(),   // "illustration" | "photo" | "abstract" | "3d" (libre)
+  mood: z.string(),
 });
 
 export type StyleSpec = z.infer<typeof StyleSpecSchema>;
@@ -26,10 +25,10 @@ function safeHex(v: string, fallback: string): string {
   return HEX.test(v) ? v.toLowerCase() : fallback;
 }
 
-// Clampea y sanea cualquier StyleSpec (venga de AI o de un parcial).
 export function normalizeStyleSpec(input: Partial<StyleSpec> | StyleSpec): StyleSpec {
   const d = DEFAULT_STYLE_SPEC;
   return {
+    style: (input.style || d.style).slice(0, 40),
     palette: {
       bg: safeHex(input.palette?.bg ?? d.palette.bg, d.palette.bg),
       surface: safeHex(input.palette?.surface ?? d.palette.surface, d.palette.surface),
@@ -42,12 +41,11 @@ export function normalizeStyleSpec(input: Partial<StyleSpec> | StyleSpec): Style
       body: input.fonts?.body || d.fonts.body,
     },
     mood: (input.mood || d.mood).slice(0, 120),
-    heroPrompt: (input.heroPrompt || d.heroPrompt).slice(0, 500),
-    heroStyle: input.heroStyle || d.heroStyle,
   };
 }
 
 export const DEFAULT_STYLE_SPEC: StyleSpec = {
+  style: "warm-paper",
   palette: {
     bg: "#e9e5d8",
     surface: "#f2efe6",
@@ -60,6 +58,31 @@ export const DEFAULT_STYLE_SPEC: StyleSpec = {
     body: "Inter",
   },
   mood: "editorial minimal",
-  heroPrompt: "abstract geometric composition, muted paper palette, editorial minimal",
-  heroStyle: "abstract",
 };
+
+// -------------- helpers used by the renderer & analyzer --------------
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbSat([r, g, b]: [number, number, number]): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return max === 0 ? 0 : (max - min) / max;
+}
+
+/** True when the accent is essentially achromatic (mono / paper / terminal covers). */
+export function isMonoPalette(spec: StyleSpec): boolean {
+  const rgb = hexToRgb(spec.palette.accent);
+  if (!rgb) return true;
+  return rgbSat(rgb) < 0.18;
+}
+
+/** Accent color to actually paint with: text color when the palette is mono. */
+export function effectiveAccent(spec: StyleSpec): string {
+  return isMonoPalette(spec) ? spec.palette.text : spec.palette.accent;
+}
