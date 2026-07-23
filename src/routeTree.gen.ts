@@ -9,10 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as Phase2RouteImport } from './routes/phase-2'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as EEventIdRouteImport } from './routes/e.$eventId'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 
+const Phase2Route = Phase2RouteImport.update({
+  id: '/phase-2',
+  path: '/phase-2',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EventsRoute = EventsRouteImport.update({
   id: '/events',
   path: '/events',
@@ -21,6 +28,11 @@ const EventsRoute = EventsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EEventIdRoute = EEventIdRouteImport.update({
+  id: '/e/$eventId',
+  path: '/e/$eventId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
@@ -32,35 +44,56 @@ const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
+  '/phase-2': typeof Phase2Route
+  '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
+  '/phase-2': typeof Phase2Route
+  '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/events': typeof EventsRoute
+  '/phase-2': typeof Phase2Route
+  '/e/$eventId': typeof EEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/events' | '/api/public/image'
+  fullPaths: '/' | '/events' | '/phase-2' | '/e/$eventId' | '/api/public/image'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/events' | '/api/public/image'
-  id: '__root__' | '/' | '/events' | '/api/public/image'
+  to: '/' | '/events' | '/phase-2' | '/e/$eventId' | '/api/public/image'
+  id:
+    | '__root__'
+    | '/'
+    | '/events'
+    | '/phase-2'
+    | '/e/$eventId'
+    | '/api/public/image'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EventsRoute: typeof EventsRoute
+  Phase2Route: typeof Phase2Route
+  EEventIdRoute: typeof EEventIdRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/phase-2': {
+      id: '/phase-2'
+      path: '/phase-2'
+      fullPath: '/phase-2'
+      preLoaderRoute: typeof Phase2RouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/events': {
       id: '/events'
       path: '/events'
@@ -73,6 +106,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/e/$eventId': {
+      id: '/e/$eventId'
+      path: '/e/$eventId'
+      fullPath: '/e/$eventId'
+      preLoaderRoute: typeof EEventIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/image': {
@@ -88,6 +128,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EventsRoute: EventsRoute,
+  Phase2Route: Phase2Route,
+  EEventIdRoute: EEventIdRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,
 }
 export const routeTree = rootRouteImport
