@@ -78,10 +78,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Luma Badge Studio — Personalized event cards" },
+      { property: "og:title", content: "Luma Badge Studio — Personalized event cards" },
+      { name: "twitter:title", content: "Luma Badge Studio — Personalized event cards" },
+      { name: "description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
+      { property: "og:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
+      { name: "twitter:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/eac0ae65-f451-448d-b30e-0e19a226c78d/id-preview-85384eaa--47158c08-59a5-4081-b25e-b7797ebe8224.lovable.app-1784829874117.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/eac0ae65-f451-448d-b30e-0e19a226c78d/id-preview-85384eaa--47158c08-59a5-4081-b25e-b7797ebe8224.lovable.app-1784829874117.png" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

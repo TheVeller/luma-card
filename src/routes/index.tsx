@@ -15,8 +15,8 @@ export const Route = createFileRoute("/")({
         content:
           "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
       },
-      { property: "og:title", content: "Luma Badge Studio" },
-      { property: "og:description", content: "Turn any Luma event into a branded, shareable badge." },
+      { property: "og:title", content: "Luma Badge Studio — Personalized event cards" },
+      { property: "og:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
