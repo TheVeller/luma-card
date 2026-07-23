@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEvent } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
+import { listTemplates, type TemplateDTO } from "@/lib/templates.functions";
+import { extractPixelEvidence } from "@/lib/pixel-evidence";
 
 import { renderBadge, type EventTheme } from "@/lib/badge-render";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
@@ -53,10 +55,16 @@ function EventBadgePage() {
   const { eventId } = Route.useParams();
   const fetchEvent = useServerFn(getEvent);
   const analyze = useServerFn(analyzeEventArt);
+  const fetchTemplates = useServerFn(listTemplates);
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["luma-event", eventId],
     queryFn: () => fetchEvent({ data: { id: eventId } }),
+  });
+
+  const { data: templates } = useQuery({
+    queryKey: ["templates"],
+    queryFn: () => fetchTemplates(),
   });
 
   const [firstName, setFirstName] = useState("");
@@ -79,8 +87,14 @@ function EventBadgePage() {
       setAnalyzing(true);
       setAiError(null);
       try {
+        const evidence = coverProxy ? await extractPixelEvidence(coverProxy) : null;
         const s = await analyze({
-          data: { coverUrl: event.coverUrl, name: event.name, description: event.description },
+          data: {
+            coverUrl: event.coverUrl,
+            name: event.name,
+            description: event.description,
+            pixelEvidence: evidence,
+          },
         });
         setSpec(s);
       } catch (e) {
@@ -89,7 +103,7 @@ function EventBadgePage() {
         setAnalyzing(false);
       }
     },
-    [event, analyze],
+    [event, analyze, coverProxy],
   );
 
   useEffect(() => {
