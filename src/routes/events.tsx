@@ -93,7 +93,7 @@ function EventsPage() {
                 className="group overflow-hidden rounded-lg border-2 bg-[#f2efe6] transition hover:-translate-y-0.5 hover:shadow-lg"
                 style={{ borderColor: "rgba(23,21,15,0.16)" }}
               >
-                <div className="aspect-[16/10] w-full overflow-hidden bg-[#e9e5d8]">
+                <div className="aspect-square w-full overflow-hidden bg-[#e9e5d8]">
                   {ev.coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -101,6 +101,7 @@ function EventsPage() {
                       alt={ev.name}
                       className="h-full w-full object-cover transition group-hover:scale-105"
                     />
+
                   ) : (
                     <div className="flex h-full items-center justify-center font-mono text-xs opacity-40">
                       NO COVER
