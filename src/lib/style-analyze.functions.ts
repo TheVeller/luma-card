@@ -62,25 +62,44 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
       }
     }
 
+    const JSON_INSTRUCTION = `\n\nReturn ONLY a valid JSON object matching this shape (no markdown, no code fences):\n{"style":"...","bg":"#rrggbb","surface":"#rrggbb","text":"#rrggbb","textMuted":"#rrggbb","accent":"#rrggbb","fontHeading":"Google Font","fontBody":"Google Font","mood":"..."}`;
+    const augmentedContent = [
+      { type: "text" as const, text: userText + JSON_INSTRUCTION },
+      ...content.slice(1),
+    ];
+
+    function extractJson(text: string): unknown | null {
+      const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        const match = trimmed.match(/\{[\s\S]*\}/);
+        if (!match) return null;
+        try {
+          return JSON.parse(match[0]);
+        } catch {
+          return null;
+        }
+      }
+    }
+
     async function attempt(model: ReturnType<typeof gateway>): Promise<StyleSpec | null> {
       try {
-        const { object } = await generateObject({
+        const { text } = await generateText({
           model,
           system: SYSTEM,
-          messages: [{ role: "user", content }],
-          schema: StyleSpecSchema,
+          messages: [{ role: "user", content: augmentedContent }],
         });
-        return normalizeStyleSpec(object as StyleSpec);
+        const raw = extractJson(text);
+        if (!raw) return null;
+        const parsed = StyleSpecSchema.safeParse(raw);
+        if (!parsed.success) {
+          // Fall back to normalize which fills defaults for missing fields.
+          return normalizeStyleSpec(raw as StyleSpec);
+        }
+        return normalizeStyleSpec(parsed.data as StyleSpec);
       } catch (error) {
         console.error("[style-analyze] model failed:", error);
-        if (NoObjectGeneratedError.isInstance(error)) {
-          try {
-            const parsed = JSON.parse(error.text ?? "{}");
-            return normalizeStyleSpec(parsed);
-          } catch {
-            return null;
-          }
-        }
         return null;
       }
     }
@@ -90,7 +109,5 @@ export const analyzeEventArt = createServerFn({ method: "POST" })
     const second = await attempt(fallback);
     if (second) return second;
 
-    // If both attempts return null, throw so the UI surfaces the failure
-    // instead of silently displaying the default.
     throw new Error("Style analysis failed on both primary and fallback models");
   });
