@@ -102,22 +102,6 @@ function EventBadgePage() {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
   }, [spec.fonts.heading, spec.fonts.body]);
 
-  async function makeHero() {
-    if (!event) return;
-    setHeroBusy(true);
-    setAiError(null);
-    try {
-      const { dataUrl } = await genHero({
-        data: { spec, eventName: event.name, coverUrl: event.coverUrl ?? undefined },
-      });
-      setHeroDataUrl(dataUrl);
-      setBadgeUrl(null);
-    } catch (e) {
-      setAiError(`Hero generation failed: ${(e as Error).message}`);
-    } finally {
-      setHeroBusy(false);
-    }
-  }
 
   const theme: EventTheme | null = useMemo(() => {
     if (!event) return null;
@@ -179,7 +163,6 @@ function EventBadgePage() {
       const canvas = await renderBadge({
         theme,
         spec,
-        heroDataUrl,
         photoDataUrl,
         firstName: firstName.trim(),
         role: role.trim() || "CREATOR",
