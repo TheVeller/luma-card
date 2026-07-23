@@ -145,6 +145,8 @@ function EventBadgePage() {
       canvas.toBlob((b) => res(b), "image/png"),
     );
     if (!blob) return;
+    const { data: userRes } = await supabase.auth.getUser();
+    const userId = userRes.user?.id ?? null;
     const id = crypto.randomUUID();
     const path = `${eventId}/${id}.png`;
     const { error: upErr } = await supabase.storage
@@ -161,6 +163,7 @@ function EventBadgePage() {
         first_name: firstName.trim(),
         role: role.trim() || null,
         image_path: path,
+        user_id: userId,
       } as never);
     if (dbErr) {
       console.error("db insert failed", dbErr);
@@ -246,17 +249,30 @@ function EventBadgePage() {
   }
 
   if (isLoading) {
-    return <div className="grid min-h-screen place-items-center bg-[#e9e5d8] font-mono text-sm">LOADING…</div>;
+    return <div className="grid min-h-[50vh] place-items-center font-mono text-sm">LOADING…</div>;
   }
   if (error || !event) {
+    const msg = error ? String((error as Error).message) : "";
+    const isMissingKey = msg.includes("NO_LUMA_KEY");
     return (
-      <div className="grid min-h-screen place-items-center bg-[#e9e5d8] p-6 text-center">
+      <div className="grid min-h-[50vh] place-items-center p-6 text-center">
         <div>
-          <p className="font-mono text-sm">Event not found or Luma error.</p>
-          <p className="mt-2 max-w-md text-xs text-red-700">{error ? String((error as Error).message) : ""}</p>
-          <Link to="/events" className="mt-4 inline-block underline">
-            Back to events
-          </Link>
+          {isMissingKey ? (
+            <>
+              <p className="font-mono text-sm">Add your Luma API key to load this event.</p>
+              <Link to="/settings" className="mt-4 inline-block rounded-md bg-[#17150f] px-4 py-2 text-sm font-semibold text-[#f2efe6]">
+                Go to Settings →
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="font-mono text-sm">Event not found or Luma error.</p>
+              <p className="mt-2 max-w-md text-xs text-red-700">{msg}</p>
+              <Link to="/events" className="mt-4 inline-block underline">
+                Back to events
+              </Link>
+            </>
+          )}
         </div>
       </div>
     );
@@ -266,17 +282,12 @@ function EventBadgePage() {
   const accent = spec.palette.accent;
 
   return (
-    <div className="min-h-screen bg-[#e9e5d8] text-[#17150f]">
-      <header className="border-b" style={{ borderColor: "rgba(23,21,15,0.16)" }}>
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link to="/events" className="font-mono text-xs tracking-[0.24em]">
-            ← ALL EVENTS
-          </Link>
-          <div className="font-mono text-[10px] tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
-            EVENT · {event.id}
-          </div>
-        </div>
-      </header>
+    <>
+      <div className="mx-auto max-w-7xl px-6 pt-6">
+        <Link to="/events" className="font-mono text-xs tracking-[0.24em]" style={{ color: "rgba(23,21,15,0.55)" }}>
+          ← ALL EVENTS
+        </Link>
+      </div>
 
       <div className="mx-auto grid max-w-7xl gap-8 px-6 py-10 lg:grid-cols-[360px_1fr_380px]">
         {/* LEFT: inputs */}
