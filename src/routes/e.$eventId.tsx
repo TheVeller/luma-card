@@ -397,8 +397,7 @@ function EventBadgePage() {
                   </button>
                   <button
                     onClick={nativeShare}
-                    className="rounded-md px-4 py-2 text-sm font-semibold text-[#f2efe6]"
-                    style={{ backgroundColor: accent }}
+                    className="rounded-md bg-[#17150f] px-4 py-2 text-sm font-semibold text-[#f2efe6]"
                   >
                     Share ↗
                   </button>
