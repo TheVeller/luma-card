@@ -61,7 +61,7 @@ function EventBadgePage() {
   });
 
   const [firstName, setFirstName] = useState("");
-  const [role, setRole] = useState("CREATOR");
+  const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
   const [heroDataUrl, setHeroDataUrl] = useState<string | null>(null);
@@ -70,6 +70,8 @@ function EventBadgePage() {
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [galleryKey, setGalleryKey] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const coverProxy = proxied(event?.coverUrl ?? null);
