@@ -4,23 +4,35 @@ import { useEffect, useRef, useState } from "react";
 import type { StyleSpec } from "@/lib/style-spec";
 import { normalizeStyleSpec } from "@/lib/style-spec";
 
+export type BadgeChatEventContext = {
+  name: string;
+  city?: string | null;
+  dateLine?: string;
+  description?: string | null;
+  coverUrl?: string | null;
+};
+
 type Props = {
   spec: StyleSpec;
-  eventName: string;
+  eventContext: BadgeChatEventContext;
   onSpecChange: (spec: StyleSpec) => void;
 };
 
-export function BadgeChat({ spec, eventName, onSpecChange }: Props) {
+export function BadgeChat({ spec, eventContext, onSpecChange }: Props) {
   const specRef = useRef(spec);
+  const ctxRef = useRef(eventContext);
   useEffect(() => {
     specRef.current = spec;
   }, [spec]);
+  useEffect(() => {
+    ctxRef.current = eventContext;
+  }, [eventContext]);
 
   const [input, setInput] = useState("");
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat-badge",
-      body: () => ({ spec: specRef.current, eventName }),
+      body: () => ({ spec: specRef.current, eventContext: ctxRef.current }),
     }),
     onFinish: ({ message }) => {
       const parts = message.parts ?? [];
@@ -52,6 +64,8 @@ export function BadgeChat({ spec, eventName, onSpecChange }: Props) {
     if (!disabled) inputRef.current?.focus();
   }, [disabled]);
 
+  const starterPalette = [spec.palette.bg, spec.palette.accent, spec.palette.text];
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-hairline bg-surface/70">
       <div className="border-b border-hairline px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
@@ -59,8 +73,29 @@ export function BadgeChat({ spec, eventName, onSpecChange }: Props) {
       </div>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
         {messages.length === 0 && (
-          <div className="text-xs text-muted-foreground">
-            Try: "make it more punk", "use a serif heading", "warmer palette", "add a neon glow to the hero"
+          <div className="space-y-3 text-left">
+            <div className="inline-block max-w-[92%] rounded-2xl bg-surface-2 px-3.5 py-2.5 leading-snug text-foreground">
+              <div className="text-sm">
+                I've analyzed <b>{eventContext.name}</b>. It reads as{" "}
+                <span className="text-accent">{spec.mood}</span> · style{" "}
+                <span className="font-mono text-xs">{spec.style}</span>.
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                {starterPalette.map((c) => (
+                  <span
+                    key={c}
+                    className="inline-block h-4 w-4 rounded border border-hairline"
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+                <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                  {spec.fonts.heading} · {spec.fonts.body}
+                </span>
+              </div>
+              <div className="mt-3 text-xs text-muted-foreground">
+                Try: "make it more editorial", "use a serif heading", "warmer palette", "shift accent to rust".
+              </div>
+            </div>
           </div>
         )}
         {messages.map((m) => {

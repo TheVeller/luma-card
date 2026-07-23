@@ -1,8 +1,7 @@
 // Client-side canvas badge composer.
-// Themed per event via a StyleSpec (palette + Google Fonts).
-//
-// Layout is dynamic: content is stacked in vertical bands with computed Y
-// positions so nothing overlaps regardless of name length or headline size.
+// Overlap-proof: the layout is a single vertical stack of measured bands.
+// Photo shrinks (in 20px steps) if content would exceed the frame; text
+// bands auto-shrink and wrap but never squeeze into each other.
 
 import QRCode from "qrcode";
 import { effectiveAccent, isMonoPalette, type StyleSpec } from "./style-spec";
@@ -19,7 +18,7 @@ export type EventTheme = {
 const W = 1080;
 const H = 1600;
 const MARGIN = 26;
-const PAD = 66;
+const INNER_PAD = 66;
 
 async function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -36,6 +35,23 @@ function withAlpha(hex: string, alpha: number): string {
   if (!m) return `rgba(0,0,0,${alpha})`;
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+function drawContainImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bg: string,
+) {
+  ctx.fillStyle = bg;
+  ctx.fillRect(x, y, w, h);
+  const ratio = Math.min(w / img.width, h / img.height);
+  const iw = img.width * ratio;
+  const ih = img.height * ratio;
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 
 function drawCircleImage(
@@ -64,23 +80,6 @@ function drawCircleImage(
   ctx.stroke();
 }
 
-function drawContainImage(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  bg: string,
-) {
-  ctx.fillStyle = bg;
-  ctx.fillRect(x, y, w, h);
-  const ratio = Math.min(w / img.width, h / img.height);
-  const iw = img.width * ratio;
-  const ih = img.height * ratio;
-  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
-}
-
 async function generateQrDataUrl(url: string, spec: StyleSpec, size: number): Promise<string> {
   return QRCode.toDataURL(url, {
     errorCorrectionLevel: "M",
@@ -90,26 +89,7 @@ async function generateQrDataUrl(url: string, spec: StyleSpec, size: number): Pr
   });
 }
 
-function fitFont(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  weight: string,
-  family: string,
-  startSize: number,
-  minSize: number,
-  maxWidth: number,
-): number {
-  let size = startSize;
-  while (size > minSize) {
-    ctx.font = `${weight} ${size}px ${family}`;
-    if (ctx.measureText(text).width <= maxWidth) return size;
-    size -= 2;
-  }
-  ctx.font = `${weight} ${minSize}px ${family}`;
-  return minSize;
-}
-
-function wrapLines(
+function fitLines(
   ctx: CanvasRenderingContext2D,
   text: string,
   weight: string,
@@ -118,8 +98,8 @@ function wrapLines(
   minSize: number,
   maxWidth: number,
   maxLines: number,
-): { lines: string[]; size: number } {
-  for (let size = startSize; size >= minSize; size -= 4) {
+): { lines: string[]; size: number; lineHeight: number } {
+  for (let size = startSize; size >= minSize; size -= 2) {
     ctx.font = `${weight} ${size}px ${family}`;
     const words = text.split(" ");
     const lines: string[] = [];
@@ -134,8 +114,11 @@ function wrapLines(
       }
     }
     if (current) lines.push(current);
-    if (lines.length <= maxLines) return { lines, size };
+    if (lines.length <= maxLines && lines.every((l) => ctx.measureText(l).width <= maxWidth)) {
+      return { lines, size, lineHeight: Math.round(size * 1.08) };
+    }
   }
+  // Final fallback: hard-truncate with ellipsis
   ctx.font = `${weight} ${minSize}px ${family}`;
   const words = text.split(" ");
   const lines: string[] = [];
@@ -143,15 +126,42 @@ function wrapLines(
   for (const w of words) {
     const test = current ? current + " " + w : w;
     if (ctx.measureText(test).width > maxWidth && current) {
+      if (lines.length + 1 >= maxLines) {
+        // ellipsize
+        let last = test;
+        while (ctx.measureText(last + "…").width > maxWidth && last.length > 1)
+          last = last.slice(0, -1);
+        lines.push(last + "…");
+        break;
+      }
       lines.push(current);
       current = w;
     } else {
       current = test;
     }
-    if (lines.length >= maxLines) break;
   }
   if (current && lines.length < maxLines) lines.push(current);
-  return { lines: lines.slice(0, maxLines), size: minSize };
+  return { lines: lines.slice(0, maxLines), size: minSize, lineHeight: Math.round(minSize * 1.08) };
+}
+
+function fitSingle(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  weight: string,
+  family: string,
+  startSize: number,
+  minSize: number,
+  maxWidth: number,
+): { text: string; size: number } {
+  for (let size = startSize; size >= minSize; size -= 2) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(text).width <= maxWidth) return { text, size };
+  }
+  // Ellipsize at min size
+  ctx.font = `${weight} ${minSize}px ${family}`;
+  let t = text;
+  while (ctx.measureText(t + "…").width > maxWidth && t.length > 1) t = t.slice(0, -1);
+  return { text: t + "…", size: minSize };
 }
 
 function displayUrl(raw: string): string {
@@ -170,9 +180,29 @@ export type BadgeInputs = {
   photoDataUrl: string;
   firstName: string;
   role: string;
-  /** kept for backwards-compat with callers; ignored — hero feature is removed. */
-  heroDataUrl?: string | null;
+  heroDataUrl?: string | null; // ignored, kept for back-compat
 };
+
+type Band = { name: string; x: number; y: number; w: number; h: number };
+
+function assertNoOverlap(bands: Band[]) {
+  for (let i = 0; i < bands.length; i++) {
+    for (let j = i + 1; j < bands.length; j++) {
+      const a = bands[i], b = bands[j];
+      if (
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y
+      ) {
+        console.warn(
+          `[badge-render] overlap between ${a.name} and ${b.name}`,
+          { a, b },
+        );
+      }
+    }
+  }
+}
 
 export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
   const { theme, spec, photoDataUrl, firstName, role } = inputs;
@@ -185,15 +215,14 @@ export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElemen
   const HEAD = `"${spec.fonts.heading}", ui-sans-serif, system-ui, sans-serif`;
   const MONO = `"${spec.fonts.body}", ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textBaseline = "top";
-
   const ACCENT = effectiveAccent(spec);
   const mono = isMonoPalette(spec);
 
-  // ---------- Paper ----------
+  // Paper
   ctx.fillStyle = P.bg;
   ctx.fillRect(0, 0, W, H);
 
-  // ---------- Frame ----------
+  // Frame
   ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 3;
   ctx.strokeRect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2);
@@ -201,82 +230,156 @@ export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElemen
   ctx.lineWidth = 1;
   ctx.strokeRect(MARGIN + 10, MARGIN + 10, W - (MARGIN + 10) * 2, H - (MARGIN + 10) * 2);
 
-  // ---------- Header vertical bands ----------
+  // Preload photo (needed for measurement stability); cover is optional
+  const photo = await loadImage(photoDataUrl);
+  const seal = theme.coverUrl ? await loadImage(theme.coverUrl).catch(() => null) : null;
+
+  // ==== Measurement pass ====
+  // Available inner box (inside frame padding)
+  const innerX = MARGIN + INNER_PAD * 0.34; // ~48
+  const innerRight = W - MARGIN - INNER_PAD * 0.34;
+  const innerW = innerRight - innerX;
+
+  // Header
+  const SEAL_SIZE = 148;
+  const SEAL_MARGIN = 24;
+  const headerReservedRight = seal ? SEAL_SIZE + SEAL_MARGIN : 0;
+  const headerW = innerW - headerReservedRight;
+  const kickerH = 22; // "· WHAT'S BREWING?" line
+  const gapKickerHead = 14;
+
+  const nameUpper = theme.name.toUpperCase();
+  const head = fitLines(ctx, nameUpper, "900", HEAD, 88, 40, headerW, 2);
+
+  // Meta row (city + date)
+  const cityText = theme.subtitle.toUpperCase();
+  const dateText = theme.dateLine;
+  ctx.font = `700 22px ${MONO}`;
+  const cityW = ctx.measureText(cityText).width;
+  ctx.font = `400 22px ${MONO}`;
+  const dateW = ctx.measureText(dateText).width;
+  const metaFitsOneLine = cityW + 32 + dateW <= headerW;
+  const metaH = metaFitsOneLine ? 22 : 22 + 8 + 22;
+  const gapHeadMeta = 14;
+
   const HEADER_TOP = MARGIN + 44;
-  const headerRightReserve = 200;
-  const headerMaxWidth = W - PAD - headerRightReserve;
+  const headerBlockH =
+    kickerH + gapKickerHead + head.lines.length * head.lineHeight + gapHeadMeta + metaH;
+  // Ensure seal fits: header block minimum height = seal size + small padding
+  const headerH = Math.max(headerBlockH, seal ? SEAL_SIZE + 8 : headerBlockH);
+  const HEADER_BOTTOM = HEADER_TOP + headerH;
+
+  // Gap before photo
+  const gapHeaderPhoto = 40;
+
+  // Photo (start big and shrink to fit)
+  let PHOTO_SIZE = 680;
+  const PHOTO_MIN = 380;
+
+  // Caption
+  const captionH = 22;
+  const gapPhotoCaption = 22;
+
+  // Name band
+  const nameStr = firstName.toUpperCase();
+  const name = fitLines(ctx, nameStr, "900", HEAD, 104, 42, innerW, 2);
+  const gapCaptionName = 40;
+
+  // Role
+  const roleStr = `→ ${role.toUpperCase()}`;
+  const roleFit = fitSingle(ctx, roleStr, "700", MONO, 26, 16, innerW);
+  const gapNameRole = 12;
+
+  // Divider
+  const dividerH = 3;
+  const gapRoleDivider = 18;
+
+  // Scan block
+  const QR_SIZE = 156;
+  const QR_PAD = 8;
+  const scanBlockH = Math.max(QR_SIZE + QR_PAD * 2, 152);
+  const gapDividerScan = 32;
+
+  // Footer
+  const footerH = 22;
+  const gapScanFooter = 24;
+
+  const fixedContentBelowPhoto =
+    gapPhotoCaption +
+    captionH +
+    gapCaptionName +
+    name.lines.length * name.lineHeight +
+    gapNameRole +
+    roleFit.size +
+    gapRoleDivider +
+    dividerH +
+    gapDividerScan +
+    scanBlockH +
+    gapScanFooter +
+    footerH;
+
+  const availForPhoto =
+    H - MARGIN - INNER_PAD * 0.5 - HEADER_BOTTOM - gapHeaderPhoto - fixedContentBelowPhoto;
+  // Also can't exceed inner width
+  const maxPhoto = Math.min(innerW, availForPhoto);
+  PHOTO_SIZE = Math.max(PHOTO_MIN, Math.min(PHOTO_SIZE, Math.floor(maxPhoto)));
+
+  // ==== Paint pass ====
+  const bands: Band[] = [];
 
   // Kicker
   ctx.fillStyle = ACCENT;
   ctx.font = `700 20px ${MONO}`;
-  ctx.fillText("· WHAT'S BREWING?", PAD, HEADER_TOP);
+  ctx.fillText("· WHAT'S BREWING?", innerX, HEADER_TOP);
+  bands.push({ name: "kicker", x: innerX, y: HEADER_TOP, w: headerW, h: kickerH });
 
   // Headline
-  const nameUpper = theme.name.toUpperCase();
-  const { lines: headLines, size: headSize } = wrapLines(
-    ctx, nameUpper, "900", HEAD, 96, 48, headerMaxWidth, 2,
-  );
   ctx.fillStyle = P.text;
-  ctx.font = `900 ${headSize}px ${HEAD}`;
-  let y = HEADER_TOP + 34;
-  for (const line of headLines) {
-    ctx.fillText(line, PAD, y);
-    y += headSize + 6;
+  ctx.font = `900 ${head.size}px ${HEAD}`;
+  const headY = HEADER_TOP + kickerH + gapKickerHead;
+  let hy = headY;
+  for (const line of head.lines) {
+    ctx.fillText(line, innerX, hy);
+    hy += head.lineHeight;
   }
+  bands.push({ name: "headline", x: innerX, y: headY, w: headerW, h: head.lines.length * head.lineHeight });
 
-  // Meta row: city (left) + date (right) — same baseline, mono, no collision
-  y += 12;
-  const metaSize = 22;
-  const cityText = theme.subtitle.toUpperCase();
-  const dateText = theme.dateLine;
-  ctx.font = `700 ${metaSize}px ${MONO}`;
+  // Meta
+  const metaY = headY + head.lines.length * head.lineHeight + gapHeadMeta;
+  ctx.font = `700 22px ${MONO}`;
   ctx.fillStyle = ACCENT;
-  ctx.fillText(cityText, PAD, y);
-  const cityWidth = ctx.measureText(cityText).width;
-
-  // Date right-aligned within the same headerMaxWidth column
+  ctx.fillText(cityText, innerX, metaY);
+  ctx.font = `400 22px ${MONO}`;
   ctx.fillStyle = withAlpha(P.text, 0.7);
-  ctx.font = `400 ${metaSize}px ${MONO}`;
-  const dateWidth = ctx.measureText(dateText).width;
-  const dateRightEdge = PAD + headerMaxWidth;
-  // If city + date overlap, stack date on next line
-  const canFitOnSameLine = PAD + cityWidth + 28 + dateWidth <= dateRightEdge;
-  if (canFitOnSameLine) {
-    ctx.fillText(dateText, dateRightEdge - dateWidth, y);
+  if (metaFitsOneLine) {
+    ctx.fillText(dateText, innerX + headerW - dateW, metaY);
   } else {
-    ctx.fillText(dateText, PAD, y + metaSize + 6);
+    ctx.fillText(dateText, innerX, metaY + 22 + 8);
+  }
+  bands.push({ name: "meta", x: innerX, y: metaY, w: headerW, h: metaH });
+
+  // Seal (top-right)
+  if (seal) {
+    const sealCx = innerRight - SEAL_SIZE / 2;
+    const sealCy = HEADER_TOP + SEAL_SIZE / 2 - 4;
+    drawCircleImage(ctx, seal, sealCx, sealCy, SEAL_SIZE / 2, P.text);
+    bands.push({
+      name: "seal",
+      x: sealCx - SEAL_SIZE / 2,
+      y: sealCy - SEAL_SIZE / 2,
+      w: SEAL_SIZE,
+      h: SEAL_SIZE,
+    });
   }
 
-  const HEADER_BOTTOM = 380;
-
-  // Seal (cover as circle) top-right
-  if (theme.coverUrl) {
-    try {
-      const seal = await loadImage(theme.coverUrl);
-      const sealSize = 148;
-      drawCircleImage(
-        ctx, seal,
-        W - MARGIN - 36 - sealSize / 2,
-        HEADER_TOP + sealSize / 2 - 8,
-        sealSize / 2, P.text,
-      );
-    } catch {}
-  }
-
-  // ---------- Photo ----------
-  const PHOTO_TOP = HEADER_BOTTOM + 20;
-  const PHOTO_SIZE = 700;
+  // Photo — centered horizontally
+  const PHOTO_TOP = HEADER_BOTTOM + gapHeaderPhoto;
   const PHOTO_LEFT = (W - PHOTO_SIZE) / 2;
-  const PHOTO_BOTTOM = PHOTO_TOP + PHOTO_SIZE;
-
-  const photo = await loadImage(photoDataUrl);
   drawContainImage(ctx, photo, PHOTO_LEFT, PHOTO_TOP, PHOTO_SIZE, PHOTO_SIZE, P.surface);
-
   ctx.strokeStyle = withAlpha(ACCENT, mono ? 0.6 : 1);
   ctx.lineWidth = 2;
   ctx.strokeRect(PHOTO_LEFT, PHOTO_TOP, PHOTO_SIZE, PHOTO_SIZE);
-
-  // Finer corner brackets
+  // Corner brackets
   const cornerLen = 36;
   const cornerThick = 5;
   const corners = [
@@ -290,94 +393,94 @@ export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElemen
     ctx.fillRect(c.x, c.y, cornerLen, cornerThick);
     ctx.fillRect(c.hFlip ? c.x + cornerLen - cornerThick : c.x, c.y, cornerThick, cornerLen);
   }
+  bands.push({ name: "photo", x: PHOTO_LEFT, y: PHOTO_TOP, w: PHOTO_SIZE, h: PHOTO_SIZE });
 
-  // Caption under photo — real date line, centered
-  const CAPTION_Y = PHOTO_BOTTOM + 22;
+  // Caption
+  const CAPTION_Y = PHOTO_TOP + PHOTO_SIZE + gapPhotoCaption;
   ctx.fillStyle = withAlpha(P.text, 0.5);
   ctx.font = `400 18px ${MONO}`;
   ctx.textAlign = "center";
   ctx.fillText(`· ${theme.dateLine} ·`, W / 2, CAPTION_Y);
   ctx.textAlign = "left";
+  bands.push({ name: "caption", x: innerX, y: CAPTION_Y, w: innerW, h: captionH });
 
-  // ---------- Name band ----------
-  const NAME_TOP = CAPTION_Y + 46;
-  const nameStr = firstName.toUpperCase();
-  const nameMaxW = W - PAD * 2;
-  const { lines: nameLines, size: nameSize } = wrapLines(
-    ctx, nameStr, "900", HEAD, 110, 44, nameMaxW, 2,
-  );
+  // Name band
+  const NAME_TOP = CAPTION_Y + captionH + gapCaptionName;
   ctx.fillStyle = P.text;
-  ctx.font = `900 ${nameSize}px ${HEAD}`;
+  ctx.font = `900 ${name.size}px ${HEAD}`;
   let ny = NAME_TOP;
-  for (const line of nameLines) {
-    ctx.fillText(line, PAD, ny);
-    ny += nameSize + 6;
+  for (const line of name.lines) {
+    ctx.fillText(line, innerX, ny);
+    ny += name.lineHeight;
   }
+  bands.push({ name: "name", x: innerX, y: NAME_TOP, w: innerW, h: name.lines.length * name.lineHeight });
 
-  // ---------- Role ----------
-  const ROLE_Y = ny + 8;
-  const roleStr = `→ ${role.toUpperCase()}`;
-  const roleSize = fitFont(ctx, roleStr, "700", MONO, 26, 16, nameMaxW);
+  // Role
+  const ROLE_Y = NAME_TOP + name.lines.length * name.lineHeight + gapNameRole;
   ctx.fillStyle = ACCENT;
-  ctx.font = `700 ${roleSize}px ${MONO}`;
-  ctx.fillText(roleStr, PAD, ROLE_Y);
+  ctx.font = `700 ${roleFit.size}px ${MONO}`;
+  ctx.fillText(roleFit.text, innerX, ROLE_Y);
+  bands.push({ name: "role", x: innerX, y: ROLE_Y, w: innerW, h: roleFit.size });
 
   // Divider
-  const DIVIDER_Y = ROLE_Y + roleSize + 16;
+  const DIVIDER_Y = ROLE_Y + roleFit.size + gapRoleDivider;
   ctx.fillStyle = ACCENT;
-  ctx.fillRect(PAD, DIVIDER_Y, 200, 3);
+  ctx.fillRect(innerX, DIVIDER_Y, 200, dividerH);
   ctx.fillStyle = withAlpha(P.text, 0.16);
-  ctx.fillRect(PAD + 208, DIVIDER_Y + 1, W - (PAD + 208) - PAD, 1);
+  ctx.fillRect(innerX + 208, DIVIDER_Y + 1, innerW - 208, 1);
+  bands.push({ name: "divider", x: innerX, y: DIVIDER_Y, w: innerW, h: dividerH });
 
-  // ---------- Scan / QR band ----------
-  const QR_SIZE = 156;
-  const QR_X = W - MARGIN - 40 - QR_SIZE;
-  const QR_Y = Math.max(DIVIDER_Y + 42, 1330);
-  const scanTextX = PAD;
-  const scanTextMaxW = QR_X - PAD - 24;
+  // Scan block
+  const SCAN_Y = DIVIDER_Y + dividerH + gapDividerScan;
+  const QR_X = innerRight - QR_SIZE;
+  const QR_Y = SCAN_Y;
+  const scanTextMaxW = QR_X - innerX - 24;
 
   ctx.fillStyle = P.text;
   ctx.font = `700 16px ${MONO}`;
-  ctx.fillText("SCAN →", scanTextX, QR_Y + 4);
-
+  ctx.fillText("SCAN →", innerX, QR_Y + 4);
   ctx.fillStyle = withAlpha(P.text, 0.55);
   ctx.font = `400 14px ${MONO}`;
-  ctx.fillText("REGISTER FOR THIS EVENT", scanTextX, QR_Y + 30);
+  ctx.fillText("REGISTER FOR THIS EVENT", innerX, QR_Y + 30);
 
   const urlText = displayUrl(theme.url);
-  const { lines: urlLines, size: urlSize } = wrapLines(
-    ctx, urlText, "700", MONO, 20, 12, scanTextMaxW, 2,
-  );
+  const urlFit = fitLines(ctx, urlText, "700", MONO, 20, 12, scanTextMaxW, 2);
   ctx.fillStyle = P.text;
-  ctx.font = `700 ${urlSize}px ${MONO}`;
+  ctx.font = `700 ${urlFit.size}px ${MONO}`;
   let uy = QR_Y + 62;
-  for (const line of urlLines) {
-    ctx.fillText(line, scanTextX, uy);
-    uy += urlSize + 4;
+  for (const line of urlFit.lines) {
+    ctx.fillText(line, innerX, uy);
+    uy += urlFit.lineHeight;
   }
+  bands.push({ name: "scan-text", x: innerX, y: QR_Y, w: scanTextMaxW, h: scanBlockH });
 
   const qrDataUrl = await generateQrDataUrl(theme.url, spec, QR_SIZE);
   const qrImg = await loadImage(qrDataUrl);
   ctx.fillStyle = P.surface;
-  ctx.fillRect(QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16);
+  ctx.fillRect(QR_X - QR_PAD, QR_Y - QR_PAD, QR_SIZE + QR_PAD * 2, QR_SIZE + QR_PAD * 2);
   ctx.strokeStyle = withAlpha(P.text, 0.2);
   ctx.lineWidth = 1;
-  ctx.strokeRect(QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16);
+  ctx.strokeRect(QR_X - QR_PAD, QR_Y - QR_PAD, QR_SIZE + QR_PAD * 2, QR_SIZE + QR_PAD * 2);
   ctx.drawImage(qrImg, QR_X, QR_Y, QR_SIZE, QR_SIZE);
+  bands.push({ name: "qr", x: QR_X - QR_PAD, y: QR_Y - QR_PAD, w: QR_SIZE + QR_PAD * 2, h: QR_SIZE + QR_PAD * 2 });
 
-  // ---------- Footer ----------
+  // Footer
+  const FOOTER_Y = Math.max(SCAN_Y + scanBlockH + gapScanFooter, H - MARGIN - 40);
   const footerText = `${theme.name.toLowerCase()} · powered by luma_`;
+  const footerFit = fitSingle(ctx, footerText, "400", MONO, 18, 12, innerW);
   ctx.fillStyle = withAlpha(P.text, 0.4);
-  const footerSize = fitFont(ctx, footerText, "400", MONO, 18, 12, W - PAD * 2);
-  ctx.font = `400 ${footerSize}px ${MONO}`;
+  ctx.font = `400 ${footerFit.size}px ${MONO}`;
   ctx.textAlign = "center";
-  ctx.fillText(footerText, W / 2, H - 60);
+  ctx.fillText(footerFit.text, W / 2, FOOTER_Y);
   ctx.textAlign = "left";
+  bands.push({ name: "footer", x: innerX, y: FOOTER_Y, w: innerW, h: footerH });
+
+  if (import.meta.env.DEV) assertNoOverlap(bands);
 
   return canvas;
 }
 
-// Legacy pixel-based accent extractor (used as fallback when AI hasn't answered yet).
+// Legacy pixel accent (kept for callers that still import it).
 export async function extractAccent(imageUrl: string, fallback = "#2970ef"): Promise<string> {
   try {
     const img = await loadImage(imageUrl);

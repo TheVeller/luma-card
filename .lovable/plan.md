@@ -1,69 +1,88 @@
-## 1. Compact sort selector, moved next to Export
+Improve badge generation end-to-end: sharper AI style detection, guaranteed non-overlapping layout, gallery clear + manual delete, chat that already knows the event on turn 1, and a Templates section built from the 6 historical eras so any style can be re-applied to any event.
 
-- Remove the standalone Nearest / Newest / Oldest pill group from the filters row in `src/routes/_authenticated/events.tsx`.
-- Add a small dropdown (icon + label, ~90 px wide) next to the Export button in the top-right actions row:
-  - Default label: "Sort: Nearest".
-  - Menu items: Nearest (default), Newest, Oldest.
-  - Same visual style as the Export dropdown (hairline pill, glass menu).
-- Keep the sort logic unchanged; only the UI moves and shrinks.
+## 1 · Sharper AI style detection (`src/lib/style-analyze.functions.ts`)
 
-## 2. Fix "Style analysis failed on both primary and fallback models"
+Current model returns a bucket + rough palette, but the palette often ignores what the cover actually contains.
 
-Root cause confirmed from dev-server logs: the Vercel AI Gateway is returning `400 invalid_request_error, param: response_format`. The AI SDK's OpenAI-compatible provider is still emitting a `response_format` field on requests with image parts, which Vercel's Gemini route rejects.
+Changes:
+- Keep the raw `fetch` path to the Vercel gateway (works today).
+- Rewrite the prompt: return **two** things — the classifier bucket **and** an evidence-first palette (`dominant`, `secondary`, `accent`, `text`, `surface`, `bg`) with each color justified by ~1 sentence, then fold that into the existing `StyleSpec` shape.
+- Add explicit rules: don't invent hues absent from the cover; pick the accent from the highest-chroma pixel family, not the largest area; if the cover is truly monochrome, accent = darkest ink; require WCAG-legible `text on bg` (compute contrast, retry once with a corrected text color if below 4.5:1).
+- Send the cover **both** as a URL and as a base64 fallback in case Gemini refuses the CORS URL; keep the `gemini-2.5-pro → gemini-2.5-flash` fallback ladder.
+- Extract a small on-device swatch (existing `extractAccent` logic, generalized to top-5 buckets) and pass it in the prompt as "pixel evidence"; the model must reconcile its choice with that evidence.
 
-Fixes, in order:
-- Stop routing through `@ai-sdk/openai-compatible` for this call. Replace `generateText` with a direct `fetch` POST to Vercel's OpenAI-compatible chat endpoint (`https://ai-gateway.vercel.sh/v1/chat/completions`) built by hand so we control the body exactly — no `response_format`, standard OpenAI multimodal `content` blocks (`type: "text"` + `type: "image_url"` with `image_url.url`).
-- Data-URL the cover before sending: cover URLs pass through `/api/public/image` today for CORS on canvas, but the model can fetch remote URLs directly — we'll pass the raw Luma CDN URL as `image_url.url`.
-- Model choice: primary `google/gemini-2.5-pro`, fallback `google/gemini-2.5-flash`. Log both statuses + response bodies on failure.
-- Keep the JSON-in-prompt + `extractJson` + `StyleSpecSchema.safeParse` path; surface a clearer error to the UI when both models fail (include HTTP status).
-- Verify by hitting `↻ Re-detect` on an event and reading dev-server logs.
+## 2 · Badge layout: zero overlaps, dynamic packing (`src/lib/badge-render.ts`)
 
-## 3. Light mode + dark/light toggle
+Rewrite the layout as a single-column vertical stack with **measured** band heights and hard gaps, so nothing collides regardless of name length, wrap depth, or role length.
 
-- Extend `src/styles.css`:
-  - Give `:root` the light palette (cream `#f7f6f1` bg, deep charcoal text, subtle warm accent — Luma light feel).
-  - Move current dark values into `.dark { ... }` so `<html class="dark">` activates dark mode.
-- Add a `ThemeProvider` (small React context) + `useTheme` hook in `src/components/ThemeProvider.tsx`:
-  - Persists to `localStorage("theme")` with values `light | dark | system`.
-  - Applies/removes `.dark` on `<html>`; respects `prefers-color-scheme` when `system`.
-  - Reads initial value inside `useEffect` to avoid SSR hydration mismatch (default to `dark` during SSR to preserve current look).
-- Wrap the app in `ThemeProvider` inside `src/routes/__root.tsx`.
-- Add a compact icon toggle button (sun/moon) in the authenticated header (`src/routes/_authenticated/route.tsx`), sitting next to the calendar switcher.
-- The badge canvas keeps its per-event palette — theme only affects the app shell, not the generated badge.
+Sections top→bottom, each with a computed `y` and a fixed `gap` after:
+1. Frame (margin + inner hairline).
+2. Header block: kicker → wrapped headline (max 3 lines, auto-shrink) → meta row (city + date, right-aligned; falls to next line if width < sum).
+3. Seal (cover as circle) — anchored to the **header block's** top-right, sized to fit the reserved column; if headline would collide, seal moves below meta row instead of into it.
+4. Photo square — centered, size clamped to `W − PAD·2` and to remaining budget.
+5. Caption (date line) — centered under photo.
+6. Name band (auto-shrink + wrap up to 2 lines).
+7. Role line (auto-shrink, single line, ellipsis).
+8. Divider.
+9. Scan block: left column (SCAN → / description / wrapped URL) and right column (QR). QR width is **subtracted** from left column's `maxWidth` so URL never runs under the QR.
+10. Footer.
 
-## 4. Historical seed uses the real PNGs from `event-badge-history`
+Then the renderer computes total content height. If it exceeds `H − MARGIN·2`, it uniformly reduces the photo size (in 20px steps) until it fits — never squeezes text or lets bands overlap. Every `fillText` is preceded by a rect measurement, so debug builds can assert no two bounding boxes intersect (added assertion in a dev-only guard).
 
-Today `seed-history.ts` re-renders each badge locally via `renderBadge`, which produces mismatched output (wrong palette on Cursor, off fonts, overlaps). The repo already ships the canonical PNGs. Switch the admin seed to use those directly.
+## 3 · Gallery wipe + manual delete
 
-- Copy the 6 code-brew-bog PNGs into the project as static assets: `src/assets/history/era1-code-brew.png` … `era6-codebrew-sv.png` (fetched from `raw.githubusercontent.com/crafter-station/event-badge-history/main/badges/code-brew-bog/...`).
-- Rewrite `src/lib/seed-history.ts`:
-  - Replace `HISTORIC_EVENT_NAMES` with a `HISTORIC_ERAS` table encoding each era's canonical event name, date hint, palette, and the imported asset URL:
-    ```ts
-    { id: "era1", name: "Code Brew (original)", aliases: ["Code Brew"], asset: era1 }
-    { id: "era2", name: "v0 / Zero to Agent", aliases: ["v0 Zero-to-Agent", "Zero to Agent"], asset: era2 }
-    { id: "era3", name: "The GTM Hackathon", aliases: ["GTM Hackathon"], asset: era3 }
-    { id: "era4", name: "Cursor Meetup", aliases: ["Cursor Meetup Bogotá"], asset: era4 }
-    { id: "era5", name: "Cursor Buildathon El Salvador 2026", aliases: ["Cursor Buildathon", "Buildathon SV"], asset: era5 }
-    { id: "era6", name: "Code Brew El Salvador", aliases: ["Code Brew SV"], asset: era6 }
-    ```
-  - Improve `scoreMatch`: use max(canonical, aliases) instead of a single target, keep the token-set fallback, raise the acceptance threshold to `0.6`.
-  - For each match, fetch the imported PNG (`fetch(asset)` → blob) and upload directly to `storage/badges/{eventId}/{uuid}.png` with `first_name = "Ignacio Velásquez"`, `role = "Founder, GPT Chain"`, `user_id = auth.uid()`.
-  - Drop the `analyze` + `renderBadge` + font-loading path from this file — the seed no longer analyzes or renders; the `analyze` parameter and `SeedProgress.rendering` phase remain compatible but do nothing.
-- The gallery route already reads from `badges` + storage, so seeded rows show up unchanged, but now with the real, well-composed PNGs.
-- Result on Ignacio's account: each matched event gets the canonical, correctly-styled historical badge (Cursor palette on Cursor events, red/black on Code Brew, etc.), no more Luma-blue leaks.
+**DB migration** (`badges` policies + storage):
+- Add DELETE policy on `public.badges` for `authenticated` where `auth.uid() = user_id`.
+- Add storage.objects DELETE policy on the `badges` bucket for the owner (via joining `badges.image_path`).
+
+**Wipe existing 9**: server function `wipeMyBadges()` — auth-only, deletes all `badges` rows for the current user + removes their storage objects. Exposed as a button on `/gallery` behind a confirm dialog labeled "Clear my gallery (9)".
+
+**Manual delete per badge**: 
+- Add `deleteBadge({ id })` server function (auth-only, owner-scoped, deletes DB row + storage object).
+- Add a trash icon on each gallery tile and inside the lightbox on `/gallery` and `/e/$eventId`'s `EventBadgeGallery`.
+- Both invalidate the `["all-badges"]` and `["badges", eventId]` query keys.
+
+## 4 · Chat context on turn 1 (`src/components/BadgeChat.tsx` + `src/routes/api/chat-badge.ts`)
+
+Today the chat only knows `spec` + `eventName`. It should also know the cover analysis and event metadata immediately, so the first user turn can be as short as "make it warmer" and the model already has full context.
+
+Changes:
+- `BadgeChat` receives `eventContext`: `{ name, date, city, description, coverUrl, initialSpec, styleEvidence }` (styleEvidence = the palette + mood from the analyzer). Passed straight through in the transport body.
+- Server route embeds `eventContext` into the system prompt as a compact briefing block (name / date / city / cover URL / 200-char description / current spec + evidence).
+- Seed one **assistant** starter message client-side (no model call): "I've analyzed <event>. It reads as <mood>, palette <bg / accent / text>. Try: 'make it more editorial', 'add a serif heading', 'shift to warm cream'."
+- Keep the multimodal image part in the first message: attach the cover as `image_url` in the initial system-adjacent user turn (once, at conversation init), so the model can look at the art itself if asked "why this palette?".
+
+## 5 · Templates system (new)
+
+Six historical eras are already bundled as PNGs. Promote them from a one-shot seed to a first-class **template library** any user can browse and apply.
+
+**DB migration** — new table `public.templates`:
+- `id uuid pk`, `slug text unique`, `name text`, `description text`, `style_spec jsonb`, `preview_path text` (path in `badges` bucket or a new `templates` bucket), `source_url text` (github link), `is_system boolean`, `created_by uuid`, `created_at`.
+- Grants + RLS: public SELECT for system templates and each user's own, authenticated INSERT/UPDATE/DELETE only on their own rows, service_role full.
+
+**Storage**: reuse `badges` bucket under `templates/` prefix (already public), or create a `templates` bucket via `storage_create_bucket` — will use existing bucket to avoid a new one.
+
+**Server functions** (`src/lib/templates.functions.ts`): `listTemplates`, `createTemplate` (from a saved badge or upload), `deleteTemplate` (own only), `applyTemplate({ templateId })` returns its `StyleSpec`.
+
+**Seed migration**: inserts 6 rows (era1–era6) with hand-tuned `style_spec` derived from each cover, `preview_path` uploaded from `src/assets/history/*.png` (uploaded once via a one-shot server function on first admin visit, or via `supabase--storage_upload` at migration time), `is_system=true`.
+
+**UI**:
+- New route `src/routes/_authenticated/templates.tsx`: grid of templates with preview, name, palette swatches, "Apply to current event" (opens event picker), and for own templates a delete button.
+- On `/e/$eventId`: add a "Templates" tab next to the AI style panel — one click applies a template's `StyleSpec` to the current preview without touching the AI analysis (user can re-detect anytime).
+- Header nav gets a "Templates" link between Gallery and Settings.
+
+Existing `src/lib/seed-history.ts` becomes a thin wrapper that (a) ensures the 6 system templates exist and (b) still allows `ivelasquezfr@gmail.com` to bulk-materialize the historical badges into their personal gallery.
 
 ## Technical details
 
-Files changed:
-- `src/routes/_authenticated/events.tsx` — sort UI relocation.
-- `src/lib/style-analyze.functions.ts` — swap to raw `fetch` POST; drop `@ai-sdk/openai-compatible` for this call site.
-- `src/styles.css` — light theme in `:root`, dark theme in `.dark`.
-- `src/components/ThemeProvider.tsx` — new file.
-- `src/routes/__root.tsx` — wrap with `ThemeProvider`.
-- `src/routes/_authenticated/route.tsx` — theme toggle button.
-- `src/lib/seed-history.ts` — real PNGs, better matcher.
-- `src/assets/history/*.png` — 6 canonical historical badges.
+- **Style contrast helper**: add `wcagContrast(fg, bg)` in `style-spec.ts`; used inside `normalizeStyleSpec` to auto-correct text color when contrast < 4.5.
+- **Layout invariants**: `renderBadge` returns `{ canvas, bands }` in dev where `bands` is an array of `{ name, x, y, w, h }`; a `assertNoOverlap(bands)` runs in dev to catch regressions.
+- **Delete flow**: single `deleteBadgeIds(ids: string[])` server function used by both wipe and per-row delete; deletes storage objects first, then DB rows.
+- **Templates seed**: migration writes rows; a small server function `ensureSystemTemplatePreviews()` uploads the 6 bundled PNGs to storage on first call (idempotent by `slug`).
+- **Chat body size**: cover base64 is only sent on the FIRST turn of a conversation; subsequent turns include only the compact evidence block to keep tokens low.
 
-Out of scope for this iteration:
-- Adding `she-ships` / `vibecode-fest` historical PNGs (only `code-brew-bog` matches the current app's target — we can extend later if desired).
-- Retraining the runtime badge renderer to imitate era palettes (the seed uses the pre-rendered PNGs, so no renderer change needed for correctness on the admin-seeded gallery).
+## What stays untouched
+
+- Auth, Luma key encryption, calendar switcher, theme toggle, sort dropdown — all untouched.
+- Event list page, export dataset — untouched.
+- OG images / metadata — untouched (leaf routes already correct).

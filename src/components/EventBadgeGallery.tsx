@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { listBadgesForEvent, type BadgeEntry } from "@/lib/badges.functions";
+import { listBadgesForEvent, deleteMyBadges, type BadgeEntry } from "@/lib/badges.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 type Props = {
   eventId: string;
@@ -12,11 +13,35 @@ type Props = {
 
 export function EventBadgeGallery({ eventId, accent, refreshKey = 0 }: Props) {
   const fetchList = useServerFn(listBadgesForEvent);
+  const del = useServerFn(deleteMyBadges);
+  const qc = useQueryClient();
+
   const { data, isLoading } = useQuery({
     queryKey: ["badges", eventId, refreshKey],
     queryFn: () => fetchList({ data: { eventId, limit: 30 } }),
   });
   const [selected, setSelected] = useState<BadgeEntry | null>(null);
+  const [me, setMe] = useState<string | null>(null);
+
+  // Cache current user id lazily so we can show delete on rows we own
+  useState(() => {
+    void supabase.auth.getUser().then(({ data }) => setMe(data.user?.id ?? null));
+    return null;
+  });
+
+  const delMut = useMutation({
+    mutationFn: (ids: string[]) => del({ data: { ids } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["badges", eventId] });
+      qc.invalidateQueries({ queryKey: ["all-badges"] });
+      setSelected(null);
+    },
+  });
+
+  async function confirmDelete(b: BadgeEntry) {
+    if (!window.confirm(`Delete this badge for "${b.firstName}"?`)) return;
+    delMut.mutate([b.id]);
+  }
 
   return (
     <section className="mt-12">
@@ -40,22 +65,39 @@ export function EventBadgeGallery({ eventId, accent, refreshKey = 0 }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {data.map((b) => (
-            <button key={b.id} onClick={() => setSelected(b)} className="group text-left">
-              <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
-                <img
-                  src={b.publicUrl}
-                  alt={b.firstName}
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
-                />
+          {data.map((b) => {
+            const isMine = me && b.ownerId === me;
+            return (
+              <div key={b.id} className="group relative">
+                <button onClick={() => setSelected(b)} className="w-full text-left">
+                  <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
+                    <img
+                      src={b.publicUrl}
+                      alt={b.firstName}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
+                    />
+                  </div>
+                  <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
+                  {b.role && (
+                    <div className="truncate text-[11px] text-muted-foreground">{b.role}</div>
+                  )}
+                </button>
+                {isMine && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      confirmDelete(b);
+                    }}
+                    title="Delete badge"
+                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
-              <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
-              {b.role && (
-                <div className="truncate text-[11px] text-muted-foreground">{b.role}</div>
-              )}
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -72,6 +114,15 @@ export function EventBadgeGallery({ eventId, accent, refreshKey = 0 }: Props) {
                 {selected.role && <div className="text-xs text-white/70">{selected.role}</div>}
               </div>
               <div className="flex gap-2">
+                {me && selected.ownerId === me && (
+                  <button
+                    onClick={() => confirmDelete(selected)}
+                    disabled={delMut.isPending}
+                    className="rounded-full border border-destructive/60 px-4 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  >
+                    {delMut.isPending ? "…" : "Delete"}
+                  </button>
+                )}
                 <a
                   href={selected.publicUrl}
                   download={`${selected.firstName}-badge.png`}
