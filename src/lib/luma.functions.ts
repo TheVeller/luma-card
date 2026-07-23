@@ -124,6 +124,13 @@ export const getEvent = createServerFn({ method: "GET" })
     return data;
   })
   .handler(async ({ data, context }) => {
+    // Scraped events are stored locally; route directly.
+    if (data.id.startsWith("scr-")) {
+      const found = await readScrapedEventById(context.userId, data.id);
+      if (!found) throw new Error(`Event ${data.id} not found`);
+      return found as EventDTO;
+    }
+
     // With a specific calendarId, try that one directly.
     if (data.calendarId && data.calendarId !== "__all__") {
       const key = await resolveUserLumaKey(context.userId, data.calendarId);
