@@ -151,6 +151,19 @@ function GalleryPage() {
           <option value="name">Name (A→Z)</option>
           <option value="event">Event (A→Z)</option>
         </select>
+        {badges && badges.length > 0 && (
+          <button
+            onClick={() => {
+              if (window.confirm(`Delete ALL ${badges.length} of your badges? This cannot be undone.`)) {
+                wipeMut.mutate();
+              }
+            }}
+            disabled={wipeMut.isPending}
+            className="rounded-full border border-destructive/60 px-4 py-2 text-xs font-semibold text-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-40"
+          >
+            {wipeMut.isPending ? "Clearing…" : `Clear all (${badges.length})`}
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -166,23 +179,37 @@ function GalleryPage() {
           {filtered.map((b) => {
             const evName = eventById.get(b.eventId)?.name;
             return (
-              <button key={b.id} onClick={() => setSelected(b)} className="group text-left">
-                <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
-                  <img
-                    src={b.publicUrl}
-                    alt={b.firstName}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
-                  />
-                </div>
-                <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
-                {b.role && (
-                  <div className="truncate text-[11px] text-muted-foreground">{b.role}</div>
-                )}
-                <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {evName ?? b.eventId}
-                </div>
-              </button>
+              <div key={b.id} className="group relative">
+                <button onClick={() => setSelected(b)} className="w-full text-left">
+                  <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
+                    <img
+                      src={b.publicUrl}
+                      alt={b.firstName}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
+                    />
+                  </div>
+                  <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
+                  {b.role && (
+                    <div className="truncate text-[11px] text-muted-foreground">{b.role}</div>
+                  )}
+                  <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                    {evName ?? b.eventId}
+                  </div>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Delete this badge for "${b.firstName}"?`)) {
+                      delMut.mutate([b.id]);
+                    }
+                  }}
+                  title="Delete badge"
+                  className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+                >
+                  ✕
+                </button>
+              </div>
             );
           })}
         </div>
@@ -203,7 +230,18 @@ function GalleryPage() {
                   {eventById.get(selected.eventId)?.name ?? selected.eventId}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete this badge for "${selected.firstName}"?`)) {
+                      delMut.mutate([selected.id]);
+                    }
+                  }}
+                  disabled={delMut.isPending}
+                  className="rounded-full border border-destructive/60 px-4 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                >
+                  {delMut.isPending ? "…" : "Delete"}
+                </button>
                 <Link
                   to="/e/$eventId"
                   params={{ eventId: selected.eventId }}
