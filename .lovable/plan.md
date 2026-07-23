@@ -1,66 +1,97 @@
-## Goal
+## Objetivo
 
-Add three things to the badge generator:
-1. **Camera capture** as an alternative to file upload on the badge form.
-2. **Field consistency**: replace "Role / Vibe" with **Role / Company** ("e.g. Designer, Acme Inc") — First Name stays.
-3. **Per-event gallery**: every rendered badge is saved and shown in a gallery for that event, so people see previous badges and get social proof / FOMO. Requires **Lovable Cloud** for storage + database.
+Convertir la app en multi-tenant: cada usuario entra con Google, guarda su propia **Luma API key**, y ve solo sus eventos + su galería. Además: auto-detectar el **nombre y logo del calendario** (ya no mostrar el ID) y arreglar el **AI style analysis** que dejó de funcionar tras migrar a Vercel AI Gateway.
 
-## Phase A — Camera + field label (frontend only)
+---
 
-In `src/routes/e.$eventId.tsx`:
+## 1) Auth con Google (Lovable Cloud)
 
-- Rename `role` label to `ROLE / COMPANY` with placeholder `e.g. Designer, Acme Inc`. Keep the state var, just tweak label/placeholder and default (empty).
-- Add a **photo source toggle**: two buttons "Upload" / "Take photo".
-  - Upload = current `<input type=file>` flow.
-  - Take photo = opens a small in-page camera modal using `navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })`, shows a live `<video>` preview, a "Capture" button that draws the current frame into an offscreen canvas and returns a data URL via `setPhotoDataUrl`. "Retake" resets. Stream is stopped on close/capture.
-  - Mobile fallback: also accept the native `<input type="file" accept="image/*" capture="user">` shortcut for browsers without `getUserMedia` permission.
-- Show a small thumbnail preview of the selected/captured photo instead of just "✓ photo selected".
+- Activar Google sign-in gestionado por Lovable Cloud (default managed OAuth, sin BYOK).
+- Nuevo layout `_authenticated` que redirige a `/auth` cuando no hay sesión.
+- Página `/auth`: card con **Continuar con Google** (usa `lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin })`).
+- Header con avatar/email + botón "Sign out".
+- Rutas protegidas: `/` (dashboard tras login), `/events`, `/e/$eventId`. Landing pública queda en `/auth` (o rediseñamos `/` como landing pública con CTA sign in — recomendado, para preservar shareability).
 
-No changes to `badge-render.ts` — it already takes a `photoDataUrl` regardless of source.
+## 2) Luma API key **por usuario** (backend)
 
-## Phase B — Enable Lovable Cloud + gallery backend
+- Tabla `public.user_luma_keys` en Lovable Cloud:
+  ```
+  user_id uuid PK  (fk auth.users, on delete cascade)
+  api_key_ciphertext text NOT NULL
+  calendar_id text
+  calendar_name text
+  calendar_slug text
+  calendar_avatar_url text
+  calendar_url text
+  updated_at timestamptz
+  ```
+  RLS: solo el owner puede leer/escribir su fila; `service_role` full.
+- Cifrado AES-256-GCM en el servidor con `APP_ENCRYPTION_KEY` (autogenerada, 32 bytes base64) — nunca guardar la key en texto plano.
+- Server functions (`requireSupabaseAuth`):
+  - `saveLumaKey({ apiKey })` → valida contra `/calendar/get`, cifra, upsert (guarda también name/slug/avatar).
+  - `getLumaConfig()` → `{ configured, calendar: {name, slug, avatarUrl, url} | null }`.
+  - `deleteLumaKey()`.
+- Refactor `src/lib/luma.server.ts`: `fetchAllEvents(apiKey)` / `fetchEvent(apiKey, id)` / `fetchCalendar(apiKey)` reciben la key como parámetro (no leer `process.env.LUMA_API_KEY` global).
+- Refactor `src/lib/luma.functions.ts`: cada server fn resuelve la key del usuario autenticado antes de llamar a Luma.
+- Nuevo secret runtime: seed inicial — el `LUMA_API_KEY` existente **se importa a la fila de `ivelasquezfr@gmail.com`** la primera vez que se loguee (una sola migración one-shot). Después el env var se puede ignorar.
 
-1. **Enable Lovable Cloud** (`supabase--enable`).
-2. **Storage bucket** `badges` (public, read-only for anon) via `supabase--storage_create_bucket`. Public URLs make sharing trivial.
-3. **Migration** creating `public.badges`:
-   ```
-   id uuid pk default gen_random_uuid()
-   event_id text not null           -- Luma event id, e.g. evt-xxx
-   first_name text not null
-   role text
-   image_path text not null          -- storage path inside `badges` bucket
-   created_at timestamptz default now()
-   ```
-   Plus:
-   - GRANTs (SELECT to anon+authenticated, INSERT to anon+authenticated, ALL to service_role).
-   - RLS enabled.
-   - Policies: `SELECT` open to anon+authenticated (public gallery); `INSERT` open to anon+authenticated with a light length check on `first_name`, `role`, `event_id`.
-   - Index on `(event_id, created_at desc)`.
-4. **Storage RLS** on `storage.objects` for the `badges` bucket: public SELECT, INSERT allowed for anon+authenticated (path must start with the event id so one event can't overwrite another: `bucket_id = 'badges' AND (storage.foldername(name))[1] = event_id_from_path`). Simpler acceptable variant: allow anon INSERT under any path in `badges`.
+## 3) Onboarding + header con nombre/logo del calendario
 
-## Phase C — Save on render + gallery UI
+- Nueva ruta `/settings` (o modal en dashboard) para pegar la Luma API key. Al guardar se valida llamando a `GET /calendar/get` (comprobado: devuelve `name`, `slug`, `avatar_url`, `url`).
+- Si el usuario no tiene key configurada → redirect a `/settings` con mensaje.
+- Header global (en `_authenticated`): logo del calendario + nombre (ej. **Hack0 Community**) en vez del ID de calendario. Link a `/settings` para reemplazar la key.
+- El header pasa a las páginas `events` y `e/$eventId` (hoy dicen "· LUMA BADGE STUDIO", ahora "· HACK0 COMMUNITY" con avatar).
 
-In `src/routes/e.$eventId.tsx`, after `renderBadge` succeeds:
+## 4) Aislar datos por usuario
 
-1. Convert canvas to blob, upload to `badges/${eventId}/${crypto.randomUUID()}.png` using the browser `supabase` client.
-2. Insert a row into `public.badges` with `event_id`, `first_name`, `role`, `image_path`.
-3. Invalidate the gallery query so the new badge appears immediately.
+- Tabla `public.badges` ya existe. Añadir columna `user_id uuid` (nullable para retro-compat, luego se puede filtrar por usuario si el owner del evento coincide). RLS: insert por `authenticated` con `user_id = auth.uid()`; select público sigue permitido para la galería del evento (mantiene el loop social — badges de otras personas del mismo evento son visibles).
+- La galería `EventBadgeGallery` sigue mostrando todos los badges del evento; el "mis badges" se filtra por `user_id`.
 
-Gallery section: new component `EventBadgeGallery` rendered below the preview (full width on the event page).
+## 5) Fix AI style analysis
 
-- Uses TanStack Query + a public server fn `listBadgesForEvent({ eventId, limit: 24 })` in `src/lib/badges.functions.ts` that queries with the server publishable client (narrow `TO anon` SELECT policy already covers this) and returns `{ id, firstName, role, publicUrl, createdAt }` — resolving each `image_path` to a public storage URL server-side.
-- Grid of square thumbs (`aspect-square`, `object-cover`), name + role caption. Click opens the full badge in a lightbox with Share/Download.
-- Empty state: "Be the first to make a badge for this event."
+Actualmente falla probablemente porque `Output.object` + `google/gemini-2.5-flash` sobre openai-compatible con Vercel Gateway no siempre respeta `response_format: json_schema` en modelos Gemini vía ese path. Diagnóstico + fix:
+- Añadir logging del error real vía `stack_modern--server-function-logs` para confirmar la causa.
+- Fix: usar `generateObject` (en vez de `generateText` + `Output.object`) con `mode: "json"` sobre Gemini, o cambiar el modelo a `openai/gpt-4o-mini` / `openai/gpt-5-mini` para análisis multimodal donde `json_schema` es sólido. Preferencia: mantener Gemini si funciona; fallback OpenAI si no.
+- Mantener el fallback existente `NoObjectGeneratedError` → `JSON.parse(error.text)` → `DEFAULT_STYLE_SPEC`.
 
-## Notes & non-goals
+## 6) Restricción de uso (fase 1)
 
-- No auth added. Anyone visiting the event page can post a badge. Acceptable for the current "growth loop" goal; we can gate later.
-- No moderation/reporting UI yet — flag as a TODO if we want it.
-- Camera permission is best-effort; on denial we fall back silently to the file input.
-- Field label change ("Company") does not change the badge canvas layout — role text still renders as-is.
+- El usuario pide que "cualquiera pueda usar la app, pero por ahora solo yo (ivelasquezfr@gmail.com) uso la Luma key configurada actualmente". Con la refactor:
+  - Todos pueden hacer sign up con Google.
+  - Cada uno debe configurar **su propia** Luma API key en `/settings`.
+  - La key actual queda asociada solo a `ivelasquezfr@gmail.com` en el seed inicial.
+- No hay allowlist ni bloqueos adicionales — modelo self-serve.
 
-## Technical section
+---
 
-- Files touched: `src/routes/e.$eventId.tsx` (fields, camera modal, save-on-render, gallery mount), new `src/components/CameraCapture.tsx`, new `src/components/EventBadgeGallery.tsx`, new `src/lib/badges.functions.ts`, new migration in `supabase/migrations/`.
-- Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` for client uploads; `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` for the read server fn.
-- Upload path convention: `${eventId}/${uuid}.png` — makes per-event listing trivial and enforceable via storage RLS.
+## Detalles técnicos
+
+- Providers: mantener Vercel AI Gateway para chat/analysis; Lovable AI para image gen (ya está así).
+- Encryption module: `src/lib/crypto.server.ts` con `encryptString`/`decryptString` (AES-256-GCM, IV+tag+ct base64).
+- Migrations (una sola, ordenada): `user_luma_keys` + `badges.user_id` + GRANTs + RLS + policies.
+- Google sign-in flow ya soporta iframes de Lovable via `@lovable.dev/cloud-auth-js`; usar exactamente el patrón documentado.
+- No tocar `src/integrations/supabase/*` autogenerado. Middleware `attachSupabaseAuth` ya está registrado.
+
+## Fuera de alcance (no ahora)
+
+- Rotación de key, revocación, admin dashboard, uso compartido de una key entre miembros de un workspace.
+- Login con métodos distintos a Google (se puede añadir email/password luego).
+- Phase 2 (scraping sin API key).
+
+---
+
+## Riesgos
+
+- Si Vercel Gateway sigue rompiendo structured output con Gemini, caemos a OpenAI para análisis (misma calidad multimodal, ligeramente más caro).
+- La primera vez cualquier usuario ve `/settings` vacío — hay que dejar copy claro con dónde obtener la Luma API key (https://docs.lu.ma/reference/getting-started-with-your-api).
+
+## Checklist ejecución
+
+1. Enable Google auth + configure_social_auth.
+2. Crear migración: `user_luma_keys`, `badges.user_id`, RLS + grants.
+3. `src/lib/crypto.server.ts` + `APP_ENCRYPTION_KEY` (generate_secret 32 bytes base64).
+4. Refactor `luma.server.ts` / `luma.functions.ts` para recibir key por usuario + añadir `fetchCalendar`.
+5. Rutas: `/auth`, `_authenticated` layout, `/settings`, dashboard con header calendario, protección de `/events` y `/e/$eventId`.
+6. Seed one-shot: al login de `ivelasquezfr@gmail.com`, migrar el env `LUMA_API_KEY` a su fila cifrada.
+7. Fix `style-analyze` con logs + `generateObject` / fallback OpenAI.
+8. Verificar end-to-end con Playwright (login → settings → events con header "Hack0 Community" → generar badge → galería propia).
