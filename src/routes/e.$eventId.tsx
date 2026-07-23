@@ -290,28 +290,59 @@ function EventBadgePage() {
               />
             </div>
             <div>
-              <label className="font-mono text-xs tracking-[0.2em]">ROLE / VIBE</label>
+              <label className="font-mono text-xs tracking-[0.2em]">ROLE / COMPANY</label>
               <input
                 value={role}
-                onChange={(e) => setRole(e.target.value.slice(0, 32))}
-                maxLength={32}
-                placeholder="CREATOR"
-                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 font-mono uppercase tracking-wide focus:outline-none"
+                onChange={(e) => setRole(e.target.value.slice(0, 60))}
+                maxLength={60}
+                placeholder="e.g. Designer, Acme Inc"
+                className="mt-1 w-full rounded-md border-2 bg-[#f2efe6] px-4 py-3 font-mono tracking-wide focus:outline-none"
                 style={{ borderColor: "rgba(23,21,15,0.24)" }}
               />
             </div>
             <div>
               <label className="font-mono text-xs tracking-[0.2em]">YOUR PHOTO</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && onPickPhoto(e.target.files[0])}
-                className="mt-1 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#17150f] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#f2efe6] hover:file:opacity-90"
-              />
+              <div className="mt-1 flex gap-2">
+                <label
+                  className="flex-1 cursor-pointer rounded-md bg-[#17150f] px-4 py-2 text-center text-sm font-semibold text-[#f2efe6] hover:opacity-90"
+                >
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files?.[0] && onPickPhoto(e.target.files[0])}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setCameraOpen(true)}
+                  className="flex-1 rounded-md border-2 px-4 py-2 text-sm font-semibold"
+                  style={{ borderColor: accent, color: accent }}
+                >
+                  📷 Take photo
+                </button>
+              </div>
               {photoDataUrl && (
-                <p className="mt-1 font-mono text-[10px]" style={{ color: "rgba(23,21,15,0.55)" }}>
-                  ✓ photo selected
-                </p>
+                <div className="mt-2 flex items-center gap-3">
+                  <img
+                    src={photoDataUrl}
+                    alt="Your photo"
+                    className="h-16 w-16 rounded-md border-2 object-cover"
+                    style={{ borderColor: "rgba(23,21,15,0.24)" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoDataUrl(null);
+                      setBadgeUrl(null);
+                    }}
+                    className="font-mono text-[10px] underline"
+                    style={{ color: "rgba(23,21,15,0.55)" }}
+                  >
+                    remove
+                  </button>
+                </div>
               )}
             </div>
 
