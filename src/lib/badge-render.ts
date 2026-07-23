@@ -1,6 +1,9 @@
 // Client-side canvas badge composer.
 // Themed per event via a StyleSpec (palette + Google Fonts) plus an optional
 // AI-generated hero background image.
+//
+// Layout is dynamic: content is stacked in vertical bands with computed Y
+// positions so nothing overlaps regardless of name length or headline size.
 
 import QRCode from "qrcode";
 import type { StyleSpec } from "./style-spec";
@@ -14,13 +17,10 @@ export type EventTheme = {
   dateLine: string;
 };
 
-const BADGE_WIDTH = 1080;
-const BADGE_HEIGHT = 1600;
+const W = 1080;
+const H = 1600;
 const MARGIN = 26;
-
-const PHOTO = { size: 720, top: 402, left: 180 };
-const SEAL = { size: 156, top: 160, left: 785 };
-const QR = { size: 138, top: 1171, left: 847 };
+const PAD = 66; // inner content x
 
 async function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -101,181 +101,308 @@ function drawContainImage(
   ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 
-async function generateQrDataUrl(url: string, spec: StyleSpec): Promise<string> {
+async function generateQrDataUrl(url: string, spec: StyleSpec, size: number): Promise<string> {
   return QRCode.toDataURL(url, {
     errorCorrectionLevel: "M",
-    width: QR.size * 2,
+    width: size * 2,
     margin: 2,
     color: { dark: spec.palette.text, light: spec.palette.surface },
   });
 }
 
-export type BadgeInputs = {
-  theme: EventTheme;
-  spec: StyleSpec;
-  heroDataUrl: string | null; // AI-generated hero background (optional)
-  photoDataUrl: string;
-  firstName: string;
-  role: string;
-};
-
-function fitNameSize(name: string) {
-  if (name.length > 12) return 64;
-  if (name.length > 8) return 78;
-  return 92;
+// Fit a single-line string within maxWidth by shrinking font size.
+function fitFont(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  weight: string,
+  family: string,
+  startSize: number,
+  minSize: number,
+  maxWidth: number,
+): number {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
+    size -= 2;
+  }
+  ctx.font = `${weight} ${minSize}px ${family}`;
+  return minSize;
 }
 
-export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
-  const { theme, spec, heroDataUrl, photoDataUrl, firstName, role } = inputs;
-  const canvas = document.createElement("canvas");
-  canvas.width = BADGE_WIDTH;
-  canvas.height = BADGE_HEIGHT;
-  const ctx = canvas.getContext("2d")!;
-
-  const P = spec.palette;
-  const HEAD_FONT = `"${spec.fonts.heading}", ui-sans-serif, system-ui, sans-serif`;
-  const BODY_FONT = `"${spec.fonts.body}", ui-sans-serif, system-ui, sans-serif`;
-  const MONO_FONT = `ui-monospace, SFMono-Regular, Menlo, monospace`;
-
-  // Paper background
-  ctx.fillStyle = P.bg;
-  ctx.fillRect(0, 0, BADGE_WIDTH, BADGE_HEIGHT);
-
-  // Hero art band across the top — behind everything, but only inside the frame.
-  if (heroDataUrl) {
-    try {
-      const hero = await loadImage(heroDataUrl);
-      // Draw hero across full width in the header band; keep bottom half clean paper.
-      drawCoverImage(ctx, hero, MARGIN + 12, MARGIN + 12, BADGE_WIDTH - (MARGIN + 12) * 2, 360);
-      // Soft fade to paper at the bottom of the band so text stays readable.
-      const grad = ctx.createLinearGradient(0, MARGIN + 12, 0, MARGIN + 12 + 360);
-      grad.addColorStop(0, withAlpha(P.bg, 0));
-      grad.addColorStop(1, withAlpha(P.bg, 0.92));
-      ctx.fillStyle = grad;
-      ctx.fillRect(MARGIN + 12, MARGIN + 12, BADGE_WIDTH - (MARGIN + 12) * 2, 360);
-    } catch {
-      // ignore hero errors
+// Wrap text into up to maxLines using the given font. Returns lines and used size.
+function wrapLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  weight: string,
+  family: string,
+  startSize: number,
+  minSize: number,
+  maxWidth: number,
+  maxLines: number,
+): { lines: string[]; size: number } {
+  for (let size = startSize; size >= minSize; size -= 4) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let current = "";
+    for (const w of words) {
+      const test = current ? current + " " + w : w;
+      if (ctx.measureText(test).width > maxWidth && current) {
+        lines.push(current);
+        current = w;
+      } else {
+        current = test;
+      }
     }
+    if (current) lines.push(current);
+    if (lines.length <= maxLines) return { lines, size };
   }
-
-  // Outer stamp frame (accent)
-  ctx.strokeStyle = P.accent;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(MARGIN, MARGIN, BADGE_WIDTH - MARGIN * 2, BADGE_HEIGHT - MARGIN * 2);
-  ctx.strokeStyle = withAlpha(P.text, 0.16);
-  ctx.lineWidth = 1;
-  ctx.strokeRect(MARGIN + 10, MARGIN + 10, BADGE_WIDTH - (MARGIN + 10) * 2, BADGE_HEIGHT - (MARGIN + 10) * 2);
-
-  // Kicker
-  ctx.fillStyle = P.accent;
-  ctx.font = `700 20px ${MONO_FONT}`;
-  ctx.textBaseline = "top";
-  ctx.fillText("· WHAT'S BREWING?", 72, 72);
-
-  // Event headline (2 lines max)
-  ctx.fillStyle = P.text;
-  const headlineSize = theme.name.length > 18 ? 72 : theme.name.length > 12 ? 88 : 104;
-  ctx.font = `900 ${headlineSize}px ${HEAD_FONT}`;
-  const nameUpper = theme.name.toUpperCase();
-  const words = nameUpper.split(" ");
+  ctx.font = `${weight} ${minSize}px ${family}`;
+  const words = text.split(" ");
   const lines: string[] = [];
   let current = "";
-  const maxLineWidth = BADGE_WIDTH - 140;
   for (const w of words) {
     const test = current ? current + " " + w : w;
-    if (ctx.measureText(test).width > maxLineWidth && current) {
+    if (ctx.measureText(test).width > maxWidth && current) {
       lines.push(current);
       current = w;
     } else {
       current = test;
     }
-    if (lines.length >= 2) break;
+    if (lines.length >= maxLines) break;
   }
-  if (current && lines.length < 2) lines.push(current);
-  lines.slice(0, 2).forEach((line, i) => {
-    ctx.fillText(line, 66, 100 + i * (headlineSize + 8));
-  });
+  if (current && lines.length < maxLines) lines.push(current);
+  return { lines: lines.slice(0, maxLines), size: minSize };
+}
 
-  const subtitleY = 224 + (lines.length > 1 ? 60 : 0);
+function displayUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const path = u.pathname.replace(/\/$/, "");
+    return `${u.hostname}${path}`.toUpperCase();
+  } catch {
+    return raw.toUpperCase();
+  }
+}
+
+export type BadgeInputs = {
+  theme: EventTheme;
+  spec: StyleSpec;
+  heroDataUrl: string | null;
+  photoDataUrl: string;
+  firstName: string;
+  role: string;
+};
+
+export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
+  const { theme, spec, heroDataUrl, photoDataUrl, firstName, role } = inputs;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+
+  const P = spec.palette;
+  const HEAD = `"${spec.fonts.heading}", ui-sans-serif, system-ui, sans-serif`;
+  const BODY = `"${spec.fonts.body}", ui-sans-serif, system-ui, sans-serif`;
+  const MONO = `ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.textBaseline = "top";
+
+  // ---------- Paper + frame ----------
+  ctx.fillStyle = P.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ---------- Vertical band budget ----------
+  // Bands (top → bottom):
+  //   header:  MARGIN+40 → 380
+  //   photo:   400 → 1100  (700x700 centered)
+  //   name:    1120 → 1240
+  //   role:    1250 → 1290
+  //   scan/qr: 1330 → 1500
+  //   footer:  1540 → 1580
+
+  const HEADER_TOP = MARGIN + 44;
+  const HEADER_BOTTOM = 380;
+  const PHOTO_TOP = 400;
+  const PHOTO_SIZE = 700;
+  const PHOTO_LEFT = (W - PHOTO_SIZE) / 2;
+  const PHOTO_BOTTOM = PHOTO_TOP + PHOTO_SIZE; // 1100
+  const NAME_TOP = PHOTO_BOTTOM + 44;          // 1144 → moved down after caption
+  const CAPTION_Y = PHOTO_BOTTOM + 18;
+  const ROLE_ROW_Y = NAME_TOP + 100;           // moves with name band
+  const DIVIDER_Y = ROLE_ROW_Y + 44;           // ~1288
+  const FOOTER_TOP = 1330;
+  const FOOTER_BOTTOM = H - 60;
+
+  // ---------- Hero band (behind header) ----------
+  if (heroDataUrl) {
+    try {
+      const hero = await loadImage(heroDataUrl);
+      const bx = MARGIN + 12;
+      const by = MARGIN + 12;
+      const bw = W - (MARGIN + 12) * 2;
+      const bh = HEADER_BOTTOM - by - 20;
+      drawCoverImage(ctx, hero, bx, by, bw, bh);
+      const grad = ctx.createLinearGradient(0, by, 0, by + bh);
+      grad.addColorStop(0, withAlpha(P.bg, 0));
+      grad.addColorStop(1, withAlpha(P.bg, 0.94));
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, by, bw, bh);
+    } catch {}
+  }
+
+  // ---------- Frame ----------
+  ctx.strokeStyle = P.accent;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2);
+  ctx.strokeStyle = withAlpha(P.text, 0.16);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(MARGIN + 10, MARGIN + 10, W - (MARGIN + 10) * 2, H - (MARGIN + 10) * 2);
+
+  // ---------- Header ----------
+  const headerRightReserve = 200; // seal
+  const headerMaxWidth = W - PAD - headerRightReserve;
+
+  // Kicker
   ctx.fillStyle = P.accent;
-  ctx.font = `900 58px ${HEAD_FONT}`;
-  ctx.fillText(theme.subtitle.toUpperCase(), 72, subtitleY);
+  ctx.font = `700 20px ${MONO}`;
+  ctx.fillText("· WHAT'S BREWING?", PAD, HEADER_TOP);
 
-  ctx.fillStyle = withAlpha(P.text, 0.55);
-  ctx.font = `400 22px ${MONO_FONT}`;
-  ctx.fillText(theme.dateLine.toUpperCase(), 74, subtitleY + 88);
+  // Headline (up to 2 lines, auto-fit)
+  const nameUpper = theme.name.toUpperCase();
+  const { lines: headLines, size: headSize } = wrapLines(
+    ctx, nameUpper, "900", HEAD, 96, 52, headerMaxWidth, 2,
+  );
+  ctx.fillStyle = P.text;
+  ctx.font = `900 ${headSize}px ${HEAD}`;
+  let y = HEADER_TOP + 34;
+  for (const line of headLines) {
+    ctx.fillText(line, PAD, y);
+    y += headSize + 6;
+  }
 
-  // Seal (event cover as circle) — top right
+  // Subtitle (city)
+  const subMaxW = W - PAD * 2;
+  const subSize = fitFont(ctx, theme.subtitle.toUpperCase(), "900", HEAD, 56, 34, subMaxW);
+  ctx.fillStyle = P.accent;
+  ctx.font = `900 ${subSize}px ${HEAD}`;
+  y += 6;
+  ctx.fillText(theme.subtitle.toUpperCase(), PAD, y);
+  y += subSize + 10;
+
+  // Date line
+  ctx.fillStyle = withAlpha(P.text, 0.6);
+  ctx.font = `400 22px ${MONO}`;
+  ctx.fillText(theme.dateLine, PAD, Math.min(y, HEADER_BOTTOM - 32));
+
+  // Seal (cover as circle) top-right
   if (theme.coverUrl) {
     try {
       const seal = await loadImage(theme.coverUrl);
-      drawCircleImage(ctx, seal, SEAL.left + SEAL.size / 2, SEAL.top + SEAL.size / 2, SEAL.size / 2, P.text);
-    } catch {
-      // ignore
-    }
+      const sealSize = 148;
+      drawCircleImage(
+        ctx, seal,
+        W - MARGIN - 36 - sealSize / 2,
+        HEADER_TOP + sealSize / 2 - 8,
+        sealSize / 2, P.text,
+      );
+    } catch {}
   }
 
-  // Photo tile
+  // ---------- Photo ----------
   const photo = await loadImage(photoDataUrl);
-  drawContainImage(ctx, photo, PHOTO.left, PHOTO.top, PHOTO.size, PHOTO.size, P.surface);
+  drawContainImage(ctx, photo, PHOTO_LEFT, PHOTO_TOP, PHOTO_SIZE, PHOTO_SIZE, P.surface);
   ctx.strokeStyle = P.accent;
   ctx.lineWidth = 3;
-  ctx.strokeRect(PHOTO.left, PHOTO.top, PHOTO.size, PHOTO.size);
-
+  ctx.strokeRect(PHOTO_LEFT, PHOTO_TOP, PHOTO_SIZE, PHOTO_SIZE);
+  const cornerLen = 44;
+  const cornerThick = 8;
   const corners = [
-    { x: PHOTO.left - 4, y: PHOTO.top - 4, hFlip: false },
-    { x: PHOTO.left + PHOTO.size - 44, y: PHOTO.top - 4, hFlip: true },
-    { x: PHOTO.left - 4, y: PHOTO.top + PHOTO.size - 44, hFlip: false },
-    { x: PHOTO.left + PHOTO.size - 44, y: PHOTO.top + PHOTO.size - 44, hFlip: true },
+    { x: PHOTO_LEFT - 4, y: PHOTO_TOP - 4, hFlip: false, vFlip: false },
+    { x: PHOTO_LEFT + PHOTO_SIZE - cornerLen + 4, y: PHOTO_TOP - 4, hFlip: true, vFlip: false },
+    { x: PHOTO_LEFT - 4, y: PHOTO_TOP + PHOTO_SIZE - cornerLen + 4, hFlip: false, vFlip: true },
+    { x: PHOTO_LEFT + PHOTO_SIZE - cornerLen + 4, y: PHOTO_TOP + PHOTO_SIZE - cornerLen + 4, hFlip: true, vFlip: true },
   ];
   ctx.fillStyle = P.accent;
   for (const c of corners) {
-    ctx.fillRect(c.x, c.y, 48, 8);
-    ctx.fillRect(c.hFlip ? c.x + 40 : c.x, c.y, 8, 48);
+    ctx.fillRect(c.x, c.y, cornerLen, cornerThick);
+    ctx.fillRect(c.hFlip ? c.x + cornerLen - cornerThick : c.x, c.y, cornerThick, cornerLen);
   }
 
-  // Caption under photo
+  // Caption under photo (centered)
   ctx.fillStyle = withAlpha(P.text, 0.55);
-  ctx.font = `400 18px ${MONO_FONT}`;
+  ctx.font = `400 18px ${MONO}`;
   ctx.textAlign = "center";
-  ctx.fillText(`· ${theme.subtitle.toUpperCase()} ·`, BADGE_WIDTH / 2, PHOTO.top + PHOTO.size + 20);
+  ctx.fillText(`· ${theme.subtitle.toUpperCase()} ·`, W / 2, CAPTION_Y);
   ctx.textAlign = "left";
 
-  // Name
-  const nameSize = fitNameSize(firstName);
+  // ---------- Name band (dynamic size to fit width) ----------
+  const nameStr = firstName.toUpperCase();
+  const nameMaxW = W - PAD * 2;
+  const nameSize = fitFont(ctx, nameStr, "900", HEAD, 110, 44, nameMaxW);
   ctx.fillStyle = P.text;
-  ctx.font = `900 ${nameSize}px ${HEAD_FONT}`;
-  ctx.fillText(firstName.toUpperCase(), 74, PHOTO.top + PHOTO.size + 60);
+  ctx.font = `900 ${nameSize}px ${HEAD}`;
+  ctx.fillText(nameStr, PAD, NAME_TOP);
 
-  // Role
+  // ---------- Role row ----------
+  const roleStr = `→ ${role.toUpperCase()}`;
+  const roleSize = fitFont(ctx, roleStr, "700", MONO, 26, 16, nameMaxW);
   ctx.fillStyle = P.accent;
-  ctx.font = `700 24px ${MONO_FONT}`;
-  ctx.fillText(`→ ${role.toUpperCase()}`, 76, PHOTO.top + PHOTO.size + 160);
+  ctx.font = `700 ${roleSize}px ${MONO}`;
+  ctx.fillText(roleStr, PAD, ROLE_ROW_Y);
 
   // Divider
   ctx.fillStyle = P.accent;
-  ctx.fillRect(74, PHOTO.top + PHOTO.size + 208, 200, 3);
+  ctx.fillRect(PAD, DIVIDER_Y, 200, 3);
   ctx.fillStyle = withAlpha(P.text, 0.16);
-  ctx.fillRect(282, PHOTO.top + PHOTO.size + 209, BADGE_WIDTH - 282 - 74, 1);
+  ctx.fillRect(PAD + 208, DIVIDER_Y + 1, W - (PAD + 208) - PAD, 1);
 
-  // QR
-  const qrDataUrl = await generateQrDataUrl(theme.url, spec);
-  const qrImg = await loadImage(qrDataUrl);
-  ctx.drawImage(qrImg, QR.left, QR.top, QR.size, QR.size);
+  // ---------- Scan / QR band ----------
+  const QR_SIZE = 156;
+  const QR_X = W - MARGIN - 40 - QR_SIZE;
+  const QR_Y = FOOTER_TOP;
+  const scanTextX = PAD;
+  const scanTextMaxW = QR_X - PAD - 24;
 
   ctx.fillStyle = P.text;
-  ctx.font = `700 16px ${MONO_FONT}`;
-  ctx.fillText("SCAN →", 74, QR.top + 8);
-  ctx.fillStyle = withAlpha(P.text, 0.55);
-  ctx.font = `400 14px ${MONO_FONT}`;
-  ctx.fillText("REGISTER ON LU.MA", 74, QR.top + 40);
-  ctx.fillText("SHARE THIS BADGE", 74, QR.top + 62);
+  ctx.font = `700 16px ${MONO}`;
+  ctx.fillText("SCAN →", scanTextX, QR_Y + 4);
 
-  // Footer
+  ctx.fillStyle = withAlpha(P.text, 0.55);
+  ctx.font = `400 14px ${MONO}`;
+  ctx.fillText("REGISTER FOR THIS EVENT", scanTextX, QR_Y + 30);
+
+  // Real URL, fit to width, wrap 2 lines if needed
+  const urlText = displayUrl(theme.url);
+  const { lines: urlLines, size: urlSize } = wrapLines(
+    ctx, urlText, "700", MONO, 20, 12, scanTextMaxW, 2,
+  );
+  ctx.fillStyle = P.text;
+  ctx.font = `700 ${urlSize}px ${MONO}`;
+  let uy = QR_Y + 62;
+  for (const line of urlLines) {
+    ctx.fillText(line, scanTextX, uy);
+    uy += urlSize + 4;
+  }
+
+  // QR
+  const qrDataUrl = await generateQrDataUrl(theme.url, spec, QR_SIZE);
+  const qrImg = await loadImage(qrDataUrl);
+  // subtle plate behind QR
+  ctx.fillStyle = P.surface;
+  ctx.fillRect(QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16);
+  ctx.strokeStyle = withAlpha(P.text, 0.2);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16);
+  ctx.drawImage(qrImg, QR_X, QR_Y, QR_SIZE, QR_SIZE);
+
+  // ---------- Footer ----------
+  const footerText = `${theme.name.toLowerCase()} · powered by luma_`;
   ctx.fillStyle = withAlpha(P.text, 0.4);
-  ctx.font = `400 18px ${MONO_FONT}`;
+  const footerSize = fitFont(ctx, footerText, "400", MONO, 18, 12, W - PAD * 2);
+  ctx.font = `400 ${footerSize}px ${MONO}`;
   ctx.textAlign = "center";
-  ctx.fillText(`${theme.name.toLowerCase()} · powered by luma_`, BADGE_WIDTH / 2, BADGE_HEIGHT - 66);
+  ctx.fillText(footerText, W / 2, FOOTER_BOTTOM);
   ctx.textAlign = "left";
 
   return canvas;
