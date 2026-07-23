@@ -266,7 +266,7 @@ function EventBadgePage() {
   const accent = spec.palette.accent;
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: spec.palette.bg, color: spec.palette.text }}>
+    <div className="min-h-screen bg-[#e9e5d8] text-[#17150f]">
       <header className="border-b" style={{ borderColor: "rgba(23,21,15,0.16)" }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/events" className="font-mono text-xs tracking-[0.24em]">
@@ -281,16 +281,10 @@ function EventBadgePage() {
       <div className="mx-auto grid max-w-7xl gap-8 px-6 py-10 lg:grid-cols-[360px_1fr_380px]">
         {/* LEFT: inputs */}
         <div>
-          <div
-            className="mb-4 inline-block border-2 px-2 py-0.5 text-[10px] tracking-[0.34em]"
-            style={{ borderColor: accent, color: accent }}
-          >
+          <div className="mb-4 inline-block border-2 border-[#17150f] px-2 py-0.5 text-[10px] tracking-[0.34em] text-[#17150f]">
             · WHAT'S BREWING?
           </div>
-          <h1
-            className="text-3xl font-black leading-tight"
-            style={{ fontFamily: `"${spec.fonts.heading}", ui-sans-serif, system-ui, sans-serif` }}
-          >
+          <h1 className="text-3xl font-black leading-tight">
             {event.name}
           </h1>
           <div className="mt-2 font-mono text-xs tracking-[0.2em]" style={{ color: "rgba(23,21,15,0.55)" }}>
