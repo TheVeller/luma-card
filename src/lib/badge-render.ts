@@ -5,6 +5,7 @@
 
 import QRCode from "qrcode";
 import { effectiveAccent, isMonoPalette, type StyleSpec } from "./style-spec";
+import { loadGoogleFontPair, validateFontPair } from "./google-fonts";
 
 export type EventTheme = {
   eventId: string;
@@ -206,14 +207,23 @@ function assertNoOverlap(bands: Band[]) {
 
 export async function renderBadge(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
   const { theme, spec, photoDataUrl, firstName, role } = inputs;
+
+  // Ensure the AI-picked fonts are on the allow-list and fully loaded before
+  // any `ctx.font = ...` — otherwise the canvas silently falls back.
+  const { heading: headingFamily, body: bodyFamily } = validateFontPair(
+    spec.fonts.heading,
+    spec.fonts.body,
+  );
+  await loadGoogleFontPair(headingFamily, bodyFamily);
+
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
 
   const P = spec.palette;
-  const HEAD = `"${spec.fonts.heading}", ui-sans-serif, system-ui, sans-serif`;
-  const MONO = `"${spec.fonts.body}", ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const HEAD = `"${headingFamily}", ui-sans-serif, system-ui, sans-serif`;
+  const MONO = `"${bodyFamily}", ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textBaseline = "top";
   const ACCENT = effectiveAccent(spec);
   const mono = isMonoPalette(spec);
