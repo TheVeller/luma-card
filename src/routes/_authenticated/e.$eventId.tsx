@@ -211,6 +211,7 @@ function EventBadgePage() {
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
+      savePresetMut.mutate({ styleSpec: spec });
       persistBadge(canvas).catch((e) => console.error(e));
     } finally {
       setBusy(false);
