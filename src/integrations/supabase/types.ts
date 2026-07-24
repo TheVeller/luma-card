@@ -44,6 +44,36 @@ export type Database = {
         }
         Relationships: []
       }
+      event_style_presets: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          label: string | null
+          spec_hash: string
+          style_spec: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          label?: string | null
+          spec_hash: string
+          style_spec: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          label?: string | null
+          spec_hash?: string
+          style_spec?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       scraped_events: {
         Row: {
           calendar_id: string | null

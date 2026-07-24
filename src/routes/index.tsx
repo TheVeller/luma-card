@@ -16,7 +16,11 @@ export const Route = createFileRoute("/")({
           "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
       },
       { property: "og:title", content: "Luma Badge Studio — Personalized event cards" },
-      { property: "og:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
+      {
+        property: "og:description",
+        content:
+          "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -31,7 +35,9 @@ function Landing() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-md bg-accent" />
-            <span className="font-display text-sm font-semibold tracking-tight">Luma Badge Studio</span>
+            <span className="font-display text-sm font-semibold tracking-tight">
+              Luma Badge Studio
+            </span>
           </div>
           <Link
             to="/auth"
@@ -52,8 +58,8 @@ function Landing() {
           <span className="text-accent">badge worth sharing.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-          Cada usuario trae su propia Luma API key. Detectamos el arte del evento y
-          auto-brandamos un badge estampilla — foto, colores, tipografía y QR.
+          Bring your own Luma API key. We detect each event's artwork and
+          auto-brand a stamp-style badge — photo, colors, typography, and QR.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -76,9 +82,21 @@ function Landing() {
       <section className="mx-auto max-w-5xl px-6 pb-24">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {[
-            { n: "01", t: "Pull", d: "Pega tu Luma API key. Detectamos calendario y eventos." },
-            { n: "02", t: "Theme", d: "IA extrae paleta y tipografía del arte de cada evento." },
-            { n: "03", t: "Share", d: "Foto + QR + botones para X/LinkedIn. Loop social." },
+            {
+              n: "01",
+              t: "Pull",
+              d: "Paste your Luma API key. We detect your calendar and events.",
+            },
+            {
+              n: "02",
+              t: "Theme",
+              d: "AI extracts the palette and typography from each event's art.",
+            },
+            {
+              n: "03",
+              t: "Share",
+              d: "Photo + QR + one-click buttons for X and LinkedIn. Social loop.",
+            },
           ].map((s) => (
             <div
               key={s.n}

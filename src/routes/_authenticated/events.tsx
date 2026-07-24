@@ -258,7 +258,7 @@ function EventsPage() {
           </div>
           <h2 className="mt-2 font-display text-2xl font-semibold">Add your Luma API key</h2>
           <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-            Necesitamos tu Luma calendar API key para leer tus eventos. Se guarda cifrada y solo tú puedes leerla.
+            We need your Luma calendar API key to read your events. It's stored encrypted and only you can read it.
           </p>
           <Link
             to="/settings"

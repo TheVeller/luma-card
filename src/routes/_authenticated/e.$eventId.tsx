@@ -1,10 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEvent } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
 import { listTemplates, type TemplateDTO } from "@/lib/templates.functions";
+import {
+  listEventPresets,
+  saveEventPreset,
+  deleteEventPreset,
+  type EventStylePresetDTO,
+} from "@/lib/event-style-presets.functions";
 import { extractPixelEvidence } from "@/lib/pixel-evidence";
 
 import { renderBadge, type EventTheme } from "@/lib/badge-render";
@@ -14,6 +20,7 @@ import { BadgeChat } from "@/components/BadgeChat";
 import { CameraCapture } from "@/components/CameraCapture";
 import { EventBadgeGallery } from "@/components/EventBadgeGallery";
 import { supabase } from "@/integrations/supabase/client";
+import { copyToClipboard, prettyUrl } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/e/$eventId")({
   head: ({ params }) => ({
@@ -56,6 +63,10 @@ function EventBadgePage() {
   const fetchEvent = useServerFn(getEvent);
   const analyze = useServerFn(analyzeEventArt);
   const fetchTemplates = useServerFn(listTemplates);
+  const fetchPresets = useServerFn(listEventPresets);
+  const savePreset = useServerFn(saveEventPreset);
+  const removePreset = useServerFn(deleteEventPreset);
+  const qc = useQueryClient();
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["luma-event", eventId],
@@ -65,6 +76,11 @@ function EventBadgePage() {
   const { data: templates } = useQuery({
     queryKey: ["templates"],
     queryFn: () => fetchTemplates(),
+  });
+
+  const { data: presets } = useQuery({
+    queryKey: ["event-presets", eventId],
+    queryFn: () => fetchPresets({ data: { eventId } }),
   });
 
   const [firstName, setFirstName] = useState("");
@@ -77,7 +93,18 @@ function EventBadgePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [galleryKey, setGalleryKey] = useState(0);
+  const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const savePresetMut = useMutation({
+    mutationFn: (input: { styleSpec: StyleSpec; label?: string | null }) =>
+      savePreset({ data: { eventId, ...input } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event-presets", eventId] }),
+  });
+  const deletePresetMut = useMutation({
+    mutationFn: (id: string) => removePreset({ data: { id } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event-presets", eventId] }),
+  });
 
   const coverProxy = proxied(event?.coverUrl ?? null);
 
@@ -184,6 +211,7 @@ function EventBadgePage() {
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
+      savePresetMut.mutate({ styleSpec: spec });
       persistBadge(canvas).catch((e) => console.error(e));
     } finally {
       setBusy(false);
@@ -306,6 +334,33 @@ function EventBadgePage() {
             {formatDateLine(event.startAt)}
             {event.city ? ` · ${event.city.toUpperCase()}` : ""}
           </div>
+          {event.url && (
+            <div className="mt-2 flex items-center gap-2">
+              <a
+                href={event.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate font-mono text-[11px] text-accent underline underline-offset-4 hover:text-foreground"
+                title={event.url}
+              >
+                {prettyUrl(event.url)}
+              </a>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyToClipboard(event.url);
+                  if (ok) {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1400);
+                  }
+                }}
+                title="Copy event link"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-hairline text-[10px] text-muted-foreground hover:bg-surface hover:text-foreground"
+              >
+                {copied ? "✓" : "⧉"}
+              </button>
+            </div>
+          )}
 
           <div className="mt-6 space-y-4">
             <div>
@@ -449,6 +504,50 @@ function EventBadgePage() {
               </div>
               {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
             </div>
+
+            {presets && presets.length > 0 && (
+              <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                    · Recent styles for this event
+                  </div>
+                  <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                    {presets.length}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {presets.slice(0, 6).map((p: EventStylePresetDTO) => (
+                    <div key={p.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setSpec(p.styleSpec)}
+                        title={`Apply ${p.styleSpec.style} · ${p.styleSpec.fonts.heading}`}
+                        className="w-full rounded-lg border border-hairline p-1.5 text-left hover:border-accent/60"
+                      >
+                        <div
+                          className="mb-1 h-10 w-full rounded"
+                          style={{
+                            background: `linear-gradient(135deg, ${p.styleSpec.palette.bg} 0%, ${p.styleSpec.palette.bg} 45%, ${p.styleSpec.palette.accent} 45%, ${p.styleSpec.palette.accent} 60%, ${p.styleSpec.palette.surface} 60%)`,
+                          }}
+                        />
+                        <div className="truncate text-[10px] font-semibold">{p.styleSpec.style}</div>
+                        <div className="truncate text-[9px] text-muted-foreground">
+                          {p.styleSpec.fonts.heading}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deletePresetMut.mutate(p.id)}
+                        title="Remove preset"
+                        className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-[10px] text-white opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {templates && templates.length > 0 && (
               <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
