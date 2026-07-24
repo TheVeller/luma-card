@@ -12,6 +12,7 @@ import {
 import { listEvents } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
 import { seedHistoricalBadges, type SeedProgress } from "@/lib/seed-history";
+import { listApiTokens, createApiToken, revokeApiToken } from "@/lib/api-tokens.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 const ADMIN_EMAIL = "ivelasquezfr@gmail.com";
@@ -41,7 +42,11 @@ function SettingsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: cals, refetch, isLoading } = useQuery({
+  const {
+    data: cals,
+    refetch,
+    isLoading,
+  } = useQuery({
     queryKey: ["luma-calendars"],
     queryFn: () => fetchList(),
   });
@@ -59,6 +64,63 @@ function SettingsPage() {
   const isAdmin = userEmail === ADMIN_EMAIL;
   const [seedBusy, setSeedBusy] = useState(false);
   const [seedLog, setSeedLog] = useState<string[]>([]);
+
+  // --- External API tokens ---
+  const fetchTokens = useServerFn(listApiTokens);
+  const mkToken = useServerFn(createApiToken);
+  const rmToken = useServerFn(revokeApiToken);
+  const { data: tokens, refetch: refetchTokens } = useQuery({
+    queryKey: ["api-tokens"],
+    queryFn: () => fetchTokens(),
+  });
+  const [tokenName, setTokenName] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenErr, setTokenErr] = useState<string | null>(null);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const apiOrigin = typeof window !== "undefined" ? window.location.origin : "";
+
+  async function onCreateToken() {
+    if (!tokenName.trim()) return;
+    setTokenBusy(true);
+    setTokenErr(null);
+    setNewToken(null);
+    try {
+      const res = await mkToken({ data: { name: tokenName.trim() } });
+      setNewToken(res.token);
+      setTokenName("");
+      await refetchTokens();
+    } catch (e) {
+      setTokenErr((e as Error).message);
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function onRevokeToken(id: string, name: string) {
+    if (!confirm(`Revoke "${name}"? Any system using it will stop working immediately.`)) return;
+    setTokenBusy(true);
+    setTokenErr(null);
+    try {
+      await rmToken({ data: { id } });
+      await refetchTokens();
+    } catch (e) {
+      setTokenErr((e as Error).message);
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function onCopyToken() {
+    if (!newToken) return;
+    try {
+      await navigator.clipboard.writeText(newToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   async function onAdd() {
     if (!apiKey.trim()) return;
@@ -132,8 +194,8 @@ function SettingsPage() {
       </div>
       <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Calendars</h1>
       <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-        Conecta uno o más calendarios de Luma. Cada API key se guarda cifrada (AES-256-GCM) y
-        atada a tu cuenta. Consíguelas en{" "}
+        Conecta uno o más calendarios de Luma. Cada API key se guarda cifrada (AES-256-GCM) y atada
+        a tu cuenta. Consíguelas en{" "}
         <a
           href="https://docs.lu.ma/reference/getting-started-with-your-api"
           target="_blank"
@@ -175,7 +237,11 @@ function SettingsPage() {
                 className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
               >
                 {c.avatarUrl ? (
-                  <img src={c.avatarUrl} alt="" className="h-10 w-10 rounded-lg border border-hairline object-cover" />
+                  <img
+                    src={c.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 rounded-lg border border-hairline object-cover"
+                  />
                 ) : (
                   <div className="h-10 w-10 rounded-lg bg-surface-2" />
                 )}
@@ -244,6 +310,98 @@ function SettingsPage() {
         <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
           Validated against /calendar/get · Stored encrypted · Tied to your account
         </p>
+      </div>
+
+      {/* External API tokens */}
+      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+          External API · Tokens · {tokens?.length ?? 0}
+        </div>
+        <h2 className="mt-1 font-display text-xl font-semibold">Calendar router API</h2>
+        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+          Pull all your calendars&apos; events — combined and tagged by source — into any other
+          system. Create a token and send it as a Bearer header.
+        </p>
+
+        {newToken && (
+          <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+              Copy now — shown only once
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-lg border border-hairline bg-background px-3 py-2 font-mono text-xs">
+                {newToken}
+              </code>
+              <button
+                onClick={onCopyToken}
+                className="shrink-0 rounded-full border border-hairline px-3 py-2 text-[11px] font-semibold hover:bg-surface"
+              >
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(tokens?.length ?? 0) > 0 && (
+          <ul className="mt-4 space-y-2">
+            {tokens!.map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-display text-sm font-semibold">{t.name}</span>
+                    {t.revokedAt && (
+                      <span className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-destructive">
+                        revoked
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {t.prefix}… ·{" "}
+                    {t.lastUsedAt ? `used ${t.lastUsedAt.slice(0, 10)}` : "never used"}
+                  </div>
+                </div>
+                {!t.revokedAt && (
+                  <button
+                    onClick={() => onRevokeToken(t.id, t.name)}
+                    disabled={tokenBusy}
+                    className="shrink-0 rounded-full border border-destructive/40 px-3 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <input
+            value={tokenName}
+            onChange={(e) => setTokenName(e.target.value)}
+            placeholder="Token name (e.g. n8n workflow)"
+            className="min-w-0 flex-1 rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
+          />
+          <button
+            onClick={onCreateToken}
+            disabled={tokenBusy || !tokenName.trim()}
+            className="shrink-0 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {tokenBusy ? "…" : "Create token"}
+          </button>
+        </div>
+        {tokenErr && <p className="mt-2 text-xs text-destructive">{tokenErr}</p>}
+
+        <div className="mt-5 overflow-x-auto rounded-xl border border-hairline bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <div className="text-foreground">GET {apiOrigin}/api/v1/events?calendar=all</div>
+          <div className="text-foreground">GET {apiOrigin}/api/v1/calendars</div>
+          <div className="mt-2 whitespace-pre">
+            curl -H &quot;Authorization: Bearer luma_sk_…&quot; \{"\n"}
+            {"  "}&quot;{apiOrigin}/api/v1/events?calendar=all&amp;limit=50&quot;
+          </div>
+        </div>
       </div>
 
       {isAdmin && (
