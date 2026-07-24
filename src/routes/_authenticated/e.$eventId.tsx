@@ -1,10 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEvent } from "@/lib/luma.functions";
 import { analyzeEventArt } from "@/lib/style-analyze.functions";
 import { listTemplates, type TemplateDTO } from "@/lib/templates.functions";
+import {
+  listEventPresets,
+  saveEventPreset,
+  deleteEventPreset,
+  type EventStylePresetDTO,
+} from "@/lib/event-style-presets.functions";
 import { extractPixelEvidence } from "@/lib/pixel-evidence";
 
 import { renderBadge, type EventTheme } from "@/lib/badge-render";
@@ -14,6 +20,7 @@ import { BadgeChat } from "@/components/BadgeChat";
 import { CameraCapture } from "@/components/CameraCapture";
 import { EventBadgeGallery } from "@/components/EventBadgeGallery";
 import { supabase } from "@/integrations/supabase/client";
+import { copyToClipboard, prettyUrl } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/e/$eventId")({
   head: ({ params }) => ({
