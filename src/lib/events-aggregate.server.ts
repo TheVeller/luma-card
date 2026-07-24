@@ -1,0 +1,117 @@
+// Reusable, userId-scoped event aggregation across all of a user's calendars
+// (Luma API `source='api'` + Firecrawl-scraped `source='scrape'`), with per-
+// calendar failure isolation, dedupe, and a deterministic sort.
+//
+// This is the shared core behind both the internal `listEvents` server fn and
+// the external `/api/v1/events` REST route. It takes an explicit `userId` and
+// reads through the service-role client (bypasses RLS) — never touches an
+// RLS-scoped request context — so it is safe to call from a token-authed HTTP
+// handler that has no Supabase session.
+import { fetchAllEvents, type LumaEvent } from "./luma.server";
+import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
+import { readScrapedEventsForCalendar } from "./luma-scrape.functions";
+
+export type EventDTO = {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+  url: string;
+  startAt: string;
+  endAt?: string;
+  city?: string;
+  description?: string;
+  calendarId?: string;
+  calendarName?: string;
+};
+
+export function toDTO(e: LumaEvent, calendarId?: string, calendarName?: string): EventDTO {
+  return {
+    id: e.api_id,
+    name: e.name,
+    coverUrl: e.cover_url,
+    url: e.url,
+    startAt: e.start_at,
+    endAt: e.end_at,
+    city: e.geo_address_info?.city_state ?? undefined,
+    description: e.description_md,
+    calendarId,
+    calendarName,
+  };
+}
+
+type CalendarRow = Awaited<ReturnType<typeof readUserCalendars>>[number];
+
+export type CalendarMeta = {
+  calendarId: string; // public text id (row.calendar_id)
+  name: string;
+  slug: string | null;
+  source: "api" | "scrape";
+};
+
+function metaFor(r: CalendarRow): CalendarMeta {
+  return {
+    calendarId: r.calendar_id,
+    name: r.calendar_name ?? "Your calendar",
+    slug: r.calendar_slug ?? null,
+    source: (r.source ?? "api") as "api" | "scrape",
+  };
+}
+
+export type AggregateResult = { events: EventDTO[]; calendars: CalendarMeta[] };
+
+/**
+ * Aggregate events for a user across their calendars.
+ * @param opts.calendarId  omit / "all" / "__all__" → every calendar; otherwise
+ *                         restrict to the calendar whose public `calendar_id` matches.
+ */
+export async function aggregateEventsForUser(
+  userId: string,
+  opts: { calendarId?: string } = {},
+): Promise<AggregateResult> {
+  const allRows = await readUserCalendars(userId);
+  const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
+  const rows = wantAll ? allRows : allRows.filter((r) => r.calendar_id === opts.calendarId);
+
+  // API calendars: resolveAllKeys already excludes scrape rows (null ciphertext).
+  // Filter the decrypted keys down to the selected rows.
+  const selectedRowIds = new Set(rows.map((r) => r.id));
+  const keyed = await resolveAllKeys(userId);
+  const apiResults = await Promise.all(
+    keyed
+      .filter(({ row }) => selectedRowIds.has(row.id))
+      .map(async ({ key, row }) => {
+        try {
+          const events = await fetchAllEvents(key);
+          return events.map((e) => toDTO(e, row.calendar_id, row.calendar_name ?? undefined));
+        } catch (e) {
+          console.error(`[aggregate] calendar ${row.calendar_id} failed`, e);
+          return [] as EventDTO[];
+        }
+      }),
+  );
+
+  // Scraped calendars: read from scraped_events.
+  const scrapedRows = rows.filter((r) => r.source === "scrape");
+  const scrapedResults = await Promise.all(
+    scrapedRows.map((r) =>
+      readScrapedEventsForCalendar(userId, r.id, r.calendar_id, r.calendar_name ?? "Imported"),
+    ),
+  );
+
+  // Merge + dedupe by `${calendarId}:${id}` (identical to legacy listEvents).
+  const merged: EventDTO[] = [];
+  const seen = new Set<string>();
+  for (const arr of [...apiResults, ...scrapedResults]) {
+    for (const ev of arr) {
+      const k = `${ev.calendarId}:${ev.id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(ev as EventDTO);
+    }
+  }
+
+  // Deterministic order (ascending by start) so offset pagination is stable.
+  merged.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0));
+
+  return { events: merged, calendars: rows.map(metaFor) };
+}

@@ -4,42 +4,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { fetchAllEvents, fetchEvent, type LumaEvent } from "./luma.server";
+import { fetchAllEvents, fetchEvent } from "./luma.server";
 import { resolveUserLumaKey } from "./user-luma-key.functions";
 import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
-import {
-  readScrapedEventsForCalendar,
-  readScrapedEventById,
-  type ScrapedEventDTO,
-} from "./luma-scrape.functions";
+import { readScrapedEventsForCalendar, readScrapedEventById } from "./luma-scrape.functions";
+import { aggregateEventsForUser, toDTO, type EventDTO } from "./events-aggregate.server";
 
-export type EventDTO = {
-  id: string;
-  name: string;
-  coverUrl: string | null;
-  url: string;
-  startAt: string;
-  endAt?: string;
-  city?: string;
-  description?: string;
-  calendarId?: string;
-  calendarName?: string;
-};
-
-function toDTO(e: LumaEvent, calendarId?: string, calendarName?: string): EventDTO {
-  return {
-    id: e.api_id,
-    name: e.name,
-    coverUrl: e.cover_url,
-    url: e.url,
-    startAt: e.start_at,
-    endAt: e.end_at,
-    city: e.geo_address_info?.city_state ?? undefined,
-    description: e.description_md,
-    calendarId,
-    calendarName,
-  };
-}
+// Re-exported for callers that import the DTO shape from this module.
+export type { EventDTO };
 
 class NoLumaKeyError extends Error {
   constructor() {
@@ -47,9 +19,7 @@ class NoLumaKeyError extends Error {
   }
 }
 
-const ListInput = z
-  .object({ calendarId: z.string().optional() })
-  .optional();
+const ListInput = z.object({ calendarId: z.string().optional() }).optional();
 
 export const listEvents = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -59,50 +29,19 @@ export const listEvents = createServerFn({ method: "GET" })
     const allRows = await readUserCalendars(context.userId);
 
     // Combined view: fan out across every linked calendar + scraped ones.
+    // Shared with the external /api/v1/events route via aggregateEventsForUser.
     if (calendarId === "__all__") {
       if (allRows.length === 0) throw new NoLumaKeyError();
-      const apiKeys = await resolveAllKeys(context.userId);
-      const apiResults = await Promise.all(
-        apiKeys.map(async ({ key, row }) => {
-          try {
-            const events = await fetchAllEvents(key);
-            return events.map((e) =>
-              toDTO(e, row.calendar_id, row.calendar_name ?? undefined),
-            );
-          } catch (e) {
-            console.error(`[listEvents] calendar ${row.calendar_id} failed`, e);
-            return [] as EventDTO[];
-          }
-        }),
-      );
-      const scrapedRows = allRows.filter((r) => r.source === "scrape");
-      const scrapedResults: ScrapedEventDTO[][] = await Promise.all(
-        scrapedRows.map((r) =>
-          readScrapedEventsForCalendar(
-            context.userId,
-            r.id,
-            r.calendar_id,
-            r.calendar_name ?? "Imported",
-          ),
-        ),
-      );
-      const merged: EventDTO[] = [];
-      const seen = new Set<string>();
-      for (const arr of [...apiResults, ...scrapedResults]) {
-        for (const ev of arr) {
-          const k = `${ev.calendarId}:${ev.id}`;
-          if (seen.has(k)) continue;
-          seen.add(k);
-          merged.push(ev as EventDTO);
-        }
-      }
-      return merged;
+      const { events } = await aggregateEventsForUser(context.userId, {
+        calendarId: "__all__",
+      });
+      return events;
     }
 
     // Specific calendar — could be scraped (source='scrape') or api.
     const row = calendarId
       ? allRows.find((r) => r.calendar_id === calendarId)
-      : allRows.find((r) => r.is_default) ?? allRows[0];
+      : (allRows.find((r) => r.is_default) ?? allRows[0]);
     if (row?.source === "scrape") {
       return readScrapedEventsForCalendar(
         context.userId,
