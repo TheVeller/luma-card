@@ -505,6 +505,50 @@ function EventBadgePage() {
               {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
             </div>
 
+            {presets && presets.length > 0 && (
+              <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                    · Recent styles for this event
+                  </div>
+                  <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                    {presets.length}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {presets.slice(0, 6).map((p: EventStylePresetDTO) => (
+                    <div key={p.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setSpec(p.styleSpec)}
+                        title={`Apply ${p.styleSpec.style} · ${p.styleSpec.fonts.heading}`}
+                        className="w-full rounded-lg border border-hairline p-1.5 text-left hover:border-accent/60"
+                      >
+                        <div
+                          className="mb-1 h-10 w-full rounded"
+                          style={{
+                            background: `linear-gradient(135deg, ${p.styleSpec.palette.bg} 0%, ${p.styleSpec.palette.bg} 45%, ${p.styleSpec.palette.accent} 45%, ${p.styleSpec.palette.accent} 60%, ${p.styleSpec.palette.surface} 60%)`,
+                          }}
+                        />
+                        <div className="truncate text-[10px] font-semibold">{p.styleSpec.style}</div>
+                        <div className="truncate text-[9px] text-muted-foreground">
+                          {p.styleSpec.fonts.heading}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deletePresetMut.mutate(p.id)}
+                        title="Remove preset"
+                        className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-[10px] text-white opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {templates && templates.length > 0 && (
               <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
                 <div className="mb-2 flex items-center justify-between">
