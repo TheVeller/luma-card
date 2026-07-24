@@ -80,9 +80,7 @@ function pickBody<T extends ScrapeResponse>(res: T) {
   };
 }
 
-export async function firecrawlBranding(
-  url: string,
-): Promise<FirecrawlBranding | null> {
+export async function firecrawlBranding(url: string): Promise<FirecrawlBranding | null> {
   try {
     const res = await fcCall<ScrapeResponse>("/scrape", {
       url,
@@ -157,8 +155,7 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
     if (!name) return null;
     return {
       name,
-      description:
-        j.description ?? (meta.description as string | undefined) ?? null,
+      description: j.description ?? (meta.description as string | undefined) ?? null,
       coverUrl: j.coverUrl ?? ogImage ?? null,
       city: j.city ?? null,
       startAt: j.startAt ?? null,
@@ -173,39 +170,83 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
   }
 }
 
+const RESERVED_SEGMENTS = new Set([
+  "home",
+  "discover",
+  "signin",
+  "signup",
+  "create",
+  "help",
+  "pricing",
+  "terms",
+  "privacy",
+  "about",
+  "settings",
+  "cal",
+]);
+
+/** Pull URL strings out of a Firecrawl links payload — v2 returns `{ url, ... }`
+ *  objects (map) while older responses used plain strings. Handle both. */
+function linkUrls(links: unknown): string[] {
+  if (!Array.isArray(links)) return [];
+  return links
+    .map((l) => (typeof l === "string" ? l : ((l as { url?: string })?.url ?? "")))
+    .filter((u): u is string => Boolean(u));
+}
+
 /** Discover Luma event URLs under a calendar page. */
 export async function firecrawlDiscoverLumaEvents(
   calendarUrl: string,
   limit: number,
 ): Promise<string[]> {
-  const host = new URL(calendarUrl).host; // e.g. lu.ma
+  const base = new URL(calendarUrl);
+  const host = base.host; // e.g. lu.ma
+  const calendarSeg = base.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+
+  // Luma event slugs: single path segment, alphanumeric-ish, not the calendar
+  // itself and not a known non-event route.
+  const isEventUrl = (u: string): boolean => {
+    try {
+      const p = new URL(u);
+      if (p.host !== host) return false;
+      const seg = p.pathname.replace(/^\/+|\/+$/g, "");
+      if (!seg || seg.includes("/")) return false;
+      const low = seg.toLowerCase();
+      if (low === calendarSeg) return false; // the calendar page itself
+      if (RESERVED_SEGMENTS.has(low)) return false;
+      return /^[a-z0-9\-_]{3,}$/i.test(seg);
+    } catch {
+      return false;
+    }
+  };
+
+  const dedupe = (urls: string[]) => Array.from(new Set(urls)).slice(0, limit);
+
+  // 1) /map — fast sitemap + crawl discovery. v2 returns `links` as objects.
   try {
-    const res = await fcCall<{ success?: boolean; links?: string[] }>("/map", {
+    const res = await fcCall<{ links?: unknown }>("/map", {
       url: calendarUrl,
       limit,
       includeSubdomains: false,
     });
-    const links = (res.links ?? []).filter((u) => {
-      try {
-        const p = new URL(u);
-        if (p.host !== host) return false;
-        // Luma event slugs: single path segment, alphanumeric-ish, not calendar routes.
-        const seg = p.pathname.replace(/^\/+|\/+$/g, "");
-        if (!seg || seg.includes("/")) return false;
-        if (
-          [
-            "home", "discover", "signin", "signup", "create", "help",
-            "pricing", "terms", "privacy", "about", "settings", "cal",
-          ].includes(seg.toLowerCase())
-        ) return false;
-        return /^[a-z0-9\-_]{3,}$/i.test(seg);
-      } catch {
-        return false;
-      }
-    });
-    return Array.from(new Set(links)).slice(0, limit);
+    const found = linkUrls(res.links).filter(isEventUrl);
+    if (found.length > 0) return dedupe(found);
   } catch (e) {
     console.error("[firecrawl] map failed:", (e as Error).message);
+  }
+
+  // 2) Fallback: scrape the JS-rendered calendar page and harvest its links.
+  //    lu.ma is a SPA, so its events are frequently absent from the sitemap /map sees.
+  try {
+    const res = await fcCall<ScrapeResponse>("/scrape", {
+      url: calendarUrl,
+      formats: ["links"],
+      onlyMainContent: false,
+      waitFor: 2500,
+    });
+    return dedupe(linkUrls(pickBody(res).links).filter(isEventUrl));
+  } catch (e) {
+    console.error("[firecrawl] scrape-links fallback failed:", (e as Error).message);
     return [];
   }
 }

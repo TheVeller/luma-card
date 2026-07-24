@@ -56,12 +56,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
     const slug = parsed.pathname.replace(/^\/+|\/+$/g, "") || parsed.host;
 
     // Ensure a calendar row for this scraped source.
-    const calendarId = kind === "event"
-      ? `scr-standalone-${context.userId.slice(0, 8)}`
-      : hashKey(`${parsed.host}/${slug}`);
-    const calendarName = kind === "event"
-      ? "Imported events"
-      : `${parsed.host}/${slug}`;
+    const calendarId =
+      kind === "event"
+        ? `scr-standalone-${context.userId.slice(0, 8)}`
+        : hashKey(`${parsed.host}/${slug}`);
+    const calendarName = kind === "event" ? "Imported events" : `${parsed.host}/${slug}`;
 
     const { data: existingCal } = await supabaseAdmin
       .from("user_luma_calendars" as never)
@@ -94,7 +93,12 @@ export const importFromUrl = createServerFn({ method: "POST" })
       urls = [data.url];
     } else {
       urls = await firecrawlDiscoverLumaEvents(data.url, data.limit);
-      if (urls.length === 0) throw new Error("No event links discovered on that page");
+      if (urls.length === 0) {
+        throw new Error(
+          "No events found on that page. Make sure it's a public Luma calendar URL " +
+            "(like lu.ma/your-calendar). To import a single event, choose type 'event'.",
+        );
+      }
     }
 
     // Scrape each URL and upsert into scraped_events.
@@ -103,29 +107,27 @@ export const importFromUrl = createServerFn({ method: "POST" })
       const ev = await firecrawlScrapeEvent(url);
       if (!ev) continue;
       const eventKey = hashKey(url);
-      const { error: upErr } = await supabaseAdmin
-        .from("scraped_events" as never)
-        .upsert(
-          {
-            user_id: context.userId,
-            calendar_id: calendarRowId,
-            event_key: eventKey,
-            source_url: url,
-            name: ev.name,
-            description: ev.description,
-            cover_url: ev.coverUrl,
-            city: ev.city,
-            start_at: ev.startAt,
-            end_at: ev.endAt,
-            host_name: ev.hostName,
-            payload: {
-              branding: ev.branding ?? null,
-              ogImage: ev.ogImage ?? null,
-            },
-            updated_at: new Date().toISOString(),
-          } as never,
-          { onConflict: "user_id,event_key" },
-        );
+      const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
+        {
+          user_id: context.userId,
+          calendar_id: calendarRowId,
+          event_key: eventKey,
+          source_url: url,
+          name: ev.name,
+          description: ev.description,
+          cover_url: ev.coverUrl,
+          city: ev.city,
+          start_at: ev.startAt,
+          end_at: ev.endAt,
+          host_name: ev.hostName,
+          payload: {
+            branding: ev.branding ?? null,
+            ogImage: ev.ogImage ?? null,
+          },
+          updated_at: new Date().toISOString(),
+        } as never,
+        { onConflict: "user_id,event_key" },
+      );
       if (upErr) {
         console.error("scraped_events upsert failed", upErr);
         continue;
@@ -169,16 +171,17 @@ export async function readScrapedEventsForCalendar(
     .eq("user_id", userId)
     .eq("calendar_id", calendarRowId)
     .order("start_at", { ascending: true, nullsFirst: false });
-  const rows = (data as Array<{
-    event_key: string;
-    source_url: string;
-    name: string;
-    description: string | null;
-    cover_url: string | null;
-    city: string | null;
-    start_at: string | null;
-    end_at: string | null;
-  }> | null) ?? [];
+  const rows =
+    (data as Array<{
+      event_key: string;
+      source_url: string;
+      name: string;
+      description: string | null;
+      cover_url: string | null;
+      city: string | null;
+      start_at: string | null;
+      end_at: string | null;
+    }> | null) ?? [];
   return rows.map((r) => ({
     id: r.event_key,
     name: r.name,
@@ -200,7 +203,9 @@ export async function readScrapedEventById(
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data } = await supabaseAdmin
     .from("scraped_events" as never)
-    .select("event_key, source_url, name, description, cover_url, city, start_at, end_at, calendar_id")
+    .select(
+      "event_key, source_url, name, description, cover_url, city, start_at, end_at, calendar_id",
+    )
     .eq("user_id", userId)
     .eq("event_key", eventKey)
     .maybeSingle();
