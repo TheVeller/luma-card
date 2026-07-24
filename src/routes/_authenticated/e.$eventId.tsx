@@ -334,6 +334,33 @@ function EventBadgePage() {
             {formatDateLine(event.startAt)}
             {event.city ? ` · ${event.city.toUpperCase()}` : ""}
           </div>
+          {event.url && (
+            <div className="mt-2 flex items-center gap-2">
+              <a
+                href={event.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate font-mono text-[11px] text-accent underline underline-offset-4 hover:text-foreground"
+                title={event.url}
+              >
+                {prettyUrl(event.url)}
+              </a>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyToClipboard(event.url);
+                  if (ok) {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1400);
+                  }
+                }}
+                title="Copy event link"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-hairline text-[10px] text-muted-foreground hover:bg-surface hover:text-foreground"
+              >
+                {copied ? "✓" : "⧉"}
+              </button>
+            </div>
+          )}
 
           <div className="mt-6 space-y-4">
             <div>
