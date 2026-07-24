@@ -19,6 +19,8 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
 import { Route as AuthenticatedGalleryRouteImport } from './routes/_authenticated/gallery'
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
+import { Route as ApiV1EventsRouteImport } from './routes/api/v1/events'
+import { Route as ApiV1CalendarsRouteImport } from './routes/api/v1/calendars'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 import { Route as AuthenticatedEEventIdRouteImport } from './routes/_authenticated/e.$eventId'
 
@@ -71,6 +73,16 @@ const AuthenticatedEventsRoute = AuthenticatedEventsRouteImport.update({
   path: '/events',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiV1EventsRoute = ApiV1EventsRouteImport.update({
+  id: '/api/v1/events',
+  path: '/api/v1/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CalendarsRoute = ApiV1CalendarsRouteImport.update({
+  id: '/api/v1/calendars',
+  path: '/api/v1/calendars',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicImageRoute = ApiPublicImageRouteImport.update({
   id: '/api/public/image',
   path: '/api/public/image',
@@ -94,6 +106,8 @@ export interface FileRoutesByFullPath {
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
+  '/api/v1/calendars': typeof ApiV1CalendarsRoute
+  '/api/v1/events': typeof ApiV1EventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -107,6 +121,8 @@ export interface FileRoutesByTo {
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
+  '/api/v1/calendars': typeof ApiV1CalendarsRoute
+  '/api/v1/events': typeof ApiV1EventsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -122,6 +138,8 @@ export interface FileRoutesById {
   '/api/chat-badge': typeof ApiChatBadgeRoute
   '/_authenticated/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
+  '/api/v1/calendars': typeof ApiV1CalendarsRoute
+  '/api/v1/events': typeof ApiV1EventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -137,6 +155,8 @@ export interface FileRouteTypes {
     | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
+    | '/api/v1/calendars'
+    | '/api/v1/events'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -150,6 +170,8 @@ export interface FileRouteTypes {
     | '/api/chat-badge'
     | '/e/$eventId'
     | '/api/public/image'
+    | '/api/v1/calendars'
+    | '/api/v1/events'
   id:
     | '__root__'
     | '/'
@@ -164,6 +186,8 @@ export interface FileRouteTypes {
     | '/api/chat-badge'
     | '/_authenticated/e/$eventId'
     | '/api/public/image'
+    | '/api/v1/calendars'
+    | '/api/v1/events'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -173,6 +197,8 @@ export interface RootRouteChildren {
   Phase2Route: typeof Phase2Route
   ApiChatBadgeRoute: typeof ApiChatBadgeRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
+  ApiV1CalendarsRoute: typeof ApiV1CalendarsRoute
+  ApiV1EventsRoute: typeof ApiV1EventsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -247,6 +273,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEventsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/v1/events': {
+      id: '/api/v1/events'
+      path: '/api/v1/events'
+      fullPath: '/api/v1/events'
+      preLoaderRoute: typeof ApiV1EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/calendars': {
+      id: '/api/v1/calendars'
+      path: '/api/v1/calendars'
+      fullPath: '/api/v1/calendars'
+      preLoaderRoute: typeof ApiV1CalendarsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/image': {
       id: '/api/public/image'
       path: '/api/public/image'
@@ -292,6 +332,8 @@ const rootRouteChildren: RootRouteChildren = {
   Phase2Route: Phase2Route,
   ApiChatBadgeRoute: ApiChatBadgeRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,
+  ApiV1CalendarsRoute: ApiV1CalendarsRoute,
+  ApiV1EventsRoute: ApiV1EventsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
