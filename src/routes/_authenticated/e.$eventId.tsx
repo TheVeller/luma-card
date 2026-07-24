@@ -63,6 +63,10 @@ function EventBadgePage() {
   const fetchEvent = useServerFn(getEvent);
   const analyze = useServerFn(analyzeEventArt);
   const fetchTemplates = useServerFn(listTemplates);
+  const fetchPresets = useServerFn(listEventPresets);
+  const savePreset = useServerFn(saveEventPreset);
+  const removePreset = useServerFn(deleteEventPreset);
+  const qc = useQueryClient();
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["luma-event", eventId],
@@ -72,6 +76,11 @@ function EventBadgePage() {
   const { data: templates } = useQuery({
     queryKey: ["templates"],
     queryFn: () => fetchTemplates(),
+  });
+
+  const { data: presets } = useQuery({
+    queryKey: ["event-presets", eventId],
+    queryFn: () => fetchPresets({ data: { eventId } }),
   });
 
   const [firstName, setFirstName] = useState("");
@@ -84,7 +93,18 @@ function EventBadgePage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [galleryKey, setGalleryKey] = useState(0);
+  const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const savePresetMut = useMutation({
+    mutationFn: (input: { styleSpec: StyleSpec; label?: string | null }) =>
+      savePreset({ data: { eventId, ...input } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event-presets", eventId] }),
+  });
+  const deletePresetMut = useMutation({
+    mutationFn: (id: string) => removePreset({ data: { id } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event-presets", eventId] }),
+  });
 
   const coverProxy = proxied(event?.coverUrl ?? null);
 
