@@ -1,29 +1,32 @@
-# Welcome to your Lovable project
+# luma-card — Luma Badge Studio
 
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+Reads your [Luma](https://lu.ma) event calendars and generates personalized,
+shareable badge images per event. Built and kept in sync with
+[Lovable](https://lovable.dev); every change pushed to `main` syncs back into the
+Lovable editor.
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+This project uses **[Bun](https://bun.sh)** as the package manager.
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+git clone git@github.com:TheVeller/luma-card.git
+cd luma-card
+cp .env.example .env   # fill in Supabase publishable values
+bun install
+bun run dev
 ```
+
+Scripts: `bun run dev` · `bun run build` · `bun run preview` · `bun run lint` · `bun run format`.
+
+Server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`,
+AI gateway keys) are injected at the Cloudflare/Lovable runtime — never commit them.
+See `.env.example`.
 
 ## Built with
 
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+- **TanStack Start** (React 19 + TypeScript, Vite)
+- **Tailwind CSS** + shadcn/ui
+- **Supabase** — auth + Postgres (RLS)
+- **Cloudflare Workers** — deploy target (Nitro `cloudflare-module`)
+- Calendar sources: Luma public API + Firecrawl scraping
