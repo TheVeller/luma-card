@@ -175,18 +175,18 @@ function GalleryPage() {
             : "You haven't generated any badges yet."}
         </div>
       ) : (
-        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           {filtered.map((b) => {
             const evName = eventById.get(b.eventId)?.name;
             return (
               <div key={b.id} className="group relative">
                 <button onClick={() => setSelected(b)} className="w-full text-left">
-                  <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
+                  <div className="aspect-[27/40] overflow-hidden rounded-xl border border-hairline bg-surface-2">
                     <img
                       src={b.publicUrl}
                       alt={b.firstName}
                       loading="lazy"
-                      className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
+                      className="h-full w-full object-contain transition-transform group-hover:scale-[1.02]"
                     />
                   </div>
                   <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
@@ -220,8 +220,12 @@ function GalleryPage() {
           className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur"
           onClick={() => setSelected(null)}
         >
-          <div className="max-w-md" onClick={(e) => e.stopPropagation()}>
-            <img src={selected.publicUrl} alt={selected.firstName} className="w-full rounded-xl" />
+          <div className="max-h-[90vh] w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={selected.publicUrl}
+              alt={selected.firstName}
+              className="mx-auto max-h-[75vh] w-auto rounded-xl object-contain"
+            />
             <div className="mt-3 flex items-center justify-between text-white">
               <div className="min-w-0">
                 <div className="font-display text-lg font-semibold">{selected.firstName}</div>

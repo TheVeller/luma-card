@@ -64,18 +64,18 @@ export function EventBadgeGallery({ eventId, accent, refreshKey = 0 }: Props) {
           Be the first to make a badge for this event.
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {data.map((b) => {
             const isMine = me && b.ownerId === me;
             return (
               <div key={b.id} className="group relative">
                 <button onClick={() => setSelected(b)} className="w-full text-left">
-                  <div className="aspect-square overflow-hidden rounded-xl border border-hairline bg-surface-2">
+                  <div className="aspect-[27/40] overflow-hidden rounded-xl border border-hairline bg-surface-2">
                     <img
                       src={b.publicUrl}
                       alt={b.firstName}
                       loading="lazy"
-                      className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
+                      className="h-full w-full object-contain transition-transform group-hover:scale-[1.02]"
                     />
                   </div>
                   <div className="mt-2 truncate text-xs font-semibold">{b.firstName}</div>
@@ -106,8 +106,12 @@ export function EventBadgeGallery({ eventId, accent, refreshKey = 0 }: Props) {
           className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur"
           onClick={() => setSelected(null)}
         >
-          <div className="max-w-md" onClick={(e) => e.stopPropagation()}>
-            <img src={selected.publicUrl} alt={selected.firstName} className="w-full rounded-xl" />
+          <div className="max-h-[90vh] w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={selected.publicUrl}
+              alt={selected.firstName}
+              className="mx-auto max-h-[75vh] w-auto rounded-xl object-contain"
+            />
             <div className="mt-3 flex items-center justify-between text-white">
               <div>
                 <div className="font-display text-lg font-semibold">{selected.firstName}</div>
