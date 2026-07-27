@@ -14,7 +14,6 @@ import { Route as McpRouteImport } from './routes/mcp'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DevParityRouteImport } from './routes/dev.parity'
 import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
 import { Route as AuthenticatedTemplatesRouteImport } from './routes/_authenticated/templates'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
@@ -52,11 +51,6 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DevParityRoute = DevParityRouteImport.update({
-  id: '/dev/parity',
-  path: '/dev/parity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatBadgeRoute = ApiChatBadgeRouteImport.update({
@@ -146,7 +140,6 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
-  '/dev/parity': typeof DevParityRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -167,7 +160,6 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
-  '/dev/parity': typeof DevParityRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -190,7 +182,6 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/templates': typeof AuthenticatedTemplatesRoute
   '/api/chat-badge': typeof ApiChatBadgeRoute
-  '/dev/parity': typeof DevParityRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/_authenticated/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -213,7 +204,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/templates'
     | '/api/chat-badge'
-    | '/dev/parity'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/e/$eventId'
@@ -234,7 +224,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/templates'
     | '/api/chat-badge'
-    | '/dev/parity'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/e/$eventId'
@@ -256,7 +245,6 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/templates'
     | '/api/chat-badge'
-    | '/dev/parity'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/_authenticated/e/$eventId'
@@ -274,7 +262,6 @@ export interface RootRouteChildren {
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiChatBadgeRoute: typeof ApiChatBadgeRoute
-  DevParityRoute: typeof DevParityRoute
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
@@ -317,13 +304,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dev/parity': {
-      id: '/dev/parity'
-      path: '/dev/parity'
-      fullPath: '/dev/parity'
-      preLoaderRoute: typeof DevParityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat-badge': {
@@ -458,7 +438,6 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ApiChatBadgeRoute: ApiChatBadgeRoute,
-  DevParityRoute: DevParityRoute,
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,

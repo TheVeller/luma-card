@@ -19,7 +19,13 @@ export type ImageAsset = {
 export type BindingContext = {
   palette: StyleSpec["palette"];
   fonts: { heading: string; body: string };
-  derived: { accent: string; isMono: boolean };
+  derived: {
+    accent: string;
+    isMono: boolean;
+    /** the classic badge draws its hairlines heavier on a mono palette */
+    hairlineAlpha: number;
+    photoStrokeAlpha: number;
+  };
   event: {
     name: string;
     subtitle: string;
@@ -39,10 +45,16 @@ export function bindingsFrom(
   assets: Record<string, ImageAsset> = {},
   vars: Record<string, number | string> = {},
 ): BindingContext {
+  const isMono = isMonoPalette(spec);
   return {
     palette: spec.palette,
     fonts: { heading: spec.fonts.heading, body: spec.fonts.body },
-    derived: { accent: effectiveAccent(spec), isMono: isMonoPalette(spec) },
+    derived: {
+      accent: effectiveAccent(spec),
+      isMono,
+      hairlineAlpha: isMono ? 0.28 : 0.16,
+      photoStrokeAlpha: isMono ? 0.6 : 1,
+    },
     event,
     user,
     assets,
@@ -63,12 +75,20 @@ function displayUrl(raw: string): string {
   }
 }
 
-type FilterFn = (value: unknown, arg: string | undefined, out: { alpha: number }) => unknown;
+type FilterFn = (
+  value: unknown,
+  arg: string | undefined,
+  out: { alpha: number },
+  bindings: BindingContext,
+) => unknown;
 
 const FILTERS: Record<string, FilterFn> = {
   // Colour opacity. Kept out of the value so SVG can emit fill + fill-opacity.
-  alpha: (v, arg, out) => {
-    const a = Number(arg);
+  // The argument may itself be a token, which is how the classic badge keeps
+  // its mono-palette hairlines without a conditional in the document.
+  alpha: (v, arg, out, bindings) => {
+    const raw = arg?.startsWith("$") ? lookup(bindings, arg.slice(1).split(".")) : arg;
+    const a = Number(raw);
     out.alpha = Number.isFinite(a) ? Math.min(1, Math.max(0, a)) : 1;
     return v;
   },
@@ -132,7 +152,7 @@ export function resolveToken(
   for (const pipe of parsed.pipes) {
     const fn = FILTERS[pipe.name];
     if (!fn) throw new TokenError(`unknown filter: |${pipe.name}`);
-    v = fn(v, pipe.arg, out);
+    v = fn(v, pipe.arg, out, bindings);
   }
   return { value: v, alpha: out.alpha };
 }

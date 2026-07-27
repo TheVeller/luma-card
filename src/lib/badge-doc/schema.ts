@@ -78,6 +78,8 @@ const NodeBase = {
   aspect: z.number().positive().optional(),
   grow: z.number().min(0).max(10).default(0),
   shrink: z.number().min(0).max(10).default(0),
+  /** overrides the parent's cross-axis `align` for this node only */
+  alignSelf: z.enum(["auto", "start", "center", "end"]).default("auto"),
   margin: Edges.optional(),
   opacity: z.number().min(0).max(1).default(1),
   /** floor the resolved box to whole pixels (the photo does this today) */
@@ -143,8 +145,8 @@ export const QrNode = z.object({
   ...NodeBase,
   value: StringRef,
   ecc: z.enum(["L", "M", "Q", "H"]).default("M"),
-  /** quiet zone in modules */
-  margin: z.number().int().min(0).max(8).default(2),
+  /** quiet zone in modules — NOT the layout margin, which every node has */
+  quietZone: z.number().int().min(0).max(8).default(2),
   dark: ColorRef.default("$palette.text"),
   light: ColorRef.default("$palette.surface"),
 });

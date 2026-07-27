@@ -1,8 +1,9 @@
-// TEMPORARY — side-by-side twin of badge-render.ts with the text reset applied.
-// Exists only so /dev/parity can show before/after. Both this file and the
-// legacy renderer are replaced by the BadgeDoc engine at the end of phase 2.
+// FROZEN REFERENCE — the hand-written renderer, kept only so the parity test
+// has something independent to compare the BadgeDoc engine against. Nothing in
+// the app imports it; do not add features here.
 //
-// Three changes vs badge-render.ts, all about making text position the same in
+// It is the approved baseline: the same layout the app always drew, plus the
+// three text changes needed to make canvas, SVG and Figma agree. Those are:
 // canvas, SVG and Figma. Nothing about the layout itself moves.
 //
 //   1. kerning off        canvas kerns automatically, an advance-width table does not
@@ -15,10 +16,10 @@
 // ctx.textAlign, so the number comes from the same table the layout will use.
 
 import QRCode from "qrcode";
-import { effectiveAccent, isMonoPalette, type StyleSpec } from "./style-spec";
-import { loadGoogleFontPair, validateFontPair } from "./google-fonts";
-import { TableMeasurer, type FontRequest } from "./badge-doc/layout/measure";
-import type { BadgeInputs } from "./badge-render";
+import { effectiveAccent, isMonoPalette, type StyleSpec } from "@/lib/style-spec";
+import { loadGoogleFontPair, validateFontPair } from "@/lib/google-fonts";
+import { TableMeasurer, type FontRequest } from "../layout/measure";
+import type { BadgeInputs } from "@/lib/badge-render";
 
 const W = 1080;
 const H = 1600;
@@ -174,7 +175,7 @@ function displayUrl(raw: string): string {
   }
 }
 
-export async function renderBadgeReset(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
+export async function renderFrozenBadge(inputs: BadgeInputs): Promise<HTMLCanvasElement> {
   const { theme, spec, photoDataUrl, firstName, role } = inputs;
 
   const { heading: headingFamily, body: bodyFamily } = validateFontPair(
