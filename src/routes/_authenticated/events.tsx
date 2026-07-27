@@ -27,17 +27,17 @@ export const Route = createFileRoute("/_authenticated/events")({
 });
 
 function formatDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) {
     return iso;
   }
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function proxied(url: string | null): string {
@@ -53,11 +53,11 @@ function proxied(url: string | null): string {
   return url;
 }
 
-type SortMode = "newest" | "oldest" | "az";
+type SortMode = "upcoming" | "latest" | "az";
 
 const SORT_MODES: { key: SortMode; label: string }[] = [
-  { key: "newest", label: "Newest first" },
-  { key: "oldest", label: "Oldest first" },
+  { key: "upcoming", label: "Upcoming first" },
+  { key: "latest", label: "Latest first" },
   { key: "az", label: "A \u2013 Z" },
 ];
 
@@ -72,6 +72,45 @@ const SORT_LABEL: Record<SortMode, string> = Object.fromEntries(
  */
 const NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
+function eventTime(ev: EventDTO): number | null {
+  const time = Date.parse(ev.startAt);
+  return Number.isFinite(time) ? time : null;
+}
+
+function compareEventName(a: EventDTO, b: EventDTO): number {
+  return NAME_COLLATOR.compare(a.name, b.name) || a.id.localeCompare(b.id);
+}
+
+function compareByTimeAsc(a: EventDTO, b: EventDTO): number {
+  const aTime = eventTime(a);
+  const bTime = eventTime(b);
+  if (aTime === null && bTime === null) return compareEventName(a, b);
+  if (aTime === null) return 1;
+  if (bTime === null) return -1;
+  return aTime - bTime || compareEventName(a, b);
+}
+
+function compareByTimeDesc(a: EventDTO, b: EventDTO): number {
+  const aTime = eventTime(a);
+  const bTime = eventTime(b);
+  if (aTime === null && bTime === null) return compareEventName(a, b);
+  if (aTime === null) return 1;
+  if (bTime === null) return -1;
+  return bTime - aTime || compareEventName(a, b);
+}
+
+function compareByUpcoming(a: EventDTO, b: EventDTO, now: number): number {
+  const aTime = eventTime(a);
+  const bTime = eventTime(b);
+  const aUpcoming = aTime !== null && aTime >= now;
+  const bUpcoming = bTime !== null && bTime >= now;
+
+  if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+  if (aTime === null || bTime === null) return compareByTimeAsc(a, b);
+  if (aUpcoming) return aTime - bTime || compareEventName(a, b);
+  return bTime - aTime || compareEventName(a, b);
+}
+
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const { activeCalendarId } = useActiveCalendar();
@@ -81,7 +120,7 @@ function EventsPage() {
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
-  const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [sortMode, setSortMode] = useState<SortMode>("upcoming");
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
 
@@ -98,7 +137,8 @@ function EventsPage() {
     if (!data) return [];
     const now = Date.now();
     return data.filter((ev: EventDTO) => {
-      const t = new Date(ev.startAt).getTime();
+      const t = eventTime(ev);
+      if (t === null) return filter === "all";
       if (filter === "upcoming") return t >= now;
       if (filter === "past") return t < now;
       return true;
@@ -107,11 +147,10 @@ function EventsPage() {
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
-    const byDate = (a: EventDTO, b: EventDTO) =>
-      new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
-    if (sortMode === "newest") arr.sort((a, b) => byDate(b, a));
-    else if (sortMode === "oldest") arr.sort(byDate);
-    else arr.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
+    const now = Date.now();
+    if (sortMode === "upcoming") arr.sort((a, b) => compareByUpcoming(a, b, now));
+    else if (sortMode === "latest") arr.sort(compareByTimeDesc);
+    else arr.sort(compareEventName);
     return arr;
   }, [filtered, sortMode]);
 

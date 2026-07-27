@@ -24,6 +24,22 @@ export type EventDTO = {
   calendarName?: string;
 };
 
+function eventTime(ev: EventDTO): number | null {
+  const time = Date.parse(ev.startAt);
+  return Number.isFinite(time) ? time : null;
+}
+
+function compareEventsByStart(a: EventDTO, b: EventDTO): number {
+  const aTime = eventTime(a);
+  const bTime = eventTime(b);
+  if (aTime === null && bTime === null) {
+    return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+  }
+  if (aTime === null) return 1;
+  if (bTime === null) return -1;
+  return aTime - bTime || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+}
+
 export function toDTO(e: LumaEvent, calendarId?: string, calendarName?: string): EventDTO {
   return {
     id: e.api_id,
@@ -111,7 +127,7 @@ export async function aggregateEventsForUser(
   }
 
   // Deterministic order (ascending by start) so offset pagination is stable.
-  merged.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0));
+  merged.sort(compareEventsByStart);
 
   return { events: merged, calendars: rows.map(metaFor) };
 }
