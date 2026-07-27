@@ -42,6 +42,14 @@ export function validateFontPair(
   return { heading: h, body: b, fallback: h !== heading || b !== body };
 }
 
+/**
+ * Weights each family actually ships, from the generated metric tables.
+ * Asking for one a family does not have gets you a synthesized (faux) bold,
+ * which every engine draws differently — and document.fonts.check() reports
+ * true for it, so it also masks a font that never loaded.
+ */
+import { AVAILABLE_WEIGHTS } from "@/lib/badge-doc/layout/metrics/index";
+
 const injectedHrefs = new Set<string>();
 
 function familyToUrl(family: string, weights: string): string {
@@ -60,36 +68,53 @@ function inject(family: string, weights: string) {
 }
 
 /**
- * Ensure both families are downloaded and reported ready by the browser for
- * every weight/size the canvas renderer will request.
+ * Proof that a family is really painting: measure a wide sample against the
+ * generic fallback the canvas would otherwise use. document.fonts.check() is
+ * not enough — it answers "would this font-spec match something", and returns
+ * true for a fallback plus a synthesized weight.
+ */
+function isFamilyPainting(family: string, weight: number): boolean {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return true;
+  const sample = "CODE BREW BOGOTÁ — BUILDERS NIGHT";
+  ctx.font = `${weight} 88px "${family}"`;
+  const actual = ctx.measureText(sample).width;
+  for (const generic of ["sans-serif", "serif", "monospace"]) {
+    ctx.font = `${weight} 88px ${generic}`;
+    if (Math.abs(ctx.measureText(sample).width - actual) < 0.01) return false;
+  }
+  return true;
+}
+
+/**
+ * Ensure both families are downloaded and actually painting before the canvas
+ * draws. Requests only the weights the families really ship, then verifies by
+ * measurement and retries with backoff — a first paint on a cold cache used to
+ * silently fall back to a system font.
  */
 export async function loadGoogleFontPair(heading: string, body: string): Promise<void> {
   if (typeof document === "undefined") return;
 
-  inject(heading, "400;500;600;700;800;900");
-  inject(body, "400;500;700");
+  const headWeights = AVAILABLE_WEIGHTS[heading] ?? [400, 700];
+  const bodyWeights = (AVAILABLE_WEIGHTS[body] ?? [400, 700]).filter((w) => w <= 700);
+  inject(heading, headWeights.join(";"));
+  inject(body, bodyWeights.join(";"));
 
-  // Representative combos actually used by badge-render.ts
-  const specs: string[] = [
-    `900 104px "${heading}"`,
-    `900 88px "${heading}"`,
-    `900 42px "${heading}"`,
-    `700 26px "${heading}"`,
-    `700 22px "${body}"`,
-    `400 22px "${body}"`,
-    `700 16px "${body}"`,
-    `400 14px "${body}"`,
-    `400 18px "${body}"`,
+  const heaviestHead = Math.max(...headWeights);
+  const heaviestBody = Math.max(...bodyWeights);
+  const specs = [
+    ...headWeights.map((w) => `${w} 88px "${heading}"`),
+    ...bodyWeights.map((w) => `${w} 22px "${body}"`),
   ];
 
   try {
-    await Promise.all(specs.map((s) => document.fonts.load(s)));
-    await document.fonts.ready;
-    if (!specs.every((s) => document.fonts.check(s))) {
-      await new Promise((r) => setTimeout(r, 250));
+    for (let attempt = 0; attempt < 5; attempt++) {
       await Promise.all(specs.map((s) => document.fonts.load(s)));
       await document.fonts.ready;
+      if (isFamilyPainting(heading, heaviestHead) && isFamilyPainting(body, heaviestBody)) return;
+      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
+    console.warn(`[google-fonts] ${heading} / ${body} still falling back after 5 attempts`);
   } catch {
     // Canvas will fall back to system fonts; better than throwing.
   }

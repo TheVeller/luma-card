@@ -178,8 +178,10 @@ async function measureDrift(): Promise<Drift[]> {
   return out;
 }
 
+type Pair = { slug: string; before: string; after: string; heading: string; body: string };
+
 function ParityPage() {
-  const [pairs, setPairs] = useState<{ slug: string; before: string; after: string }[]>([]);
+  const [pairs, setPairs] = useState<Pair[]>([]);
   const [drift, setDrift] = useState<Drift[]>([]);
   const [status, setStatus] = useState("rendering…");
   const started = useRef(false);
@@ -189,7 +191,7 @@ function ParityPage() {
     started.current = true;
     (async () => {
       const photo = makePhoto();
-      const out: { slug: string; before: string; after: string }[] = [];
+      const out: Pair[] = [];
       for (const { slug, spec } of TEMPLATES) {
         const inputs = {
           theme: THEME,
@@ -198,10 +200,16 @@ function ParityPage() {
           firstName: "Ignacio",
           role: "Founder, GPT Chain",
         };
+        const { heading, body } = validateFontPair(spec.fonts.heading, spec.fonts.body);
+        // Both renderers await this too; doing it up front means neither of the
+        // two can be the one that pays for a cold cache and falls back.
+        await loadGoogleFontPair(heading, body);
         const before = await renderBadge(inputs);
         const after = await renderBadgeReset(inputs);
         out.push({
           slug,
+          heading,
+          body,
           before: before.toDataURL("image/png"),
           after: after.toDataURL("image/png"),
         });
@@ -216,8 +224,20 @@ function ParityPage() {
   const worst = drift.reduce((a, d) => Math.max(a, Math.abs(d.delta)), 0);
 
   return (
-    <div style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui", background: "#fff" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700 }}>Badge text reset — before / after</h1>
+    // The app shell is theme-aware; this page forces its own colours so the
+    // labels stay readable whichever theme is active.
+    <div
+      style={{
+        padding: 24,
+        fontFamily: "ui-sans-serif, system-ui",
+        background: "#fff",
+        color: "#111",
+        minHeight: "100vh",
+      }}
+    >
+      <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111" }}>
+        Badge text reset — before / after
+      </h1>
       <p style={{ fontSize: 13, color: "#555", maxWidth: 720 }}>
         Left is today&apos;s renderer. Right applies the three changes needed for the canvas
         preview, the SVG export and Figma to agree: kerning off, real font weights (no faux bold)
@@ -226,7 +246,12 @@ function ParityPage() {
 
       {pairs.map((p) => (
         <section key={p.slug} style={{ marginTop: 28 }}>
-          <h2 style={{ fontSize: 14, fontFamily: "ui-monospace, monospace" }}>{p.slug}</h2>
+          <h2 style={{ fontSize: 14, fontFamily: "ui-monospace, monospace", color: "#111" }}>
+            {p.slug}
+            <span style={{ marginLeft: 12, fontSize: 11, color: "#555" }}>
+              heading {p.heading} · body {p.body}
+            </span>
+          </h2>
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <figure style={{ margin: 0 }}>
               <img src={p.before} alt="before" style={{ width: 320, border: "1px solid #ddd" }} />
