@@ -384,8 +384,9 @@ function SettingsPage() {
         </div>
         <h2 className="mt-1 font-display text-xl font-semibold">Calendar router API</h2>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Pull all your calendars&apos; events — combined and tagged by source — into any other
-          system. Create a token and send it as a Bearer header.
+          Pull routed Luma events into another app. The API combines connected and imported
+          calendars, tags every event with its source, and supports calendar filters, ISO date
+          ranges, and cursor pagination.
         </p>
 
         {newToken && (
@@ -463,8 +464,11 @@ function SettingsPage() {
           <div className="text-foreground">GET {apiOrigin}/api/v1/events?calendar=all</div>
           <div className="text-foreground">GET {apiOrigin}/api/v1/calendars</div>
           <div className="mt-2 whitespace-pre">
-            curl -H &quot;Authorization: Bearer luma_sk_…&quot; \{"\n"}
-            {"  "}&quot;{apiOrigin}/api/v1/events?calendar=all&amp;limit=50&quot;
+            {`curl -H "Authorization: Bearer luma_sk_..." \\
+  "${apiOrigin}/api/v1/events?calendar=all&from=2026-07-01T00:00:00Z&limit=50"`}
+          </div>
+          <div className="mt-2">
+            Params: calendar, from, to, limit, cursor. Full integration guide: docs/api.md
           </div>
         </div>
       </div>

@@ -23,6 +23,17 @@ Server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`,
 AI gateway keys) are injected at the Cloudflare/Lovable runtime — never commit them.
 See `.env.example`.
 
+## API
+
+The app exposes a user-scoped Calendar Router API for integrations:
+
+- `GET /api/v1/calendars`
+- `GET /api/v1/events`
+- MCP router endpoints under `/mcp` and `/.mcp/*`
+
+See [docs/api.md](docs/api.md) for authentication, response schemas,
+pagination, error codes, and TypeScript examples.
+
 ## Built with
 
 - **TanStack Start** (React 19 + TypeScript, Vite)
