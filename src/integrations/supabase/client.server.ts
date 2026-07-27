@@ -65,6 +65,15 @@ function createSupabaseAdminClient() {
 /** Stable marker for "the server has no Supabase credentials in this environment". */
 export const SUPABASE_NOT_CONFIGURED = "SUPABASE_NOT_CONFIGURED";
 
+/** True when the failure is "this environment has no server credentials". */
+export function isSupabaseNotConfigured(e: unknown): boolean {
+  const err = e as { code?: string; message?: string } | null;
+  return (
+    err?.code === SUPABASE_NOT_CONFIGURED ||
+    Boolean(err?.message?.includes("Missing Supabase environment variable"))
+  );
+}
+
 let _supabaseAdmin: ReturnType<typeof createSupabaseAdminClient> | undefined;
 
 // Server-side Supabase client with service role - bypasses RLS

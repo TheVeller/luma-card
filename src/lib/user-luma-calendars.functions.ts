@@ -82,9 +82,7 @@ export async function resolveKeyForCalendar(
 }
 
 /** Returns [{key, row}, ...] for every calendar the user has. */
-export async function resolveAllKeys(
-  userId: string,
-): Promise<Array<{ key: string; row: Row }>> {
+export async function resolveAllKeys(userId: string): Promise<Array<{ key: string; row: Row }>> {
   const rows = await readUserCalendars(userId);
   const out: Array<{ key: string; row: Row }> = [];
   for (const r of rows) {
@@ -97,8 +95,18 @@ export async function resolveAllKeys(
 export const listCalendars = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<UserCalendarDTO[]> => {
-    const rows = await readUserCalendars(context.userId);
-    return rows.map(toDTO);
+    try {
+      const rows = await readUserCalendars(context.userId);
+      return rows.map(toDTO);
+    } catch (e) {
+      // The calendar switcher sits in the header of every authenticated page,
+      // so an environment with no server credentials must not take the whole
+      // app down with it. Degrade to "no calendars"; the events page is where
+      // the misconfiguration gets explained.
+      const { isSupabaseNotConfigured } = await import("@/integrations/supabase/client.server");
+      if (isSupabaseNotConfigured(e)) return [];
+      throw e;
+    }
   });
 
 export const addCalendar = createServerFn({ method: "POST" })
@@ -130,7 +138,9 @@ export const addCalendar = createServerFn({ method: "POST" })
         } as never,
         { onConflict: "user_id,calendar_id" },
       )
-      .select("id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default")
+      .select(
+        "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default",
+      )
       .single();
     if (error) throw new Error(error.message);
     return toDTO(row as Row);
