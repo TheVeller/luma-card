@@ -78,21 +78,29 @@ export const importFromUrl = createServerFn({ method: "POST" })
       return (inserted as { id: string }).id;
     }
 
-    const kind = data.kind === "auto" ? guessKind(data.url) : data.kind;
+    const requestedKind = data.kind;
+    const kind = requestedKind === "auto" ? guessKind(data.url) : requestedKind;
 
     // --- Calendar: use Luma's public API (no API key, no Firecrawl). ---
     if (kind === "calendar") {
       const { resolveLumaCalendar, fetchPublicCalendarEvents } =
         await import("./luma-public.server");
       const cal = await resolveLumaCalendar(data.url);
+      // On `auto`, a calendar miss is expected for single-event URLs — fall
+      // through to the Firecrawl event scraper instead of hard-failing.
       if (!cal) {
-        throw new Error(
-          "Couldn't read that Luma calendar. Use a public calendar URL like " +
-            "luma.com/your-calendar. To import a single event, choose type 'event'.",
-        );
-      }
-      const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
-      if (events.length === 0) throw new Error("That calendar has no events to import.");
+        if (requestedKind !== "auto") {
+          throw new Error(
+            "Couldn't read that Luma calendar. Use a public calendar URL like " +
+              "luma.com/your-calendar. To import a single event, choose type 'event'.",
+          );
+        }
+      } else {
+        const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
+        if (events.length === 0 && requestedKind !== "auto")
+          throw new Error("That calendar has no events to import.");
+        if (events.length > 0) {
+
 
       const calendarId = `scr-${cal.apiId}`;
       const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
