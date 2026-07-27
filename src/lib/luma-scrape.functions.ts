@@ -29,13 +29,13 @@ function hashKey(s: string): string {
 function guessKind(url: string): "calendar" | "event" {
   try {
     const u = new URL(url);
-    // lu.ma calendars live at /{slug} with 'user_...' / 'cal-...' ids too.
-    // Heuristic: if pathname is empty or starts with an "event" style path with 5+ chars, we treat as event.
-    // But safest default is `auto` — user should pick when unclear.
     const seg = u.pathname.replace(/^\/+|\/+$/g, "");
     if (!seg) return "calendar";
-    // Luma slugs for calendars are longer, human names (e.g. hack0). Events tend to be short hashes.
-    if (/^[a-z0-9]{4,8}$/i.test(seg)) return "event";
+    // Only `evt-...` ids are unambiguously events. Human slugs like `hack0`
+    // are much more likely to be calendars, and even a short hash slug can be
+    // a calendar — so default to calendar and let the handler fall back to
+    // event scraping if calendar resolution fails.
+    if (/^evt-/i.test(seg)) return "event";
     return "calendar";
   } catch {
     return "event";
@@ -78,61 +78,73 @@ export const importFromUrl = createServerFn({ method: "POST" })
       return (inserted as { id: string }).id;
     }
 
-    const kind = data.kind === "auto" ? guessKind(data.url) : data.kind;
+    const requestedKind = data.kind;
+    const kind = requestedKind === "auto" ? guessKind(data.url) : requestedKind;
 
     // --- Calendar: use Luma's public API (no API key, no Firecrawl). ---
     if (kind === "calendar") {
       const { resolveLumaCalendar, fetchPublicCalendarEvents } =
         await import("./luma-public.server");
       const cal = await resolveLumaCalendar(data.url);
+      // On `auto`, a calendar miss is expected for single-event URLs — fall
+      // through to the Firecrawl event scraper instead of hard-failing.
       if (!cal) {
-        throw new Error(
-          "Couldn't read that Luma calendar. Use a public calendar URL like " +
-            "luma.com/your-calendar. To import a single event, choose type 'event'.",
-        );
-      }
-      const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
-      if (events.length === 0) throw new Error("That calendar has no events to import.");
-
-      const calendarId = `scr-${cal.apiId}`;
-      const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
-
-      const imported: string[] = [];
-      for (const ev of events) {
-        const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
-          {
-            user_id: context.userId,
-            calendar_id: calendarRowId,
-            event_key: ev.apiId,
-            source_url: ev.url,
-            name: ev.name,
-            description: null,
-            cover_url: ev.coverUrl,
-            city: ev.city,
-            start_at: ev.startAt,
-            end_at: ev.endAt,
-            host_name: null,
-            payload: { source: "luma-api" },
-            updated_at: new Date().toISOString(),
-          } as never,
-          { onConflict: "user_id,event_key" },
-        );
-        if (upErr) {
-          console.error("scraped_events upsert failed", upErr);
-          continue;
+        if (requestedKind !== "auto") {
+          throw new Error(
+            "Couldn't read that Luma calendar. Use a public calendar URL like " +
+              "luma.com/your-calendar. To import a single event, choose type 'event'.",
+          );
         }
-        imported.push(ev.apiId);
-      }
+      } else {
+        const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
+        if (events.length === 0 && requestedKind !== "auto")
+          throw new Error("That calendar has no events to import.");
+        if (events.length > 0) {
+          const calendarId = `scr-${cal.apiId}`;
+          const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
 
-      return {
-        kind,
-        calendarRowId,
-        calendarId,
-        calendarName: cal.name,
-        imported: imported.length,
-        eventIds: imported,
-      };
+          const imported: string[] = [];
+          for (const ev of events) {
+            const { error: upErr } = await supabaseAdmin
+              .from("scraped_events" as never)
+              .upsert(
+                {
+                  user_id: context.userId,
+                  calendar_id: calendarRowId,
+                  event_key: ev.apiId,
+                  source_url: ev.url,
+                  name: ev.name,
+                  description: null,
+                  cover_url: ev.coverUrl,
+                  city: ev.city,
+                  start_at: ev.startAt,
+                  end_at: ev.endAt,
+                  host_name: null,
+                  payload: { source: "luma-api" },
+                  updated_at: new Date().toISOString(),
+                } as never,
+                { onConflict: "user_id,event_key" },
+              );
+            if (upErr) {
+              console.error("scraped_events upsert failed", upErr);
+              continue;
+            }
+            imported.push(ev.apiId);
+          }
+
+          return {
+            kind: "calendar",
+            calendarRowId,
+            calendarId,
+            calendarName: cal.name,
+            imported: imported.length,
+            eventIds: imported,
+          };
+        }
+      }
+      // auto + calendar resolution empty/failed → fall through to event scrape.
     }
+
 
     // --- Single event: scrape the page with Firecrawl. ---
     const { hasFirecrawl, firecrawlScrapeEvent } = await import("./firecrawl.server");
@@ -166,13 +178,14 @@ export const importFromUrl = createServerFn({ method: "POST" })
     if (upErr) throw new Error(upErr.message);
 
     return {
-      kind,
+      kind: "event",
       calendarRowId,
       calendarId,
       calendarName,
       imported: 1,
       eventIds: [eventKey],
     };
+
   });
 
 export type ScrapedEventDTO = {

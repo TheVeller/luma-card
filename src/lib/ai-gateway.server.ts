@@ -1,10 +1,10 @@
-// Vercel AI Gateway (OpenAI-compatible).
-// Chat/text goes through Vercel. Image generation stays on Lovable's
-// /v1/images/generations because Vercel AI Gateway doesn't expose that route.
+// Single AI provider for the app: Vercel AI Gateway (OpenAI-compatible).
+// Every AI call — style analysis, badge chat, and any future model use —
+// routes through here so we have one key, one base URL, one place to swap.
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
-const VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1";
-const LOVABLE_BASE_URL = "https://ai.gateway.lovable.dev/v1";
+export const VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+export const VERCEL_CHAT_URL = `${VERCEL_BASE_URL}/chat/completions`;
 
 export function getVercelKey(): string {
   const key = process.env.VERCEL_AI_GATEWAY_API_KEY;
@@ -12,13 +12,7 @@ export function getVercelKey(): string {
   return key;
 }
 
-export function getLovableKey(): string {
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) throw new Error("LOVABLE_API_KEY missing");
-  return key;
-}
-
-// Text/chat provider — Vercel AI Gateway.
+/** AI SDK provider factory bound to the Vercel gateway. */
 export function createAIGateway() {
   const key = getVercelKey();
   return createOpenAICompatible({
@@ -27,18 +21,5 @@ export function createAIGateway() {
     headers: {
       Authorization: `Bearer ${key}`,
     },
-  });
-}
-
-// Image generation via Lovable AI Gateway (Vercel gateway has no /images route).
-export async function callImageGeneration(body: unknown): Promise<Response> {
-  const key = getLovableKey();
-  return fetch(`${LOVABLE_BASE_URL}/images/generations`, {
-    method: "POST",
-    headers: {
-      "Lovable-API-Key": key,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
   });
 }
