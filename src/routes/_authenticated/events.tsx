@@ -85,7 +85,14 @@ function EventsPage() {
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
 
-  const isMissingKey = error && (error as Error).message?.includes("NO_LUMA_KEY");
+  const errorMessage = error ? ((error as Error).message ?? "") : "";
+  const isMissingKey = errorMessage.includes("NO_LUMA_KEY");
+  // The server has no Supabase credentials here — a misconfigured environment,
+  // not something the user did wrong. Worth saying plainly: it used to surface
+  // as a blank screen.
+  const isUnconfigured =
+    errorMessage.includes("SUPABASE_NOT_CONFIGURED") ||
+    errorMessage.includes("Missing Supabase environment variable");
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -254,7 +261,22 @@ function EventsPage() {
         </div>
       )}
 
-      {isMissingKey ? (
+      {isUnconfigured ? (
+        <div className="mt-10 rounded-2xl border border-hairline bg-surface/70 p-8">
+          <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-accent">
+            · Environment not connected
+          </div>
+          <h2 className="mt-2 font-display text-2xl font-semibold">
+            This environment has no Supabase credentials
+          </h2>
+          <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+            Reading your calendars needs the server-side key, and it is not set here. Connect
+            Supabase for this environment in Lovable Cloud (it is a deploy-time secret, so a preview
+            or sandbox will not have it until you add it).
+          </p>
+          <div className="mt-4 font-mono text-xs text-muted-foreground">{errorMessage}</div>
+        </div>
+      ) : isMissingKey ? (
         <div className="mt-10 rounded-2xl border border-hairline bg-surface/70 p-8">
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-accent">
             · Setup required
