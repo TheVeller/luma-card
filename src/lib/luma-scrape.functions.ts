@@ -178,13 +178,14 @@ export const importFromUrl = createServerFn({ method: "POST" })
     if (upErr) throw new Error(upErr.message);
 
     return {
-      kind,
+      kind: "event",
       calendarRowId,
       calendarId,
       calendarName,
       imported: 1,
       eventIds: [eventKey],
     };
+
   });
 
 export type ScrapedEventDTO = {
