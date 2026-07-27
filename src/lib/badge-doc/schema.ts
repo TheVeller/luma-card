@@ -17,7 +17,7 @@ export const CURRENT_DOC_VERSION = 1;
 /* ---------- primitives ---------- */
 
 // "$ns.path" with optional "|filter(arg)" pipes, e.g. "$palette.text|alpha(0.7)"
-const TOKEN_RE = /^\$[a-zA-Z]+(\.[a-zA-Z0-9_]+)*(\|[a-z]+(\([^)]*\))?)*$/;
+const TOKEN_RE = /^\$[a-zA-Z]+(\.[a-zA-Z0-9_]+)*(\|[a-zA-Z]+(\([^)]*\))?)*$/;
 export const Tokenized = z.string().regex(TOKEN_RE, "not a valid $token reference");
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

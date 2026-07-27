@@ -111,7 +111,7 @@ function parseToken(token: string): Parsed | null {
   if (!token.startsWith("$")) return null;
   const [head, ...rest] = token.slice(1).split("|");
   const pipes = rest.map((p) => {
-    const m = /^([a-z]+)(?:\((.*)\))?$/.exec(p);
+    const m = /^([a-zA-Z]+)(?:\((.*)\))?$/.exec(p);
     return m ? { name: m[1], arg: m[2] } : { name: p };
   });
   return { path: head.split("."), pipes };

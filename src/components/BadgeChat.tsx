@@ -3,6 +3,7 @@ import { DefaultChatTransport } from "ai";
 import { useEffect, useRef, useState } from "react";
 import type { StyleSpec } from "@/lib/style-spec";
 import { normalizeStyleSpec } from "@/lib/style-spec";
+import { BadgeDocSchema, type BadgeDoc } from "@/lib/badge-doc/schema";
 
 export type BadgeChatEventContext = {
   name: string;
@@ -14,42 +15,87 @@ export type BadgeChatEventContext = {
 
 type Props = {
   spec: StyleSpec;
+  doc: BadgeDoc;
   eventContext: BadgeChatEventContext;
   onSpecChange: (spec: StyleSpec) => void;
+  onDocChange: (doc: BadgeDoc, intent: string) => void;
 };
 
-export function BadgeChat({ spec, eventContext, onSpecChange }: Props) {
+type ToolPart = {
+  type: string;
+  input?: unknown;
+  output?: {
+    ok?: boolean;
+    spec?: unknown;
+    palette?: unknown;
+    fonts?: unknown;
+    doc?: unknown;
+    intent?: string;
+  };
+};
+
+export function BadgeChat({ spec, doc, eventContext, onSpecChange, onDocChange }: Props) {
   const specRef = useRef(spec);
+  const docRef = useRef(doc);
   const ctxRef = useRef(eventContext);
   useEffect(() => {
     specRef.current = spec;
   }, [spec]);
   useEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
+  useEffect(() => {
     ctxRef.current = eventContext;
   }, [eventContext]);
 
   const [input, setInput] = useState("");
+  const [refusal, setRefusal] = useState<string | null>(null);
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat-badge",
-      body: () => ({ spec: specRef.current, eventContext: ctxRef.current }),
+      body: () => ({ spec: specRef.current, doc: docRef.current, eventContext: ctxRef.current }),
     }),
     onFinish: ({ message }) => {
-      const parts = message.parts ?? [];
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const p = parts[i] as { type: string; input?: unknown; output?: { spec?: unknown } };
-        if (
-          p.type === "tool-update_style" ||
-          p.type === "dynamic-tool" ||
-          (typeof p.type === "string" && p.type.startsWith("tool-update_style"))
-        ) {
-          const raw = p.output?.spec ?? p.input;
-          if (raw && typeof raw === "object") {
-            onSpecChange(normalizeStyleSpec(raw as Partial<StyleSpec>));
-            return;
-          }
+      // Walk forward so several tools in one turn all land, and let a later
+      // call win over an earlier one.
+      let nextSpec: StyleSpec | null = null;
+      let nextDoc: { doc: BadgeDoc; intent: string } | null = null;
+      let refused: string | null = null;
+
+      for (const raw of message.parts ?? []) {
+        const p = raw as ToolPart;
+        if (typeof p.type !== "string" || !p.type.startsWith("tool-")) continue;
+        const name = p.type.slice("tool-".length);
+
+        if (p.output && p.output.ok === false) {
+          refused = "The AI tried a change that was rejected — ask it to try a different way.";
+          continue;
+        }
+
+        if (name === "set_palette" && p.output?.palette) {
+          nextSpec = normalizeStyleSpec({
+            ...(nextSpec ?? specRef.current),
+            palette: p.output.palette as StyleSpec["palette"],
+          });
+        } else if (name === "set_fonts" && p.output?.fonts) {
+          nextSpec = normalizeStyleSpec({
+            ...(nextSpec ?? specRef.current),
+            fonts: { ...(p.output.fonts as StyleSpec["fonts"]), source: "ai" },
+          });
+        } else if (name === "update_style") {
+          const value = p.output?.spec ?? p.input;
+          if (value && typeof value === "object")
+            nextSpec = normalizeStyleSpec(value as Partial<StyleSpec>);
+        } else if ((name === "patch_layout" || name === "replace_layout") && p.output?.doc) {
+          const parsed = BadgeDocSchema.safeParse(p.output.doc);
+          if (parsed.success)
+            nextDoc = { doc: parsed.data, intent: p.output.intent ?? "layout change" };
         }
       }
+
+      setRefusal(refused);
+      if (nextSpec) onSpecChange(nextSpec);
+      if (nextDoc) onDocChange(nextDoc.doc, nextDoc.intent);
     },
   });
 
@@ -93,7 +139,8 @@ export function BadgeChat({ spec, eventContext, onSpecChange }: Props) {
                 </span>
               </div>
               <div className="mt-3 text-xs text-muted-foreground">
-                Try: "make it more editorial", "use a serif heading", "warmer palette", "shift accent to rust".
+                Try: "make it more editorial", "use a serif heading", "warmer palette", "shift
+                accent to rust".
               </div>
             </div>
           </div>
@@ -129,6 +176,11 @@ export function BadgeChat({ spec, eventContext, onSpecChange }: Props) {
           </div>
         )}
       </div>
+      {refusal && (
+        <div className="border-t border-hairline px-4 py-2 text-[11px] leading-snug text-muted-foreground">
+          {refusal}
+        </div>
+      )}
       <form
         className="flex gap-2 border-t border-hairline p-2"
         onSubmit={(e) => {

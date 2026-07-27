@@ -2,6 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { createAIGateway } from "@/lib/ai-gateway.server";
 import { StyleSpecSchema } from "@/lib/style-spec";
+import {
+  buildLayoutBriefing,
+  PatchLayoutInput,
+  ReplaceLayoutInput,
+  runPatchLayout,
+  runReplaceLayout,
+  SetFontsInput,
+  SetPaletteInput,
+} from "@/lib/badge-doc/ai-tools";
+import { BadgeDocSchema } from "@/lib/badge-doc/schema";
+import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
 
 type EventContext = {
   name?: string;
@@ -14,10 +25,11 @@ type EventContext = {
 type Body = {
   messages?: UIMessage[];
   spec?: unknown;
+  doc?: unknown;
   eventContext?: EventContext;
 };
 
-function buildSystem(eventContext: EventContext, currentSpec: string): string {
+function buildSystem(eventContext: EventContext, currentSpec: string, briefing: string): string {
   const name = eventContext.name || "this event";
   const meta = [
     eventContext.dateLine ? `Date: ${eventContext.dateLine}` : null,
@@ -28,23 +40,27 @@ function buildSystem(eventContext: EventContext, currentSpec: string): string {
     .join(" · ");
   const desc = eventContext.description ? eventContext.description.slice(0, 400) : "";
 
-  return `You help a user iterate on the visual design of a philatelic-stamp-style badge for the event "${name}".
+  return `You help a user iterate on a philatelic-stamp-style badge for the event "${name}".
 
-You ALREADY have the event context — the user does not need to re-explain it. Use it to pick tasteful defaults and answer "why did you choose X?" style questions.
+You ALREADY have the event context — the user does not need to re-explain it. Use it to pick tasteful defaults and to answer "why did you choose X?" questions.
 
 EVENT BRIEFING
 ${meta || "(no metadata)"}
 ${desc ? `Description: ${desc}` : ""}
 
-CURRENT StyleSpec (canvas is rendering this right now):
+CURRENT PALETTE AND FONTS
 ${currentSpec}
+
+${briefing}
 
 BEHAVIOR
 - Respond in 1–2 concise sentences.
-- When the user asks for a visual change ("make it darker", "use a serif", "warmer accent", "more punk"), CALL the "update_style" tool with the NEW COMPLETE StyleSpec — copy unchanged fields from the current spec, never omit any.
-- Colors are #rrggbb. Fonts are real Google Fonts family names.
-- Keep text vs bg WCAG contrast ≥ 4.5. If a user request would break this, propose a nearby correction.
-- If the user only wants to chat (no visual change), don't call the tool.`;
+- Colour or typography request ("darker", "warmer accent", "use a serif") → set_palette or set_fonts.
+- Layout request ("move the photo up", "bigger name", "drop the kicker", "put the QR on the left") → patch_layout.
+- Only a request for a genuinely different composition warrants replace_layout.
+- Keep text vs background WCAG contrast ≥ 4.5; if a request would break it, propose a nearby correction.
+- A tool may answer {ok:false, errors}. Read the errors, fix the ops and retry once; do not repeat the same call.
+- If the user only wants to chat, do not call a tool.`;
 }
 
 export const Route = createFileRoute("/api/chat-badge")({
@@ -55,22 +71,55 @@ export const Route = createFileRoute("/api/chat-badge")({
         if (!Array.isArray(body.messages)) {
           return new Response("messages required", { status: 400 });
         }
+
+        // An unparseable doc falls back to the classic layout rather than
+        // failing the conversation.
+        const parsedDoc = BadgeDocSchema.safeParse(body.doc);
+        const doc = parsedDoc.success ? parsedDoc.data : CLASSIC_BADGE_DOC;
+
         const currentSpec = JSON.stringify(body.spec ?? {}, null, 2);
         const gateway = createAIGateway();
         const model = gateway("google/gemini-2.5-flash");
 
         const result = streamText({
           model,
-          system: buildSystem(body.eventContext ?? {}, currentSpec),
+          system: buildSystem(body.eventContext ?? {}, currentSpec, buildLayoutBriefing(doc)),
           messages: await convertToModelMessages(body.messages),
           tools: {
+            set_palette: tool({
+              description: "Change the badge colours. Provide all five roles.",
+              inputSchema: SetPaletteInput,
+              execute: async (palette) => ({ ok: true, palette }),
+            }),
+            set_fonts: tool({
+              description: "Change the font pair. Both must come from the allowed lists.",
+              inputSchema: SetFontsInput,
+              execute: async (fonts) => ({ ok: true, fonts }),
+            }),
+            patch_layout: tool({
+              description:
+                "Apply small structural edits to the layout: move, resize, restyle, reorder, " +
+                "add or remove nodes. Address nodes by the ids in the layout outline. " +
+                "Prefer this over replace_layout.",
+              inputSchema: PatchLayoutInput,
+              execute: async (input) => runPatchLayout(doc, input),
+            }),
+            replace_layout: tool({
+              description:
+                "Replace the whole layout with a new document. Use only for a fundamentally " +
+                "different composition; the canvas size must stay the same.",
+              inputSchema: ReplaceLayoutInput,
+              execute: async (input) => runReplaceLayout(doc, input),
+            }),
+            // Kept during the transition so an older client still works; the
+            // new client uses set_palette + set_fonts.
             update_style: tool({
-              description: "Apply a new StyleSpec to the badge. Include ALL fields.",
+              description: "Deprecated. Prefer set_palette and set_fonts.",
               inputSchema: StyleSpecSchema,
               execute: async (spec) => ({ ok: true, spec }),
             }),
           },
-          stopWhen: stepCountIs(3),
+          stopWhen: stepCountIs(6),
         });
 
         return result.toUIMessageStreamResponse();

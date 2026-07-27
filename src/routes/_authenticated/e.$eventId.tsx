@@ -13,7 +13,11 @@ import {
 } from "@/lib/event-style-presets.functions";
 import { extractPixelEvidence } from "@/lib/pixel-evidence";
 
-import { renderBadge, type EventTheme } from "@/lib/badge-render";
+import { type EventTheme } from "@/lib/badge-render";
+import { renderToCanvas } from "@/lib/badge-doc/render";
+import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
+import type { BadgeDoc } from "@/lib/badge-doc/schema";
+import { BadgeControls } from "@/components/BadgeControls";
 import { DEFAULT_STYLE_SPEC, type StyleSpec } from "@/lib/style-spec";
 import { loadGoogleFontPair } from "@/lib/google-fonts";
 import { BadgeChat } from "@/components/BadgeChat";
@@ -101,9 +105,27 @@ function EventBadgePage() {
   const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
+  // The layout itself is now editable state, with a shallow undo stack so a
+  // change from the AI or a control can always be walked back.
+  const [doc, setDoc] = useState<BadgeDoc>(CLASSIC_BADGE_DOC);
+  const [docHistory, setDocHistory] = useState<{ doc: BadgeDoc; intent: string }[]>([]);
+
+  function applyDoc(next: BadgeDoc, intent: string) {
+    setDocHistory((h) => [...h.slice(-19), { doc, intent }]);
+    setDoc(next);
+  }
+
+  function undoDoc() {
+    setDocHistory((h) => {
+      const last = h[h.length - 1];
+      if (last) setDoc(last.doc);
+      return h.slice(0, -1);
+    });
+  }
   const [analyzing, setAnalyzing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [galleryKey, setGalleryKey] = useState(0);
@@ -217,18 +239,62 @@ function EventBadgePage() {
     setGalleryKey((k) => k + 1);
   }
 
+  // Live preview: re-renders on every change at half scale, which is a quarter
+  // of the pixels. The badge used to appear only after pressing Render, so a
+  // colour or layout tweak was invisible until you asked for it again.
+  useEffect(() => {
+    if (!theme || !photoDataUrl || !firstName.trim()) {
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const canvas = await renderToCanvas({
+          doc,
+          spec,
+          event: {
+            name: theme.name,
+            subtitle: theme.subtitle,
+            dateLine: theme.dateLine,
+            url: theme.url,
+            coverUrl: theme.coverUrl,
+          },
+          user: {
+            firstName: firstName.trim(),
+            role: role.trim() || "CREATOR",
+            photo: photoDataUrl,
+          },
+          scale: 0.5,
+        });
+        if (!cancelled) setPreviewUrl(canvas.toDataURL("image/png"));
+      } catch (e) {
+        console.error("preview failed", e);
+      }
+    }, 60);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [doc, spec, theme, photoDataUrl, firstName, role]);
+
   async function generate() {
     if (!theme || !photoDataUrl || !firstName.trim()) return;
     setBusy(true);
     setBadgeUrl(null);
     try {
       await loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
-      const canvas = await renderBadge({
-        theme,
+      const canvas = await renderToCanvas({
+        doc,
         spec,
-        photoDataUrl,
-        firstName: firstName.trim(),
-        role: role.trim() || "CREATOR",
+        event: {
+          name: theme.name,
+          subtitle: theme.subtitle,
+          dateLine: theme.dateLine,
+          url: theme.url,
+          coverUrl: theme.coverUrl,
+        },
+        user: { firstName: firstName.trim(), role: role.trim() || "CREATOR", photo: photoDataUrl },
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
@@ -494,6 +560,8 @@ function EventBadgePage() {
               )}
             </div>
 
+            <BadgeControls spec={spec} doc={doc} onSpecChange={setSpec} onDocChange={applyDoc} />
+
             <div className="rounded-2xl border border-hairline bg-surface/60 p-4 text-xs text-muted-foreground">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="font-mono text-[10px] uppercase tracking-[0.24em]">
@@ -643,21 +711,33 @@ function EventBadgePage() {
 
         {/* CENTER: preview */}
         <div className="flex flex-col">
-          <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-            · Preview
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              · Preview {badgeUrl ? "· rendered" : previewUrl ? "· live" : ""}
+            </div>
+            {docHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={undoDoc}
+                className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2"
+                title={`Undo: ${docHistory[docHistory.length - 1].intent}`}
+              >
+                ↶ undo
+              </button>
+            )}
           </div>
           <div className="mt-3 flex justify-center rounded-2xl border border-hairline bg-surface/50 p-6">
-            {badgeUrl ? (
+            {badgeUrl || previewUrl ? (
               <img
-                src={badgeUrl}
-                alt="Your generated badge"
+                src={badgeUrl ?? previewUrl ?? undefined}
+                alt="Your badge"
                 className="w-full max-w-md rounded-xl shadow-2xl"
               />
             ) : (
               <div className="flex aspect-[27/40] w-full max-w-md items-center justify-center rounded-xl border border-dashed border-hairline text-center font-mono text-xs text-muted-foreground">
                 <div>
                   <div className="text-2xl">↴</div>
-                  <div className="mt-2 tracking-[0.24em]">FILL IN, THEN RENDER</div>
+                  <div className="mt-2 tracking-[0.24em]">ADD A NAME AND A PHOTO</div>
                 </div>
               </div>
             )}
@@ -681,6 +761,8 @@ function EventBadgePage() {
         {/* RIGHT: AI chat */}
         <div className="h-[620px]">
           <BadgeChat
+            doc={doc}
+            onDocChange={applyDoc}
             spec={spec}
             eventContext={{
               name: event.name,
