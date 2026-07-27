@@ -26,9 +26,15 @@ export const Route = createFileRoute("/_authenticated/e/$eventId")({
   head: ({ params }) => ({
     meta: [
       { title: `Generate your badge — event ${params.eventId}` },
-      { name: "description", content: "Compose a personalized, shareable badge for this Luma event." },
+      {
+        name: "description",
+        content: "Compose a personalized, shareable badge for this Luma event.",
+      },
       { property: "og:title", content: "Generate your event badge" },
-      { property: "og:description", content: "Compose a personalized, shareable badge for this Luma event." },
+      {
+        property: "og:description",
+        content: "Compose a personalized, shareable badge for this Luma event.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -43,7 +49,9 @@ function proxied(url: string | null): string | null {
     if (u.hostname.endsWith("lumacdn.com") || u.hostname === "cdn.lu.ma") {
       return `/api/public/image?url=${encodeURIComponent(url)}`;
     }
-  } catch {}
+  } catch {
+    // not a parseable URL — use it as-is
+  }
   return url;
 }
 
@@ -51,7 +59,9 @@ function formatDateLine(iso: string): string {
   try {
     const d = new Date(iso);
     const date = d.toLocaleDateString(undefined, { month: "long", day: "numeric" }).toUpperCase();
-    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toUpperCase();
+    const time = d
+      .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+      .toUpperCase();
     return `${date} — ${time}`;
   } catch {
     return iso;
@@ -68,7 +78,11 @@ function EventBadgePage() {
   const removePreset = useServerFn(deleteEventPreset);
   const qc = useQueryClient();
 
-  const { data: event, isLoading, error } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["luma-event", eventId],
     queryFn: () => fetchEvent({ data: { id: eventId } }),
   });
@@ -107,6 +121,8 @@ function EventBadgePage() {
   });
 
   const coverProxy = proxied(event?.coverUrl ?? null);
+  // Newest saved style for this event — drives the cache-vs-generate UI below.
+  const savedStyle = presets?.[0] ?? null;
 
   const runAnalyze = useMemo(
     () => async () => {
@@ -125,25 +141,32 @@ function EventBadgePage() {
           },
         });
         setSpec(s);
+        // Persist immediately. Analysis costs credits (Firecrawl branding scrape +
+        // a Gemini vision call), so the result must survive even if the user never
+        // renders a badge. The upsert dedupes by spec_hash.
+        savePresetMut.mutate({ styleSpec: s, label: "auto" });
       } catch (e) {
         setAiError(`Style analysis failed: ${(e as Error).message}`);
       } finally {
         setAnalyzing(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [event, analyze, coverProxy],
   );
 
+  // Hydrate from the saved style instead of re-running the AI on every mount.
+  // Runs once per event id, and only before the user has touched the style.
+  const hydratedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!event) return;
-    runAnalyze();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event?.id]);
+    if (!presets || hydratedForRef.current === eventId) return;
+    hydratedForRef.current = eventId;
+    if (presets.length > 0) setSpec(presets[0].styleSpec);
+  }, [presets, eventId]);
 
   useEffect(() => {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);
   }, [spec.fonts.heading, spec.fonts.body]);
-
 
   const theme: EventTheme | null = useMemo(() => {
     if (!event) return null;
@@ -167,9 +190,7 @@ function EventBadgePage() {
   }
 
   async function persistBadge(canvas: HTMLCanvasElement) {
-    const blob: Blob | null = await new Promise((res) =>
-      canvas.toBlob((b) => res(b), "image/png"),
-    );
+    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), "image/png"));
     if (!blob) return;
     const { data: userRes } = await supabase.auth.getUser();
     const userId = userRes.user?.id ?? null;
@@ -263,7 +284,9 @@ function EventBadgePage() {
             url: event.url,
           });
           return;
-        } catch {}
+        } catch {
+          // share sheet dismissed or unsupported — fall through to download
+        }
       }
       download();
     }, "image/png");
@@ -474,18 +497,37 @@ function EventBadgePage() {
             <div className="rounded-2xl border border-hairline bg-surface/60 p-4 text-xs text-muted-foreground">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="font-mono text-[10px] uppercase tracking-[0.24em]">
-                  {analyzing ? "AI analyzing art…" : "AI style"}
+                  {analyzing ? "AI analyzing art…" : savedStyle ? "AI style · saved" : "AI style"}
                 </div>
-                <button
-                  type="button"
-                  onClick={runAnalyze}
-                  disabled={analyzing}
-                  className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2 disabled:opacity-40"
-                  title="Re-detect style from cover art"
-                >
-                  {analyzing ? "…" : "↻ Re-detect"}
-                </button>
+                {savedStyle && (
+                  <button
+                    type="button"
+                    onClick={runAnalyze}
+                    disabled={analyzing}
+                    className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2 disabled:opacity-40"
+                    title="Run the AI again — consumes credits"
+                  >
+                    {analyzing ? "…" : "↻ Regenerate"}
+                  </button>
+                )}
               </div>
+
+              {!savedStyle && (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    onClick={runAnalyze}
+                    disabled={analyzing || !event}
+                    className="w-full rounded-full bg-accent px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-accent-foreground disabled:opacity-40"
+                  >
+                    {analyzing ? "Analyzing…" : "✨ Generate AI style"}
+                  </button>
+                  <p className="mt-1.5 text-[11px] leading-snug">
+                    Reads the cover art to pick palette and fonts. Consumes AI credits — the result
+                    is saved and reused on your next visit.
+                  </p>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-1.5">
                 {(["bg", "surface", "accent", "text"] as const).map((k) => (
                   <span
@@ -497,11 +539,22 @@ function EventBadgePage() {
                 ))}
               </div>
               <div className="mt-2 space-y-0.5 text-foreground">
-                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">style: {spec.style}</div>
-                <div>heading: <b>{spec.fonts.heading}</b></div>
-                <div>body: <b>{spec.fonts.body}</b></div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+                  style: {spec.style}
+                </div>
+                <div>
+                  heading: <b>{spec.fonts.heading}</b>
+                </div>
+                <div>
+                  body: <b>{spec.fonts.body}</b>
+                </div>
                 <div className="text-muted-foreground">mood: {spec.mood}</div>
               </div>
+              {savedStyle && (
+                <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  saved {new Date(savedStyle.createdAt).toLocaleDateString()}
+                </div>
+              )}
               {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
             </div>
 
@@ -530,7 +583,9 @@ function EventBadgePage() {
                             background: `linear-gradient(135deg, ${p.styleSpec.palette.bg} 0%, ${p.styleSpec.palette.bg} 45%, ${p.styleSpec.palette.accent} 45%, ${p.styleSpec.palette.accent} 60%, ${p.styleSpec.palette.surface} 60%)`,
                           }}
                         />
-                        <div className="truncate text-[10px] font-semibold">{p.styleSpec.style}</div>
+                        <div className="truncate text-[10px] font-semibold">
+                          {p.styleSpec.style}
+                        </div>
                         <div className="truncate text-[9px] text-muted-foreground">
                           {p.styleSpec.fonts.heading}
                         </div>
@@ -593,7 +648,11 @@ function EventBadgePage() {
           </div>
           <div className="mt-3 flex justify-center rounded-2xl border border-hairline bg-surface/50 p-6">
             {badgeUrl ? (
-              <img src={badgeUrl} alt="Your generated badge" className="w-full max-w-md rounded-xl shadow-2xl" />
+              <img
+                src={badgeUrl}
+                alt="Your generated badge"
+                className="w-full max-w-md rounded-xl shadow-2xl"
+              />
             ) : (
               <div className="flex aspect-[27/40] w-full max-w-md items-center justify-center rounded-xl border border-dashed border-hairline text-center font-mono text-xs text-muted-foreground">
                 <div>
