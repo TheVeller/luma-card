@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getLumaConfig } from "@/lib/user-luma-key.functions";
 import { importFromUrl } from "@/lib/luma-scrape.functions";
 import {
@@ -10,13 +10,7 @@ import {
   removeCalendar,
   setDefaultCalendar,
 } from "@/lib/user-luma-calendars.functions";
-import { listEvents } from "@/lib/luma.functions";
-import { analyzeEventArt } from "@/lib/style-analyze.functions";
-import { seedHistoricalBadges, type SeedProgress } from "@/lib/seed-history";
 import { listApiTokens, createApiToken, revokeApiToken } from "@/lib/api-tokens.functions";
-import { supabase } from "@/integrations/supabase/client";
-
-const ADMIN_EMAIL = "ivelasquezfr@gmail.com";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -37,8 +31,6 @@ function SettingsPage() {
   const add = useServerFn(addCalendar);
   const remove = useServerFn(removeCalendar);
   const setDefault = useServerFn(setDefaultCalendar);
-  const fetchEvents = useServerFn(listEvents);
-  const analyze = useServerFn(analyzeEventArt);
   useServerFn(getLumaConfig); // kept warm — header pulls it separately
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -56,15 +48,6 @@ function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
-  }, []);
-
-  const isAdmin = userEmail === ADMIN_EMAIL;
-  const [seedBusy, setSeedBusy] = useState(false);
-  const [seedLog, setSeedLog] = useState<string[]>([]);
 
   // --- Import a calendar by public link (Firecrawl scrape, no API key) ---
   const runImport = useServerFn(importFromUrl);
@@ -183,22 +166,6 @@ function SettingsPage() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function onSeed() {
-    setSeedBusy(true);
-    setSeedLog([]);
-    try {
-      const events = await fetchEvents();
-      await seedHistoricalBadges(events, analyze, (p: SeedProgress) => {
-        setSeedLog((prev) => [...prev, formatProgress(p)]);
-      });
-      qc.invalidateQueries({ queryKey: ["badges"] });
-    } catch (e) {
-      setSeedLog((prev) => [...prev, `✗ ${(e as Error).message}`]);
-    } finally {
-      setSeedBusy(false);
     }
   }
 
@@ -501,50 +468,6 @@ function SettingsPage() {
           </div>
         </div>
       </div>
-
-      {isAdmin && (
-        <div className="mt-6 rounded-2xl border border-accent/30 bg-accent/5 p-6">
-          <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-accent">
-            · Admin · {userEmail}
-          </div>
-          <h2 className="mt-1 font-display text-xl font-semibold">Seed historical gallery</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Renders a placeholder badge (<b>Ignacio Velásquez</b> · Founder, GPT Chain) for each
-            matched historical event. Idempotent — skips events that already have your placeholder.
-          </p>
-          <button
-            onClick={onSeed}
-            disabled={seedBusy || !configured}
-            className="mt-4 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-40"
-          >
-            {seedBusy ? "Seeding…" : "Seed my historical gallery"}
-          </button>
-          {seedLog.length > 0 && (
-            <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-hairline bg-background/60 p-3 font-mono text-[11px] leading-relaxed">
-              {seedLog.map((line, i) => (
-                <div key={i}>{line}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
-}
-
-function formatProgress(p: SeedProgress): string {
-  switch (p.phase) {
-    case "matching":
-      return `matched ${p.matched}/${p.total} events`;
-    case "rendering":
-      return `→ [${p.index}/${p.total}] rendering "${p.eventName}"`;
-    case "skipped":
-      return `↷ skipped "${p.eventName}" (${p.reason})`;
-    case "uploaded":
-      return `✓ uploaded "${p.eventName}"`;
-    case "error":
-      return `✗ ${p.eventName}: ${p.message}`;
-    case "done":
-      return `— done · ${p.created} created · ${p.skipped} skipped`;
-  }
 }
