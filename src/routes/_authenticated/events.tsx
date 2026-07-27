@@ -10,9 +10,15 @@ export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
     meta: [
       { title: "Your Luma events — Badge Studio" },
-      { name: "description", content: "Pick a Luma event to generate personalized shareable badges." },
+      {
+        name: "description",
+        content: "Pick a Luma event to generate personalized shareable badges.",
+      },
       { property: "og:title", content: "Your Luma events" },
-      { property: "og:description", content: "Personalized badges for every event on your Luma calendar." },
+      {
+        property: "og:description",
+        content: "Personalized badges for every event on your Luma calendar.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -41,9 +47,30 @@ function proxied(url: string | null): string {
     if (u.hostname.endsWith("lumacdn.com") || u.hostname === "cdn.lu.ma") {
       return `/api/public/image?url=${encodeURIComponent(url)}`;
     }
-  } catch {}
+  } catch {
+    // not a parseable URL — use it as-is
+  }
   return url;
 }
+
+type SortMode = "newest" | "oldest" | "az";
+
+const SORT_MODES: { key: SortMode; label: string }[] = [
+  { key: "newest", label: "Newest first" },
+  { key: "oldest", label: "Oldest first" },
+  { key: "az", label: "A \u2013 Z" },
+];
+
+const SORT_LABEL: Record<SortMode, string> = Object.fromEntries(
+  SORT_MODES.map((m) => [m.key, m.label]),
+) as Record<SortMode, string>;
+
+/**
+ * Alphabetical order that behaves for the names these events actually have:
+ * accents sort next to their base letter and "Meetup 2" comes before
+ * "Meetup 10" instead of after it.
+ */
+const NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
@@ -54,20 +81,11 @@ function EventsPage() {
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
-  const [sortMode, setSortMode] = useState<"nearest" | "newest" | "oldest">(
-    "nearest",
-  );
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
 
-  const SORT_LABEL: Record<typeof sortMode, string> = {
-    nearest: "Nearest",
-    newest: "Newest",
-    oldest: "Oldest",
-  };
-
-  const isMissingKey =
-    error && (error as Error).message?.includes("NO_LUMA_KEY");
+  const isMissingKey = error && (error as Error).message?.includes("NO_LUMA_KEY");
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -81,28 +99,12 @@ function EventsPage() {
   }, [data, filter]);
 
   const sorted = useMemo(() => {
-    const now = Date.now();
     const arr = [...filtered];
-    if (sortMode === "newest") {
-      arr.sort(
-        (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
-      );
-    } else if (sortMode === "oldest") {
-      arr.sort(
-        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
-      );
-    } else {
-      // nearest: upcoming ascending first (soonest → furthest), then past most-recent first
-      arr.sort((a, b) => {
-        const ta = new Date(a.startAt).getTime();
-        const tb = new Date(b.startAt).getTime();
-        const aUp = ta >= now;
-        const bUp = tb >= now;
-        if (aUp && bUp) return ta - tb;
-        if (!aUp && !bUp) return tb - ta;
-        return aUp ? -1 : 1;
-      });
-    }
+    const byDate = (a: EventDTO, b: EventDTO) =>
+      new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
+    if (sortMode === "newest") arr.sort((a, b) => byDate(b, a));
+    else if (sortMode === "oldest") arr.sort(byDate);
+    else arr.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
     return arr;
   }, [filtered, sortMode]);
 
@@ -119,9 +121,7 @@ function EventsPage() {
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
             · Discover
           </div>
-          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">
-            Your events
-          </h1>
+          <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Your events</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Pick an event to generate a personalized badge for it.
           </p>
@@ -137,7 +137,16 @@ function EventsPage() {
               className="inline-flex items-center gap-1 rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
               title="Sort events"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M3 6h18M6 12h12M10 18h4" />
               </svg>
               {SORT_LABEL[sortMode]}
@@ -145,13 +154,7 @@ function EventsPage() {
             </button>
             {sortMenu && (
               <div className="absolute right-0 top-full z-40 mt-1 w-36 overflow-hidden rounded-xl border border-hairline bg-surface shadow-xl">
-                {(
-                  [
-                    ["nearest", "Nearest"],
-                    ["newest", "Newest"],
-                    ["oldest", "Oldest"],
-                  ] as const
-                ).map(([key, label]) => (
+                {SORT_MODES.map(({ key, label }) => (
                   <button
                     key={key}
                     onClick={() => {
@@ -258,7 +261,8 @@ function EventsPage() {
           </div>
           <h2 className="mt-2 font-display text-2xl font-semibold">Add your Luma API key</h2>
           <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-            We need your Luma calendar API key to read your events. It's stored encrypted and only you can read it.
+            We need your Luma calendar API key to read your events. It's stored encrypted and only
+            you can read it.
           </p>
           <Link
             to="/settings"
@@ -270,7 +274,9 @@ function EventsPage() {
       ) : error ? (
         <div className="mt-10 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
           <b>Failed to load events.</b>
-          <div className="mt-1 font-mono text-xs opacity-80">{String((error as Error).message)}</div>
+          <div className="mt-1 font-mono text-xs opacity-80">
+            {String((error as Error).message)}
+          </div>
         </div>
       ) : null}
 
@@ -302,7 +308,9 @@ function EventsPage() {
                 <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-3 text-[11px] font-medium text-white/90">
                   <span>{formatDate(ev.startAt)}</span>
-                  {ev.city && <span className="rounded-full bg-black/40 px-2 py-0.5">{ev.city}</span>}
+                  {ev.city && (
+                    <span className="rounded-full bg-black/40 px-2 py-0.5">{ev.city}</span>
+                  )}
                 </div>
                 {activeCalendarId === "__all__" && ev.calendarName && (
                   <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
