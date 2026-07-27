@@ -100,47 +100,51 @@ export const importFromUrl = createServerFn({ method: "POST" })
         if (events.length === 0 && requestedKind !== "auto")
           throw new Error("That calendar has no events to import.");
         if (events.length > 0) {
+          const calendarId = `scr-${cal.apiId}`;
+          const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
 
+          const imported: string[] = [];
+          for (const ev of events) {
+            const { error: upErr } = await supabaseAdmin
+              .from("scraped_events" as never)
+              .upsert(
+                {
+                  user_id: context.userId,
+                  calendar_id: calendarRowId,
+                  event_key: ev.apiId,
+                  source_url: ev.url,
+                  name: ev.name,
+                  description: null,
+                  cover_url: ev.coverUrl,
+                  city: ev.city,
+                  start_at: ev.startAt,
+                  end_at: ev.endAt,
+                  host_name: null,
+                  payload: { source: "luma-api" },
+                  updated_at: new Date().toISOString(),
+                } as never,
+                { onConflict: "user_id,event_key" },
+              );
+            if (upErr) {
+              console.error("scraped_events upsert failed", upErr);
+              continue;
+            }
+            imported.push(ev.apiId);
+          }
 
-      const calendarId = `scr-${cal.apiId}`;
-      const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
-
-      const imported: string[] = [];
-      for (const ev of events) {
-        const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
-          {
-            user_id: context.userId,
-            calendar_id: calendarRowId,
-            event_key: ev.apiId,
-            source_url: ev.url,
-            name: ev.name,
-            description: null,
-            cover_url: ev.coverUrl,
-            city: ev.city,
-            start_at: ev.startAt,
-            end_at: ev.endAt,
-            host_name: null,
-            payload: { source: "luma-api" },
-            updated_at: new Date().toISOString(),
-          } as never,
-          { onConflict: "user_id,event_key" },
-        );
-        if (upErr) {
-          console.error("scraped_events upsert failed", upErr);
-          continue;
+          return {
+            kind: "calendar",
+            calendarRowId,
+            calendarId,
+            calendarName: cal.name,
+            imported: imported.length,
+            eventIds: imported,
+          };
         }
-        imported.push(ev.apiId);
       }
-
-      return {
-        kind,
-        calendarRowId,
-        calendarId,
-        calendarName: cal.name,
-        imported: imported.length,
-        eventIds: imported,
-      };
+      // auto + calendar resolution empty/failed → fall through to event scrape.
     }
+
 
     // --- Single event: scrape the page with Firecrawl. ---
     const { hasFirecrawl, firecrawlScrapeEvent } = await import("./firecrawl.server");
