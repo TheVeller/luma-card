@@ -3,11 +3,23 @@ import { useEffect, useState } from "react";
 import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 
+function safeNext(next: unknown): string | null {
+  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) return null;
+  return next;
+}
+
 export const Route = createFileRoute("/auth")({
   ssr: false,
-  beforeLoad: async () => {
+  validateSearch: (s: Record<string, unknown>) => ({
+    next: typeof s.next === "string" ? s.next : undefined,
+  }),
+  beforeLoad: async ({ search }) => {
     const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/events" });
+    if (data.session) {
+      const next = safeNext(search.next);
+      if (next) throw redirect({ href: next });
+      throw redirect({ to: "/events" });
+    }
   },
   head: () => ({
     meta: [
@@ -26,20 +38,32 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session) navigate({ to: "/events" });
+      if (event === "SIGNED_IN" && session) {
+        const target = safeNext(next);
+        if (target) {
+          window.location.href = target;
+        } else {
+          navigate({ to: "/events" });
+        }
+      }
     });
     return () => sub.subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, next]);
 
   async function signInGoogle() {
     setBusy(true);
     setError(null);
     try {
+      const target = safeNext(next);
+      const redirectUri = target
+        ? `${window.location.origin}/auth?next=${encodeURIComponent(target)}`
+        : window.location.origin;
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+        redirect_uri: redirectUri,
       });
       if (result?.error) {
         setError(result.error instanceof Error ? result.error.message : String(result.error));
