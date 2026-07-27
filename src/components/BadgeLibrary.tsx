@@ -8,6 +8,8 @@ import { useState } from "react";
 import type { StyleSpec } from "@/lib/style-spec";
 import type { EventStylePresetDTO } from "@/lib/event-style-presets.functions";
 import type { TemplateDTO } from "@/lib/templates.functions";
+import { LAYOUT_PRESETS } from "@/lib/badge-doc/presets";
+import type { BadgeDoc } from "@/lib/badge-doc/schema";
 
 type Props = {
   presets: EventStylePresetDTO[];
@@ -15,6 +17,8 @@ type Props = {
   activeStyle: StyleSpec;
   onApply: (spec: StyleSpec) => void;
   onDeletePreset: (id: string) => void;
+  activeLayoutName: string;
+  onApplyLayout: (doc: BadgeDoc, intent: string) => void;
 };
 
 function Swatches({ spec }: { spec: StyleSpec }) {
@@ -27,6 +31,13 @@ function Swatches({ spec }: { spec: StyleSpec }) {
   );
 }
 
+const LAYOUT_BLURBS: Record<string, string> = {
+  classic: "Framed stamp, square portrait",
+  poster: "Huge headline, wide photo band",
+  spotlight: "Big circular portrait, centred",
+  minimal: "Airy typographic grid",
+};
+
 function sameStyle(a: StyleSpec, b: StyleSpec): boolean {
   return (
     a.palette.bg === b.palette.bg &&
@@ -37,8 +48,16 @@ function sameStyle(a: StyleSpec, b: StyleSpec): boolean {
   );
 }
 
-export function BadgeLibrary({ presets, templates, activeStyle, onApply, onDeletePreset }: Props) {
-  const [tab, setTab] = useState<"saved" | "templates">(presets.length > 0 ? "saved" : "templates");
+export function BadgeLibrary({
+  presets,
+  templates,
+  activeStyle,
+  onApply,
+  onDeletePreset,
+  activeLayoutName,
+  onApplyLayout,
+}: Props) {
+  const [tab, setTab] = useState<"layouts" | "saved" | "templates">("layouts");
 
   const items =
     tab === "saved"
@@ -58,6 +77,7 @@ export function BadgeLibrary({ presets, templates, activeStyle, onApply, onDelet
         </h3>
         <div className="flex rounded-full border border-hairline p-0.5">
           {[
+            { key: "layouts" as const, label: "Layouts" },
             {
               key: "saved" as const,
               label: `Saved ${presets.length ? `(${presets.length})` : ""}`,
@@ -80,7 +100,27 @@ export function BadgeLibrary({ presets, templates, activeStyle, onApply, onDelet
         </div>
       </div>
 
-      {items.length === 0 ? (
+      {tab === "layouts" ? (
+        <div className="grid grid-cols-2 gap-2">
+          {LAYOUT_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => onApplyLayout(preset.doc, `layout: ${preset.name}`)}
+              className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                activeLayoutName === preset.name
+                  ? "border-accent"
+                  : "border-hairline hover:border-accent/50"
+              }`}
+            >
+              <span className="block text-xs font-semibold">{preset.name}</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+                {LAYOUT_BLURBS[preset.id]}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : items.length === 0 ? (
         <p className="rounded-xl border border-dashed border-hairline px-3 py-4 text-center text-[11px] leading-snug text-muted-foreground">
           {tab === "saved"
             ? "Styles you generate or edit get saved here for this event."

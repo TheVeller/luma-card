@@ -75,7 +75,16 @@ export function fitWrapped(
     }
   }
   if (current && lines.length < p.maxLines) lines.push(current);
-  return { lines: lines.slice(0, p.maxLines), size: p.to, lineHeight: lh(p.to) };
+
+  // A word with no spaces can still be wider than the box at the smallest size
+  // — wrapping cannot help it. Without this it simply ran off the badge.
+  const clipped = lines.slice(0, p.maxLines).map((line) => {
+    if (measure(line, p.to) <= maxWidth) return line;
+    let t = line;
+    while (t.length > 1 && measure(t + "…", p.to) > maxWidth) t = t.slice(0, -1);
+    return t + "…";
+  });
+  return { lines: clipped, size: p.to, lineHeight: lh(p.to) };
 }
 
 /** Single line: shrink to fit, then ellipsize at the smallest size. */

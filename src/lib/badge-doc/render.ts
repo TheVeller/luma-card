@@ -18,7 +18,15 @@ export type RenderInputs = {
   doc: BadgeDoc;
   spec: StyleSpec;
   event: { name: string; subtitle: string; dateLine: string; url: string; coverUrl: string | null };
-  user: { firstName: string; role: string; photo: string | null };
+  user: {
+    firstName: string;
+    role: string;
+    photo: string | null;
+    /** sponsor logos, in order */
+    logos?: string[];
+    /** overrides the event cover in the seal */
+    sealLogo?: string | null;
+  };
   /** 1 for export, 0.5 for a live preview */
   scale?: number;
 };
@@ -67,7 +75,11 @@ export async function renderBadgeDoc(inputs: RenderInputs): Promise<RenderResult
 
   // Only the images the doc can actually reference.
   const assets: Record<string, ImageAsset> = {};
-  const sources = [user.photo, event.coverUrl].filter((s): s is string => Boolean(s));
+  const logos = user.logos ?? [];
+  const sealLogo = user.sealLogo ?? null;
+  const sources = [user.photo, event.coverUrl, sealLogo, ...logos].filter((s): s is string =>
+    Boolean(s),
+  );
   await Promise.all(
     sources.map(async (src) => {
       const asset = await loadAsset(src);
@@ -78,7 +90,7 @@ export async function renderBadgeDoc(inputs: RenderInputs): Promise<RenderResult
   const bindings = bindingsFrom(
     { ...spec, fonts: { ...spec.fonts, heading, body } },
     event,
-    user,
+    { ...user, logos, sealLogo },
     assets,
     doc.vars,
   );

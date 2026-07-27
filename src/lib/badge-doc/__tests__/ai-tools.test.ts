@@ -5,13 +5,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildLayoutBriefing,
+  runApplyLayout,
   runPatchLayout,
-  runReplaceLayout,
   SetFontsInput,
   SetPaletteInput,
 } from "../ai-tools";
 import { CLASSIC_BADGE_DOC } from "../presets/classic";
-import { findNode, type BadgeDoc } from "../schema";
+import { findNode } from "../schema";
 
 const doc = CLASSIC_BADGE_DOC;
 
@@ -84,28 +84,17 @@ describe("patch_layout", () => {
   });
 });
 
-describe("replace_layout", () => {
-  test("accepts a valid document of the same size", () => {
-    const next = structuredClone(doc) as BadgeDoc;
-    next.meta.name = "Poster";
-    expect(runReplaceLayout(doc, { intent: "poster", doc: next }).ok).toBe(true);
+describe("apply_layout", () => {
+  test("switches to a built-in composition", () => {
+    const r = runApplyLayout({ preset: "poster", intent: "make it a poster" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.doc.meta.name).toBe("Poster");
   });
 
-  test("refuses a different canvas size", () => {
-    const next = structuredClone(doc) as BadgeDoc;
-    next.canvas.height = 1080;
-    const r = runReplaceLayout(doc, { intent: "square", doc: next });
+  test("refuses a composition that does not exist", () => {
+    const r = runApplyLayout({ preset: "brutalist" as never, intent: "brutalist" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors[0].code).toBe("canvas_changed");
-  });
-
-  test("refuses a document that dropped a protected node", () => {
-    const next = structuredClone(doc) as BadgeDoc;
-    const content = findNode(next.root, "content") as { children: { id: string }[] };
-    content.children = content.children.filter((c) => c.id !== "photo");
-    const r = runReplaceLayout(doc, { intent: "no photo", doc: next });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.some((e) => e.code === "protected_removed")).toBe(true);
+    if (!r.ok) expect(r.errors[0].code).toBe("unknown_preset");
   });
 });
 

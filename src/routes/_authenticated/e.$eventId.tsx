@@ -18,6 +18,7 @@ import { renderBadgeDoc, renderToCanvas } from "@/lib/badge-doc/render";
 import type { RenderOp } from "@/lib/badge-doc/layout/engine";
 import { BadgePreview } from "@/components/BadgePreview";
 import { BadgeLibrary } from "@/components/BadgeLibrary";
+import { MAX_LOGOS } from "@/lib/badge-doc/presets/build";
 import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
 import type { BadgeDoc } from "@/lib/badge-doc/schema";
 import { BadgeControls } from "@/components/BadgeControls";
@@ -107,6 +108,9 @@ function EventBadgePage() {
   const [firstName, setFirstName] = useState("");
   const [role, setRole] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  // Sponsor logos and, optionally, a community logo that takes the seal's place.
+  const [logos, setLogos] = useState<string[]>([]);
+  const [sealLogo, setSealLogo] = useState<string | null>(null);
   const [spec, setSpec] = useState<StyleSpec>(DEFAULT_STYLE_SPEC);
   // The layout itself is now editable state, with a shallow undo stack so a
   // change from the AI or a control can always be walked back.
@@ -208,6 +212,26 @@ function EventBadgePage() {
     };
   }, [event, coverProxy]);
 
+  function onPickLogos(files: FileList | null) {
+    if (!files) return;
+    // Read them all, then append in the order they were chosen.
+    Promise.all(
+      Array.from(files)
+        .slice(0, MAX_LOGOS)
+        .map(
+          (file) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            }),
+        ),
+    )
+      .then((urls) => setLogos((current) => [...current, ...urls].slice(0, MAX_LOGOS)))
+      .catch((e) => console.error("logo read failed", e));
+  }
+
   function onPickPhoto(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -287,7 +311,7 @@ function EventBadgePage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [doc, spec, theme, photoDataUrl, firstName, role]);
+  }, [doc, spec, theme, photoDataUrl, firstName, role, logos, sealLogo]);
 
   async function generate() {
     if (!theme || !photoDataUrl || !firstName.trim()) return;
@@ -305,7 +329,13 @@ function EventBadgePage() {
           url: theme.url,
           coverUrl: theme.coverUrl,
         },
-        user: { firstName: firstName.trim(), role: role.trim() || "CREATOR", photo: photoDataUrl },
+        user: {
+          firstName: firstName.trim(),
+          role: role.trim() || "CREATOR",
+          photo: photoDataUrl,
+          logos,
+          sealLogo,
+        },
       });
       canvasRef.current = canvas;
       setBadgeUrl(canvas.toDataURL("image/png"));
@@ -575,6 +605,62 @@ function EventBadgePage() {
             )}
           </div>
 
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                Logos
+              </span>
+              <span className="font-mono text-[9px] text-muted-foreground">
+                {logos.length}/{MAX_LOGOS}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+              Sponsors or community marks. They fill the badge&apos;s logo row in order.
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {logos.map((logo, i) => (
+                <div key={`${logo.slice(-16)}-${i}`} className="group relative">
+                  <img
+                    src={logo}
+                    alt={`Logo ${i + 1}`}
+                    className="h-10 w-16 rounded-md border border-hairline bg-surface object-contain p-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLogos((l) => l.filter((_, j) => j !== i))}
+                    className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-[9px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label={`Remove logo ${i + 1}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {logos.length < MAX_LOGOS && (
+                <label className="grid h-10 w-16 cursor-pointer place-items-center rounded-md border border-dashed border-hairline text-sm text-muted-foreground transition-colors hover:border-accent/60 hover:text-foreground">
+                  +
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => onPickLogos(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={sealLogo !== null}
+                disabled={logos.length === 0}
+                onChange={(e) => setSealLogo(e.target.checked ? (logos[0] ?? null) : null)}
+                className="accent-accent"
+              />
+              Use the first logo in the seal instead of the event cover
+            </label>
+          </div>
+
           {/* Actions live at the end of the column, where the task ends. */}
           <div className="space-y-2 border-t border-hairline pt-5">
             <button
@@ -706,6 +792,8 @@ function EventBadgePage() {
                 activeStyle={spec}
                 onApply={setSpec}
                 onDeletePreset={(id) => deletePresetMut.mutate(id)}
+                activeLayoutName={doc.meta.name}
+                onApplyLayout={applyDoc}
               />
             </div>
           ) : (

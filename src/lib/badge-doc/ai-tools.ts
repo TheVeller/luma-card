@@ -8,12 +8,27 @@
 //
 // Failures come back as tool RESULTS, not thrown errors, so the model can read
 // the diagnostics and correct itself within its step budget.
+//
+// Every input schema here must stay FLAT. Tool declarations are sent together,
+// so one schema the provider refuses takes the whole conversation with it —
+// which is exactly what happened when these embedded the recursive node schema:
+// 22 KB of JSON Schema with $ref, and the chat answered nothing at all. The
+// same operations expressed flatly are 1.8 KB with no $ref. schema-size.test.ts
+// fails the build if that ever creeps back.
 
 import { z } from "zod";
 import { GOOGLE_BODY_FONTS, GOOGLE_HEADING_FONTS } from "@/lib/google-fonts";
 import { StyleSpecSchema } from "@/lib/style-spec";
-import { applyPatch, outline, PatchOpSchema, validateDoc, type PatchError } from "./patch";
-import { BadgeDocSchema, type BadgeDoc } from "./schema";
+import {
+  applyPatch,
+  outline,
+  PATCH_PATHS,
+  validateDoc,
+  type PatchError,
+  type PatchOp,
+} from "./patch";
+import { LAYOUT_PRESET_IDS, layoutPreset } from "./presets";
+import type { BadgeDoc } from "./schema";
 
 export const SetPaletteInput = StyleSpecSchema.shape.palette;
 
@@ -22,16 +37,82 @@ export const SetFontsInput = z.object({
   body: z.enum(GOOGLE_BODY_FONTS),
 });
 
+const NodeIdRef = z.string().max(40).describe("id of a node from the layout outline");
+
+/**
+ * The model's view of an edit. Narrower than PatchOp on purpose: `add_text`
+ * replaces the generic `insert` (which carried the recursive node schema), and
+ * `value` is limited to primitives instead of `unknown`.
+ */
+const ModelOp = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("set"),
+    nodeId: NodeIdRef,
+    path: z.enum(PATCH_PATHS),
+    value: z.union([z.string(), z.number(), z.boolean()]),
+  }),
+  z.object({ op: z.literal("remove"), nodeId: NodeIdRef }),
+  z.object({
+    op: z.literal("move"),
+    nodeId: NodeIdRef,
+    parentId: NodeIdRef,
+    index: z.number().int().min(0).max(60),
+  }),
+  z.object({ op: z.literal("reorder"), parentId: NodeIdRef, order: z.array(NodeIdRef).max(60) }),
+  z.object({
+    op: z.literal("add_text"),
+    parentId: NodeIdRef,
+    index: z.number().int().min(0).max(60),
+    id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/),
+    text: z.string().max(400),
+    font: z.enum(["heading", "body"]),
+    size: z.number().min(6).max(400),
+    weight: z.number().int().min(100).max(900),
+    color: z.string().max(60),
+    align: z.enum(["left", "center", "right"]),
+  }),
+]);
+
+export type ModelOpInput = z.infer<typeof ModelOp>;
+
 export const PatchLayoutInput = z.object({
   /** shown in the UI and used as the undo label */
   intent: z.string().max(120),
-  ops: z.array(PatchOpSchema).min(1).max(20),
+  ops: z.array(ModelOp).min(1).max(20),
 });
 
-export const ReplaceLayoutInput = z.object({
+export const ApplyLayoutInput = z.object({
+  preset: z.enum(LAYOUT_PRESET_IDS),
   intent: z.string().max(120),
-  doc: BadgeDocSchema,
 });
+
+/** Expands the model's narrow op into the full one applyPatch understands. */
+function toPatchOp(op: ModelOpInput): PatchOp {
+  if (op.op !== "add_text") return op as PatchOp;
+  return {
+    op: "insert",
+    parentId: op.parentId,
+    index: op.index,
+    node: {
+      type: "text",
+      id: op.id,
+      text: op.text,
+      font: op.font,
+      weight: op.weight,
+      size: op.size,
+      lineHeight: 1.08,
+      tracking: 0,
+      color: op.color,
+      align: op.align,
+      transform: "none",
+      grow: 0,
+      shrink: 0,
+      alignSelf: "auto",
+      opacity: 1,
+      snap: false,
+    },
+  };
+}
 
 export type ToolOutcome =
   | { ok: true; doc: BadgeDoc; intent: string }
@@ -53,31 +134,24 @@ export function runPatchLayout(
   doc: BadgeDoc,
   input: z.infer<typeof PatchLayoutInput>,
 ): ToolOutcome {
-  const result = applyPatch(doc, input.ops);
+  const result = applyPatch(doc, input.ops.map(toPatchOp));
   if (!result.ok) return failure(result.errors);
   return { ok: true, doc: result.doc, intent: input.intent };
 }
 
-/** Accepts a wholesale new composition, held to the same invariants. */
-export function runReplaceLayout(
-  current: BadgeDoc,
-  input: z.infer<typeof ReplaceLayoutInput>,
-): ToolOutcome {
-  const errors = validateDoc(input.doc);
-  if (errors.length) return failure(errors);
-  // A replacement still has to keep the canvas it was given.
-  if (
-    input.doc.canvas.width !== current.canvas.width ||
-    input.doc.canvas.height !== current.canvas.height
-  ) {
-    return failure([
-      {
-        code: "canvas_changed",
-        message: `canvas must stay ${current.canvas.width}x${current.canvas.height}`,
-      },
-    ]);
+/**
+ * Switches to a different built-in composition. The model picks a base and then
+ * patches it, rather than authoring a whole document — which is both what the
+ * user asked for and what keeps the tool schema small.
+ */
+export function runApplyLayout(input: z.infer<typeof ApplyLayoutInput>): ToolOutcome {
+  const doc = layoutPreset(input.preset);
+  if (!doc) {
+    return failure([{ code: "unknown_preset", message: `no layout called ${input.preset}` }]);
   }
-  return { ok: true, doc: input.doc, intent: input.intent };
+  const errors = validateDoc(doc);
+  if (errors.length) return failure(errors);
+  return { ok: true, doc, intent: input.intent };
 }
 
 /**
@@ -92,8 +166,8 @@ export function buildLayoutBriefing(doc: BadgeDoc): string {
     "",
     "Editing rules:",
     "- Prefer patch_layout with the smallest set of ops that achieves the request.",
-    "- Use replace_layout only when the user asks for a fundamentally different composition.",
-    "- photo, qr, name, headline, meta and scan-url may be moved, resized or restyled, never removed.",
+    "- Use apply_layout (classic/poster/spotlight/minimal) for a fundamentally different look, then patch it.",
+    "- The portrait, the name, the event headline, the QR and the link may be moved, resized or restyled, never removed.",
     "- Colours are #rrggbb or $palette tokens; fonts must come from the allowed lists.",
   ].join("\n");
 }

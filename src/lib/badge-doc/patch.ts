@@ -89,19 +89,22 @@ export type PatchError = { code: string; nodeId?: string; message: string };
 export type PatchResult = { ok: true; doc: BadgeDoc } | { ok: false; errors: PatchError[] };
 
 /**
- * Nodes a patch may restyle or move but never delete. A badge that has lost the
- * person's face, their name, the event it belongs to or the way to register for
- * it has stopped doing its job.
+ * What a badge must keep to still be a badge: a face, a name, the event it
+ * belongs to and a way to register. Expressed as ROLES rather than ids, because
+ * each composition names its pieces differently — the classic layout wraps the
+ * portrait in `photo`, the others use `photo-image` directly. A role is
+ * satisfied by any of its ids.
  */
-export const PROTECTED_NODE_IDS = [
-  "photo",
-  "photo-image",
-  "qr",
-  "name",
-  "headline",
-  "scan-url",
-  "meta",
+export const REQUIRED_ROLES = [
+  { role: "portrait", ids: ["photo", "photo-image"] },
+  { role: "name", ids: ["name"] },
+  { role: "event", ids: ["headline"] },
+  { role: "register", ids: ["qr"] },
+  { role: "link", ids: ["scan-url"] },
 ] as const;
+
+/** Every id that currently stands in for a required role. */
+export const PROTECTED_NODE_IDS = REQUIRED_ROLES.flatMap((r) => r.ids);
 
 const MAX_NODES = 120;
 const MAX_DEPTH = 8;
@@ -213,12 +216,16 @@ export function validateDoc(
   if (depthOf(doc.root) > MAX_DEPTH)
     errors.push({ code: "too_deep", message: `deeper than ${MAX_DEPTH}` });
 
-  for (const id of opts.protect ?? PROTECTED_NODE_IDS) {
-    if (!seen.has(id)) {
+  // A role only fails when NONE of the nodes that could fill it are left.
+  const allowed = opts.protect ? new Set(opts.protect) : null;
+  for (const { role, ids } of REQUIRED_ROLES) {
+    const relevant = allowed ? ids.filter((id) => allowed.has(id)) : ids;
+    if (relevant.length === 0) continue;
+    if (!relevant.some((id) => seen.has(id))) {
       errors.push({
         code: "protected_removed",
-        nodeId: id,
-        message: `${id} may be moved or restyled, not removed`,
+        nodeId: relevant[0],
+        message: `the badge still needs its ${role} — ${relevant.join(" or ")} may be moved or restyled, not removed`,
       });
     }
   }

@@ -32,15 +32,25 @@ export type BindingContext = {
     dateLine: string;
     url: string;
     coverUrl: string | null;
+    /** what the seal shows: the community logo when there is one, else the cover */
+    sealUrl: string | null;
   };
-  user: { firstName: string; role: string; photo: string | null };
+  user: {
+    firstName: string;
+    role: string;
+    photo: string | null;
+    /** sponsor logos, referenced as $user.logos.0 … */
+    logos: string[];
+    /** a logo to use for the seal instead of the event cover */
+    sealLogo: string | null;
+  };
   assets: Record<string, ImageAsset>;
   doc: Record<string, number | string>;
 };
 
 export function bindingsFrom(
   spec: StyleSpec,
-  event: BindingContext["event"],
+  event: Omit<BindingContext["event"], "sealUrl">,
   user: BindingContext["user"],
   assets: Record<string, ImageAsset> = {},
   vars: Record<string, number | string> = {},
@@ -55,7 +65,9 @@ export function bindingsFrom(
       hairlineAlpha: isMono ? 0.28 : 0.16,
       photoStrokeAlpha: isMono ? 0.6 : 1,
     },
-    event,
+    // The seal falls back to the cover, so a document that asks for $event.sealUrl
+    // behaves exactly as it did when it asked for $event.coverUrl.
+    event: { ...event, sealUrl: user.sealLogo ?? event.coverUrl },
     user,
     assets,
     doc: vars,

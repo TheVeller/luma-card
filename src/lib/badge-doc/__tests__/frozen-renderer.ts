@@ -145,7 +145,16 @@ function fitLines(
     }
   }
   if (current && lines.length < maxLines) lines.push(current);
-  return { lines: lines.slice(0, maxLines), size: minSize, lineHeight: Math.round(minSize * 1.08) };
+
+  // Matches the engine: an unbreakable word wider than the box gets clipped
+  // rather than drawn off the badge.
+  const clipped = lines.slice(0, maxLines).map((line) => {
+    if (width(line, minSize) <= maxWidth) return line;
+    let t = line;
+    while (t.length > 1 && width(t + "…", minSize) > maxWidth) t = t.slice(0, -1);
+    return t + "…";
+  });
+  return { lines: clipped, size: minSize, lineHeight: Math.round(minSize * 1.08) };
 }
 
 function fitSingle(

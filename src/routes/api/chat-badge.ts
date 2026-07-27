@@ -5,14 +5,14 @@ import { StyleSpecSchema } from "@/lib/style-spec";
 import {
   buildLayoutBriefing,
   PatchLayoutInput,
-  ReplaceLayoutInput,
+  ApplyLayoutInput,
+  runApplyLayout,
   runPatchLayout,
-  runReplaceLayout,
   SetFontsInput,
   SetPaletteInput,
 } from "@/lib/badge-doc/ai-tools";
 import { BadgeDocSchema } from "@/lib/badge-doc/schema";
-import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
+import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets";
 
 type EventContext = {
   name?: string;
@@ -57,7 +57,7 @@ BEHAVIOR
 - Respond in 1–2 concise sentences.
 - Colour or typography request ("darker", "warmer accent", "use a serif") → set_palette or set_fonts.
 - Layout request ("move the photo up", "bigger name", "drop the kicker", "put the QR on the left") → patch_layout.
-- Only a request for a genuinely different composition warrants replace_layout.
+- A genuinely different look → apply_layout (classic / poster / spotlight / minimal), then patch it.
 - Keep text vs background WCAG contrast ≥ 4.5; if a request would break it, propose a nearby correction.
 - A tool may answer {ok:false, errors}. Read the errors, fix the ops and retry once; do not repeat the same call.
 - If the user only wants to chat, do not call a tool.`;
@@ -104,12 +104,14 @@ export const Route = createFileRoute("/api/chat-badge")({
               inputSchema: PatchLayoutInput,
               execute: async (input) => runPatchLayout(doc, input),
             }),
-            replace_layout: tool({
+            apply_layout: tool({
               description:
-                "Replace the whole layout with a new document. Use only for a fundamentally " +
-                "different composition; the canvas size must stay the same.",
-              inputSchema: ReplaceLayoutInput,
-              execute: async (input) => runReplaceLayout(doc, input),
+                "Switch to a different built-in composition: classic (framed stamp), " +
+                "poster (huge headline, wide photo band), spotlight (large circular portrait) " +
+                "or minimal (airy typographic grid). Use for a fundamentally different look, " +
+                "then patch_layout for the details.",
+              inputSchema: ApplyLayoutInput,
+              execute: async (input) => runApplyLayout(input),
             }),
             // Kept during the transition so an older client still works; the
             // new client uses set_palette + set_fonts.
