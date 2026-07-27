@@ -6,3 +6,6 @@ pnpm-lock.yaml
 package-lock.json
 bun.lock
 routeTree.gen.ts
+
+# Generated font metric tables — pretty-printing them nearly doubles the bundle.
+src/lib/badge-doc/layout/metrics/*.json

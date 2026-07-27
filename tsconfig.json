@@ -1,5 +1,8 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  // Tests are checked by tsconfig.test.json: bun's global types redefine fetch,
+  // which conflicts with the supabase-js client typing in app code.
+  "exclude": ["src/**/__tests__/**"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

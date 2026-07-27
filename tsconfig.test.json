@@ -1,0 +1,11 @@
+{
+  // Type-checks the bun test files. Kept separate because bun's global types
+  // redefine fetch, which breaks the supabase-js client typing in app code.
+  // Run: bunx tsc -p tsconfig.test.json --noEmit
+  "extends": "./tsconfig.json",
+  "include": ["src/**/__tests__/**/*.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "types": ["bun"]
+  }
+}
