@@ -29,13 +29,13 @@ function hashKey(s: string): string {
 function guessKind(url: string): "calendar" | "event" {
   try {
     const u = new URL(url);
-    // lu.ma calendars live at /{slug} with 'user_...' / 'cal-...' ids too.
-    // Heuristic: if pathname is empty or starts with an "event" style path with 5+ chars, we treat as event.
-    // But safest default is `auto` — user should pick when unclear.
     const seg = u.pathname.replace(/^\/+|\/+$/g, "");
     if (!seg) return "calendar";
-    // Luma slugs for calendars are longer, human names (e.g. hack0). Events tend to be short hashes.
-    if (/^[a-z0-9]{4,8}$/i.test(seg)) return "event";
+    // Only `evt-...` ids are unambiguously events. Human slugs like `hack0`
+    // are much more likely to be calendars, and even a short hash slug can be
+    // a calendar — so default to calendar and let the handler fall back to
+    // event scraping if calendar resolution fails.
+    if (/^evt-/i.test(seg)) return "event";
     return "calendar";
   } catch {
     return "event";
