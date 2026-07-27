@@ -19,7 +19,7 @@ export default defineTool({
   handler: async (_input, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const sb = userClient(ctx.getToken());
+    const sb = userClient(ctx.getToken() ?? "");
     const { data, error } = await sb
       .from("user_luma_calendars")
       .select("calendar_id, calendar_name, calendar_slug, calendar_url, source, is_default")
