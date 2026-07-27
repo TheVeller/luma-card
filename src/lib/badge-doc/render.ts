@@ -46,7 +46,19 @@ async function loadAsset(src: string): Promise<ImageAsset | null> {
   }
 }
 
+export type RenderResult = {
+  canvas: HTMLCanvasElement;
+  /** Absolute geometry per node — what lets the editor point at a piece of the badge. */
+  ops: RenderOp[];
+  width: number;
+  height: number;
+};
+
 export async function renderToCanvas(inputs: RenderInputs): Promise<HTMLCanvasElement> {
+  return (await renderBadgeDoc(inputs)).canvas;
+}
+
+export async function renderBadgeDoc(inputs: RenderInputs): Promise<RenderResult> {
   const { doc, spec, event, user } = inputs;
 
   const { heading, body } = validateFontPair(spec.fonts.heading, spec.fonts.body);
@@ -95,5 +107,5 @@ export async function renderToCanvas(inputs: RenderInputs): Promise<HTMLCanvasEl
   canvas.height = Math.round(height * scale);
   const ctx = canvas.getContext("2d")!;
   paintOps(ops, new CanvasPainter({ ctx, scale, qrImages }), { width, height });
-  return canvas;
+  return { canvas, ops, width, height };
 }

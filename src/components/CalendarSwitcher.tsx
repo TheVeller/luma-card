@@ -86,7 +86,11 @@ export function CalendarSwitcher() {
                   }`}
                 >
                   {c.avatarUrl ? (
-                    <img src={c.avatarUrl} alt="" className="h-7 w-7 rounded-md border border-hairline object-cover" />
+                    <img
+                      src={c.avatarUrl}
+                      alt=""
+                      className="h-7 w-7 rounded-md border border-hairline object-cover"
+                    />
                   ) : (
                     <div className="h-7 w-7 rounded-md bg-surface-2" />
                   )}
@@ -115,7 +119,9 @@ export function CalendarSwitcher() {
                     activeCalendarId === "__all__" ? "bg-surface-2" : ""
                   }`}
                 >
-                  <div className="grid h-7 w-7 place-items-center rounded-md border border-hairline text-xs">∞</div>
+                  <div className="grid h-7 w-7 place-items-center rounded-md border border-hairline text-xs">
+                    ∞
+                  </div>
                   <span className="text-sm font-medium">All calendars combined</span>
                 </button>
               </li>
@@ -153,7 +159,10 @@ function pickActive(
 ): { name: string; avatarUrl: string | null; badge: string } {
   if (activeId === "__all__") return { name: "All calendars", avatarUrl: null, badge: "∞" };
   if (!cals || cals.length === 0) return { name: "Setup required", avatarUrl: null, badge: "?" };
-  const picked = (activeId && cals.find((c) => c.calendarId === activeId)) || cals.find((c) => c.isDefault) || cals[0];
+  const picked =
+    (activeId && cals.find((c) => c.calendarId === activeId)) ||
+    cals.find((c) => c.isDefault) ||
+    cals[0];
   return {
     name: picked.name,
     avatarUrl: picked.avatarUrl,

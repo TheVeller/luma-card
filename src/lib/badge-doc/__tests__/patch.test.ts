@@ -103,7 +103,7 @@ describe("structure", () => {
       op: "insert",
       parentId: "header-text",
       index: 0,
-      node: { ...(findNode(doc.root, "kicker") as never) },
+      node: structuredClone(findNode(doc.root, "kicker")!),
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors[0].code).toBe("duplicate_id");

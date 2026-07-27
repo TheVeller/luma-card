@@ -39,7 +39,7 @@ export type RenderOp =
       k: "text";
       id: string;
       name: string;
-      lines: { text: string; x: number; baselineY: number }[];
+      lines: { text: string; x: number; baselineY: number; width: number }[];
       family: string;
       weight: number;
       size: number;
@@ -457,7 +457,7 @@ function emit(m: Measured, ctx: LayoutContext, out: RenderOp[]): void {
         const w = ctx.measurer.width(text, { ...font, size: fitted.size });
         const x =
           n.align === "center" ? m.x + (m.w - w) / 2 : n.align === "right" ? m.x + m.w - w : m.x;
-        return { text, x, baselineY: m.y + i * fitted.lineHeight + ascent };
+        return { text, x, width: w, baselineY: m.y + i * fitted.lineHeight + ascent };
       });
       out.push({
         k: "text",

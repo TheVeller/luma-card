@@ -68,7 +68,9 @@ export function CameraCapture({ onCapture, onClose }: Props) {
         <div className="relative aspect-square w-full overflow-hidden rounded-md bg-black">
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           {!ready && !error && (
-            <div className="absolute inset-0 grid place-items-center font-mono text-xs">STARTING CAMERA…</div>
+            <div className="absolute inset-0 grid place-items-center font-mono text-xs">
+              STARTING CAMERA…
+            </div>
           )}
           {error && (
             <div className="absolute inset-0 grid place-items-center p-4 text-center font-mono text-xs text-red-300">

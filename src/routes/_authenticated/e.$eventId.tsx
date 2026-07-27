@@ -14,7 +14,10 @@ import {
 import { extractPixelEvidence } from "@/lib/pixel-evidence";
 
 import { type EventTheme } from "@/lib/badge-render";
-import { renderToCanvas } from "@/lib/badge-doc/render";
+import { renderBadgeDoc, renderToCanvas } from "@/lib/badge-doc/render";
+import type { RenderOp } from "@/lib/badge-doc/layout/engine";
+import { BadgePreview } from "@/components/BadgePreview";
+import { BadgeLibrary } from "@/components/BadgeLibrary";
 import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
 import type { BadgeDoc } from "@/lib/badge-doc/schema";
 import { BadgeControls } from "@/components/BadgeControls";
@@ -126,6 +129,9 @@ function EventBadgePage() {
   const [busy, setBusy] = useState(false);
   const [badgeUrl, setBadgeUrl] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [ops, setOps] = useState<RenderOp[]>([]);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<"design" | "chat">("design");
   const [aiError, setAiError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [galleryKey, setGalleryKey] = useState(0);
@@ -250,7 +256,7 @@ function EventBadgePage() {
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const canvas = await renderToCanvas({
+        const rendered = await renderBadgeDoc({
           doc,
           spec,
           event: {
@@ -267,7 +273,12 @@ function EventBadgePage() {
           },
           scale: 0.5,
         });
-        if (!cancelled) setPreviewUrl(canvas.toDataURL("image/png"));
+        // Image and geometry land together, so the highlight can never point at
+        // where a piece used to be.
+        if (!cancelled) {
+          setPreviewUrl(rendered.canvas.toDataURL("image/png"));
+          setOps(rendered.ops);
+        }
       } catch (e) {
         console.error("preview failed", e);
       }
@@ -400,36 +411,31 @@ function EventBadgePage() {
 
   return (
     <>
-      <div className="mx-auto max-w-7xl px-6 pt-6">
-        <Link
-          to="/events"
-          className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground hover:text-foreground"
-        >
-          ← All events
-        </Link>
-      </div>
-
-      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-8 lg:grid-cols-[360px_1fr_380px]">
-        {/* LEFT: inputs */}
-        <div>
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-            What's brewing
-          </div>
-          <h1 className="font-display text-3xl font-semibold leading-tight tracking-tight">
-            {event.name}
-          </h1>
-          <div className="mt-2 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            {formatDateLine(event.startAt)}
-            {event.city ? ` · ${event.city.toUpperCase()}` : ""}
+      {/* Slim context bar: the event is context, not the task. */}
+      <div className="sticky top-0 z-20 border-b border-hairline bg-background/85 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-3">
+          <Link
+            to="/events"
+            className="shrink-0 font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            ←
+          </Link>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate font-display text-base font-semibold leading-tight tracking-tight">
+              {event.name}
+            </h1>
+            <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              {formatDateLine(event.startAt)}
+              {event.city ? ` · ${event.city.toUpperCase()}` : ""}
+            </div>
           </div>
           {event.url && (
-            <div className="mt-2 flex items-center gap-2">
+            <div className="hidden shrink-0 items-center gap-2 sm:flex">
               <a
                 href={event.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="truncate font-mono text-[11px] text-accent underline underline-offset-4 hover:text-foreground"
+                className="max-w-[220px] truncate font-mono text-[11px] text-accent underline underline-offset-4 hover:text-foreground"
                 title={event.url}
               >
                 {prettyUrl(event.url)}
@@ -444,44 +450,112 @@ function EventBadgePage() {
                   }
                 }}
                 title="Copy event link"
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-hairline text-[10px] text-muted-foreground hover:bg-surface hover:text-foreground"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-hairline text-[10px] text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
               >
                 {copied ? "✓" : "⧉"}
               </button>
             </div>
           )}
+        </div>
+      </div>
 
-          <div className="mt-6 space-y-4">
-            <div>
-              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                First name
-              </label>
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value.slice(0, 24))}
-                maxLength={24}
-                placeholder="Martina"
-                className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                Role / Company
-              </label>
-              <input
-                value={role}
-                onChange={(e) => setRole(e.target.value.slice(0, 60))}
-                maxLength={60}
-                placeholder="e.g. Designer, Acme Inc"
-                className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                Your photo
-              </label>
+      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-8 lg:grid-cols-[320px_1fr_380px]">
+        {/* The badge leads on small screens — it is what the page is about. */}
+        <div className="lg:order-2">
+          <div className="lg:sticky lg:top-24">
+            <BadgePreview
+              src={badgeUrl ?? previewUrl}
+              ops={ops}
+              canvasWidth={doc.canvas.width}
+              canvasHeight={doc.canvas.height}
+              highlightId={hoveredNodeId}
+              saved={Boolean(badgeUrl)}
+              busy={busy}
+              missing={
+                !firstName.trim() ? "Add your first name" : !photoDataUrl ? "Add your photo" : null
+              }
+              onUndo={docHistory.length > 0 ? undoDoc : undefined}
+              undoLabel={docHistory[docHistory.length - 1]?.intent ?? null}
+            />
+          </div>
+        </div>
+
+        {/* LEFT: who you are */}
+        <div className="space-y-5 lg:order-1">
+          <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+            · You
+          </h2>
+
+          <div>
+            <label
+              htmlFor="first-name"
+              className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground"
+            >
+              First name
+            </label>
+            <input
+              id="first-name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value.slice(0, 24))}
+              maxLength={24}
+              placeholder="Martina"
+              className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="role"
+              className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground"
+            >
+              Role / Company
+            </label>
+            <input
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value.slice(0, 60))}
+              maxLength={60}
+              placeholder="e.g. Designer, Acme Inc"
+              className="mt-1 w-full rounded-xl border border-hairline bg-surface/70 px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              Your photo
+            </span>
+            {photoDataUrl ? (
+              <div className="mt-1 flex items-center gap-3 rounded-xl border border-hairline bg-surface/70 p-2">
+                <img
+                  src={photoDataUrl}
+                  alt="Your photo"
+                  className="h-14 w-14 rounded-lg border border-hairline object-cover"
+                />
+                <div className="flex flex-1 flex-col items-start gap-1">
+                  <label className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground underline underline-offset-4 hover:text-foreground">
+                    replace
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => e.target.files?.[0] && onPickPhoto(e.target.files[0])}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoDataUrl(null);
+                      setBadgeUrl(null);
+                    }}
+                    className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  >
+                    remove
+                  </button>
+                </div>
+              </div>
+            ) : (
               <div className="mt-1 flex gap-2">
-                <label className="flex-1 cursor-pointer rounded-full bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground hover:opacity-90">
+                <label className="flex-1 cursor-pointer rounded-full bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">
                   Upload
                   <input
                     type="file"
@@ -493,286 +567,164 @@ function EventBadgePage() {
                 <button
                   type="button"
                   onClick={() => setCameraOpen(true)}
-                  className="flex-1 rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface"
+                  className="flex-1 rounded-full border border-hairline px-4 py-2 text-sm font-semibold transition-colors hover:bg-surface"
                 >
                   📷 Take photo
                 </button>
               </div>
-              {photoDataUrl && (
-                <div className="mt-2 flex items-center gap-3">
-                  <img
-                    src={photoDataUrl}
-                    alt="Your photo"
-                    className="h-16 w-16 rounded-xl border border-hairline object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhotoDataUrl(null);
-                      setBadgeUrl(null);
-                    }}
-                    className="font-mono text-[10px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                  >
-                    remove
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-2">
-              <button
-                onClick={generate}
-                disabled={!canGenerate || busy}
-                className="inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-              >
-                {busy ? "Composing…" : badgeUrl ? "Re-render" : "Render badge →"}
-              </button>
-              {badgeUrl && (
-                <>
-                  <button
-                    onClick={download}
-                    className="rounded-full border border-hairline px-4 py-2 text-sm font-semibold hover:bg-surface"
-                  >
-                    ↓ PNG
-                  </button>
-                  <button
-                    onClick={shareOnX}
-                    className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-                    title="Share on X"
-                  >
-                    Share on 𝕏
-                  </button>
-                  <button
-                    onClick={shareOnLinkedIn}
-                    className="rounded-full px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-                    style={{ backgroundColor: "#0A66C2" }}
-                    title="Share on LinkedIn"
-                  >
-                    in — LinkedIn
-                  </button>
-                  <button
-                    onClick={nativeShare}
-                    className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
-                  >
-                    Share ↗
-                  </button>
-                </>
-              )}
-            </div>
-
-            <BadgeControls spec={spec} doc={doc} onSpecChange={setSpec} onDocChange={applyDoc} />
-
-            <div className="rounded-2xl border border-hairline bg-surface/60 p-4 text-xs text-muted-foreground">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="font-mono text-[10px] uppercase tracking-[0.24em]">
-                  {analyzing ? "AI analyzing art…" : savedStyle ? "AI style · saved" : "AI style"}
-                </div>
-                {savedStyle && (
-                  <button
-                    type="button"
-                    onClick={runAnalyze}
-                    disabled={analyzing}
-                    className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2 disabled:opacity-40"
-                    title="Run the AI again — consumes credits"
-                  >
-                    {analyzing ? "…" : "↻ Regenerate"}
-                  </button>
-                )}
-              </div>
-
-              {!savedStyle && (
-                <div className="mb-3">
-                  <button
-                    type="button"
-                    onClick={runAnalyze}
-                    disabled={analyzing || !event}
-                    className="w-full rounded-full bg-accent px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-accent-foreground disabled:opacity-40"
-                  >
-                    {analyzing ? "Analyzing…" : "✨ Generate AI style"}
-                  </button>
-                  <p className="mt-1.5 text-[11px] leading-snug">
-                    Reads the cover art to pick palette and fonts. Consumes AI credits — the result
-                    is saved and reused on your next visit.
-                  </p>
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(["bg", "surface", "accent", "text"] as const).map((k) => (
-                  <span
-                    key={k}
-                    title={`${k}: ${spec.palette[k]}`}
-                    className="inline-block h-5 w-5 rounded border border-hairline"
-                    style={{ backgroundColor: spec.palette[k] }}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 space-y-0.5 text-foreground">
-                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
-                  style: {spec.style}
-                </div>
-                <div>
-                  heading: <b>{spec.fonts.heading}</b>
-                </div>
-                <div>
-                  body: <b>{spec.fonts.body}</b>
-                </div>
-                <div className="text-muted-foreground">mood: {spec.mood}</div>
-              </div>
-              {savedStyle && (
-                <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                  saved {new Date(savedStyle.createdAt).toLocaleDateString()}
-                </div>
-              )}
-              {aiError && <div className="mt-2 text-destructive">{aiError}</div>}
-            </div>
-
-            {presets && presets.length > 0 && (
-              <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                    · Recent styles for this event
-                  </div>
-                  <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    {presets.length}
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {presets.slice(0, 6).map((p: EventStylePresetDTO) => (
-                    <div key={p.id} className="group relative">
-                      <button
-                        type="button"
-                        onClick={() => setSpec(p.styleSpec)}
-                        title={`Apply ${p.styleSpec.style} · ${p.styleSpec.fonts.heading}`}
-                        className="w-full rounded-lg border border-hairline p-1.5 text-left hover:border-accent/60"
-                      >
-                        <div
-                          className="mb-1 h-10 w-full rounded"
-                          style={{
-                            background: `linear-gradient(135deg, ${p.styleSpec.palette.bg} 0%, ${p.styleSpec.palette.bg} 45%, ${p.styleSpec.palette.accent} 45%, ${p.styleSpec.palette.accent} 60%, ${p.styleSpec.palette.surface} 60%)`,
-                          }}
-                        />
-                        <div className="truncate text-[10px] font-semibold">
-                          {p.styleSpec.style}
-                        </div>
-                        <div className="truncate text-[9px] text-muted-foreground">
-                          {p.styleSpec.fonts.heading}
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deletePresetMut.mutate(p.id)}
-                        title="Remove preset"
-                        className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-[10px] text-white opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
             )}
+          </div>
 
-            {templates && templates.length > 0 && (
-              <div className="rounded-2xl border border-hairline bg-surface/60 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                    · Templates
-                  </div>
-                  <Link
-                    to="/templates"
-                    className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground"
-                  >
-                    all →
-                  </Link>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {templates.slice(0, 6).map((t: TemplateDTO) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setSpec(t.styleSpec)}
-                      title={`Apply "${t.name}"`}
-                      className="group rounded-lg border border-hairline p-1.5 text-left hover:border-accent/60"
-                    >
-                      <div
-                        className="mb-1 h-10 w-full rounded"
-                        style={{
-                          background: `linear-gradient(135deg, ${t.styleSpec.palette.bg} 0%, ${t.styleSpec.palette.bg} 45%, ${t.styleSpec.palette.accent} 45%, ${t.styleSpec.palette.accent} 60%, ${t.styleSpec.palette.surface} 60%)`,
-                        }}
-                      />
-                      <div className="truncate text-[10px] font-semibold">{t.name}</div>
-                    </button>
-                  ))}
-                </div>
+          {/* Actions live at the end of the column, where the task ends. */}
+          <div className="space-y-2 border-t border-hairline pt-5">
+            <button
+              onClick={generate}
+              disabled={!canGenerate || busy}
+              className="w-full rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              title={
+                canGenerate ? "Save this badge to your gallery" : "Add a name and a photo first"
+              }
+            >
+              {busy ? "Saving…" : badgeUrl ? "Save again" : "Save badge"}
+            </button>
+            <p className="text-center text-[11px] leading-snug text-muted-foreground">
+              {badgeUrl
+                ? "Saved to your gallery below."
+                : "The preview updates as you edit; saving adds it to your gallery."}
+            </p>
+
+            {badgeUrl && (
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={download}
+                  className="rounded-full border border-hairline px-3 py-2 text-xs font-semibold transition-colors hover:bg-surface"
+                >
+                  ↓ PNG
+                </button>
+                <button
+                  onClick={nativeShare}
+                  className="rounded-full bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                >
+                  Share ↗
+                </button>
+                <button
+                  onClick={shareOnX}
+                  className="rounded-full bg-black px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                  title="Share on X"
+                >
+                  𝕏
+                </button>
+                <button
+                  onClick={shareOnLinkedIn}
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "#0A66C2" }}
+                  title="Share on LinkedIn"
+                >
+                  in
+                </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* CENTER: preview */}
-        <div className="flex flex-col">
-          <div className="flex items-center justify-between gap-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-              · Preview {badgeUrl ? "· rendered" : previewUrl ? "· live" : ""}
-            </div>
-            {docHistory.length > 0 && (
+        {/* RIGHT: how it looks */}
+        <div className="lg:order-3">
+          <div className="mb-3 flex rounded-full border border-hairline p-0.5">
+            {[
+              { key: "design" as const, label: "Design" },
+              { key: "chat" as const, label: "AI chat" },
+            ].map((t) => (
               <button
+                key={t.key}
                 type="button"
-                onClick={undoDoc}
-                className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] hover:bg-surface-2"
-                title={`Undo: ${docHistory[docHistory.length - 1].intent}`}
+                onClick={() => setPanel(t.key)}
+                className={`flex-1 rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors ${
+                  panel === t.key
+                    ? "bg-surface-2 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                ↶ undo
+                {t.label}
               </button>
-            )}
+            ))}
           </div>
-          <div className="mt-3 flex justify-center rounded-2xl border border-hairline bg-surface/50 p-6">
-            {badgeUrl || previewUrl ? (
-              <img
-                src={badgeUrl ?? previewUrl ?? undefined}
-                alt="Your badge"
-                className="w-full max-w-md rounded-xl shadow-2xl"
-              />
-            ) : (
-              <div className="flex aspect-[27/40] w-full max-w-md items-center justify-center rounded-xl border border-dashed border-hairline text-center font-mono text-xs text-muted-foreground">
-                <div>
-                  <div className="text-2xl">↴</div>
-                  <div className="mt-2 tracking-[0.24em]">ADD A NAME AND A PHOTO</div>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {event.coverUrl && (
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                  Event art
-                </div>
-                <img
-                  src={coverProxy!}
-                  alt=""
-                  className="mt-1 w-full rounded-xl border border-hairline"
-                />
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* RIGHT: AI chat */}
-        <div className="h-[620px]">
-          <BadgeChat
-            doc={doc}
-            onDocChange={applyDoc}
-            spec={spec}
-            eventContext={{
-              name: event.name,
-              city: event.city ?? null,
-              dateLine: formatDateLine(event.startAt),
-              description: event.description ?? null,
-              coverUrl: event.coverUrl,
-            }}
-            onSpecChange={setSpec}
-          />
+          {panel === "design" ? (
+            <div className="space-y-6 rounded-2xl border border-hairline bg-surface/60 p-4">
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+                    {analyzing ? "Analyzing art…" : "AI style"}
+                  </h3>
+                  {savedStyle && (
+                    <button
+                      type="button"
+                      onClick={runAnalyze}
+                      disabled={analyzing}
+                      className="rounded-full border border-hairline px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground disabled:opacity-40"
+                      title="Run the AI again — consumes credits"
+                    >
+                      {analyzing ? "…" : "↻"}
+                    </button>
+                  )}
+                </div>
+                {savedStyle ? (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    <span className="text-foreground">{spec.style}</span> · {spec.mood} · saved{" "}
+                    {new Date(savedStyle.createdAt).toLocaleDateString()}
+                  </p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={runAnalyze}
+                      disabled={analyzing || !event}
+                      className="w-full rounded-full bg-accent px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      {analyzing ? "Analyzing…" : "✨ Generate AI style"}
+                    </button>
+                    <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                      Reads the cover art to pick palette and fonts. Consumes AI credits — the
+                      result is saved and reused on your next visit.
+                    </p>
+                  </>
+                )}
+                {aiError && <p className="mt-2 text-[11px] text-destructive">{aiError}</p>}
+              </section>
+
+              <BadgeControls
+                spec={spec}
+                doc={doc}
+                onSpecChange={setSpec}
+                onDocChange={applyDoc}
+                onHoverNode={setHoveredNodeId}
+              />
+
+              <BadgeLibrary
+                presets={presets ?? []}
+                templates={templates ?? []}
+                activeStyle={spec}
+                onApply={setSpec}
+                onDeletePreset={(id) => deletePresetMut.mutate(id)}
+              />
+            </div>
+          ) : (
+            <div className="h-[620px]">
+              <BadgeChat
+                doc={doc}
+                onDocChange={applyDoc}
+                spec={spec}
+                eventContext={{
+                  name: event.name,
+                  city: event.city ?? null,
+                  dateLine: formatDateLine(event.startAt),
+                  description: event.description ?? null,
+                  coverUrl: event.coverUrl,
+                }}
+                onSpecChange={setSpec}
+              />
+            </div>
+          )}
         </div>
       </div>
 
