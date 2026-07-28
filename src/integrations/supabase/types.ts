@@ -417,6 +417,13 @@ export type Database = {
             referencedRelation: "calendar_groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "user_luma_calendars_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "user_luma_calendars"
+            referencedColumns: ["id"]
+          },
         ]
       }
       user_luma_keys: {
