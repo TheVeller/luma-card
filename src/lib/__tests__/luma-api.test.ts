@@ -58,7 +58,8 @@ describe("current Luma API", () => {
       });
     }) as typeof fetch;
 
-    const events = await fetchAllEvents("secret-key");
+    const snapshot = await fetchAllEvents("secret-key");
+    const { events } = snapshot;
 
     expect(events.map((event) => event.api_id)).toEqual(["evt-1", "evt-2"]);
     expect(events[1]).toMatchObject({
@@ -66,6 +67,7 @@ describe("current Luma API", () => {
       calendar_id: "cal-origin",
       geo_address_info: { city_state: "Lima, Lima" },
     });
+    expect(snapshot).toMatchObject({ complete: true, pages: 2 });
     expect(requested[0]?.pathname).toBe("/v1/calendars/events/list");
     expect(requested[0]?.searchParams.getAll("access")).toEqual(["manage", "view"]);
     expect(requested[1]?.searchParams.get("pagination_cursor")).toBe("page-2");
