@@ -77,6 +77,33 @@ export type Database = {
         }
         Relationships: []
       }
+      calendar_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       event_style_presets: {
         Row: {
           created_at: string
@@ -274,25 +301,34 @@ export type Database = {
         Row: {
           api_key_ciphertext: string | null
           calendar_avatar_url: string | null
+          calendar_cover_url: string | null
+          calendar_description: string | null
           calendar_id: string
           calendar_name: string | null
           calendar_slug: string | null
+          calendar_tint_color: string | null
           calendar_url: string | null
           created_at: string
           curated_name: string | null
           discovered_count: number
           event_limit: number
+          group_id: string | null
           id: string
           imported_count: number
           is_default: boolean
           last_synced_at: string | null
           luma_calendar_id: string | null
           merged_into_id: string | null
+          metadata_version: number
           next_sync_at: string | null
+          organization_manual: boolean
           remote_name: string | null
+          sort_order: number
           source: string
           source_kind: string | null
           source_metadata: Json | null
+          suggested_group_name: string | null
+          suggested_group_reason: string | null
           sync_enabled: boolean
           sync_error: string | null
           sync_status: string
@@ -302,25 +338,34 @@ export type Database = {
         Insert: {
           api_key_ciphertext?: string | null
           calendar_avatar_url?: string | null
+          calendar_cover_url?: string | null
+          calendar_description?: string | null
           calendar_id: string
           calendar_name?: string | null
           calendar_slug?: string | null
+          calendar_tint_color?: string | null
           calendar_url?: string | null
           created_at?: string
           curated_name?: string | null
           discovered_count?: number
           event_limit?: number
+          group_id?: string | null
           id?: string
           imported_count?: number
           is_default?: boolean
           last_synced_at?: string | null
           luma_calendar_id?: string | null
           merged_into_id?: string | null
+          metadata_version?: number
           next_sync_at?: string | null
+          organization_manual?: boolean
           remote_name?: string | null
+          sort_order?: number
           source?: string
           source_kind?: string | null
           source_metadata?: Json | null
+          suggested_group_name?: string | null
+          suggested_group_reason?: string | null
           sync_enabled?: boolean
           sync_error?: string | null
           sync_status?: string
@@ -330,32 +375,49 @@ export type Database = {
         Update: {
           api_key_ciphertext?: string | null
           calendar_avatar_url?: string | null
+          calendar_cover_url?: string | null
+          calendar_description?: string | null
           calendar_id?: string
           calendar_name?: string | null
           calendar_slug?: string | null
+          calendar_tint_color?: string | null
           calendar_url?: string | null
           created_at?: string
           curated_name?: string | null
           discovered_count?: number
           event_limit?: number
+          group_id?: string | null
           id?: string
           imported_count?: number
           is_default?: boolean
           last_synced_at?: string | null
           luma_calendar_id?: string | null
           merged_into_id?: string | null
+          metadata_version?: number
           next_sync_at?: string | null
+          organization_manual?: boolean
           remote_name?: string | null
+          sort_order?: number
           source?: string
           source_kind?: string | null
           source_metadata?: Json | null
+          suggested_group_name?: string | null
+          suggested_group_reason?: string | null
           sync_enabled?: boolean
           sync_error?: string | null
           sync_status?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_luma_calendars_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_groups"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_luma_keys: {
         Row: {
