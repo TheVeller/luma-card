@@ -541,12 +541,18 @@ async function syncApiCalendar(userId: string, source: SyncSourceRow, scope: Res
   const { fetchAllEvents, fetchCalendar } = await import("./luma.server");
   const runStartedAt = new Date().toISOString();
   let calendar;
-  let events;
+  let events: Awaited<ReturnType<typeof import("./luma.server").fetchAllEvents>>["events"] = [];
+  let apiComplete = false;
+  let apiPages = 0;
   try {
-    [calendar, events] = await Promise.all([
+    const [cal, snapshot] = await Promise.all([
       fetchCalendar(resolved.key),
       fetchAllEvents(resolved.key, scope),
     ]);
+    calendar = cal;
+    events = snapshot.events;
+    apiComplete = snapshot.complete;
+    apiPages = snapshot.pages;
   } catch (error) {
     const apiError = error instanceof Error ? error.message : String(error);
     if (!source.calendar_url) throw error;
