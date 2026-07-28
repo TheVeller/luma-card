@@ -36,12 +36,14 @@ export const listEvents = createServerFn({ method: "GET" })
     // Combined view: fan out across every linked calendar + scraped ones.
     // Shared with the external /api/v1/events route via aggregateEventsForUser.
     if (calendarId === "__all__") {
-      if (allRows.length === 0) throw new NoLumaKeyError();
+      if (allRows.length === 0) return [];
       const { events } = await aggregateCanonicalEventsForUser(context.userId, {
         calendarId: "__all__",
       });
       return events;
     }
+
+    if (allRows.length === 0) return [];
 
     // Specific calendar — could be scraped (source='scrape') or api.
     const row = calendarId
