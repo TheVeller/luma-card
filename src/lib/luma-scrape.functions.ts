@@ -62,7 +62,19 @@ export const importFromUrl = createServerFn({ method: "POST" })
         .eq("calendar_id", calendarId)
         .maybeSingle();
       const existingId = (existingCal as { id?: string } | null)?.id;
-      if (existingId) return existingId;
+      if (existingId) {
+        const { error } = await supabaseAdmin
+          .from("user_luma_calendars" as never)
+          .update({
+            calendar_name: calendarName,
+            calendar_url: calendarUrl,
+            updated_at: new Date().toISOString(),
+          } as never)
+          .eq("id", existingId)
+          .eq("user_id", context.userId);
+        if (error) throw new Error(error.message);
+        return existingId;
+      }
       const { data: inserted, error } = await supabaseAdmin
         .from("user_luma_calendars" as never)
         .insert({
@@ -77,6 +89,18 @@ export const importFromUrl = createServerFn({ method: "POST" })
         .single();
       if (error) throw new Error(error.message);
       return (inserted as { id: string }).id;
+    }
+
+    async function upsertScrapedEvent(values: Record<string, unknown>) {
+      let result = await supabaseAdmin
+        .from("scraped_events" as never)
+        .upsert(values as never, { onConflict: "user_id,calendar_id,event_key" });
+      if (result.error?.code === "42P10") {
+        result = await supabaseAdmin
+          .from("scraped_events" as never)
+          .upsert(values as never, { onConflict: "user_id,event_key" });
+      }
+      return result;
     }
 
     const requestedKind = data.kind;
@@ -104,32 +128,27 @@ export const importFromUrl = createServerFn({ method: "POST" })
           const calendarId = `scr-${cal.apiId}`;
           const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
 
-          const imported: string[] = [];
-          for (const ev of events) {
-            const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
-              {
-                user_id: context.userId,
-                calendar_id: calendarRowId,
-                event_key: ev.apiId,
-                source_url: ev.url,
-                name: ev.name,
-                description: null,
-                cover_url: ev.coverUrl,
-                city: ev.city,
-                start_at: ev.startAt,
-                end_at: ev.endAt,
-                host_name: null,
-                payload: { source: "luma-api" },
-                updated_at: new Date().toISOString(),
-              } as never,
-              { onConflict: "user_id,event_key" },
-            );
+          const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
+          const importCalendarEvent = async (ev: (typeof events)[number]) => {
+            const { error: upErr } = await upsertScrapedEvent({
+              user_id: context.userId,
+              calendar_id: calendarRowId,
+              event_key: ev.apiId,
+              source_url: ev.url,
+              name: ev.name,
+              description: null,
+              cover_url: ev.coverUrl,
+              city: ev.city,
+              start_at: ev.startAt,
+              end_at: ev.endAt,
+              host_name: null,
+              payload: { source: "luma-api" },
+              updated_at: new Date().toISOString(),
+            });
             if (upErr) {
               console.error("scraped_events upsert failed", upErr);
-              continue;
+              return null;
             }
-            imported.push(ev.apiId);
-            const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
             await tryUpsertCanonicalEventSource(context.userId, {
               event: {
                 id: ev.apiId,
@@ -150,6 +169,16 @@ export const importFromUrl = createServerFn({ method: "POST" })
               externalEventId: ev.apiId,
               payload: { source: "luma-public-api" },
             });
+            return ev.apiId;
+          };
+
+          const imported: string[] = [];
+          const concurrency = 10;
+          for (let offset = 0; offset < events.length; offset += concurrency) {
+            const batch = await Promise.all(
+              events.slice(offset, offset + concurrency).map(importCalendarEvent),
+            );
+            imported.push(...batch.filter((eventId): eventId is string => eventId !== null));
           }
 
           return {
@@ -194,24 +223,21 @@ export const importFromUrl = createServerFn({ method: "POST" })
           calendarId,
           calendarName,
         };
-        const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
-          {
-            user_id: context.userId,
-            calendar_id: calendarRowId,
-            event_key: eventKey,
-            source_url: url,
-            name: ev.name,
-            description: ev.description,
-            cover_url: ev.coverUrl,
-            city: ev.city,
-            start_at: ev.startAt,
-            end_at: ev.endAt,
-            host_name: ev.hostName,
-            payload: { source: "profile", profileUrl: data.url, branding: ev.branding ?? null },
-            updated_at: new Date().toISOString(),
-          } as never,
-          { onConflict: "user_id,event_key" },
-        );
+        const { error: upErr } = await upsertScrapedEvent({
+          user_id: context.userId,
+          calendar_id: calendarRowId,
+          event_key: eventKey,
+          source_url: url,
+          name: ev.name,
+          description: ev.description,
+          cover_url: ev.coverUrl,
+          city: ev.city,
+          start_at: ev.startAt,
+          end_at: ev.endAt,
+          host_name: ev.hostName,
+          payload: { source: "profile", profileUrl: data.url, branding: ev.branding ?? null },
+          updated_at: new Date().toISOString(),
+        });
         if (upErr) {
           console.error("profile scraped_events upsert failed", upErr);
           return null;
@@ -261,24 +287,21 @@ export const importFromUrl = createServerFn({ method: "POST" })
     const ev = await firecrawlScrapeEvent(data.url);
     if (!ev) throw new Error("Couldn't read that event page.");
     const eventKey = hashKey(data.url);
-    const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
-      {
-        user_id: context.userId,
-        calendar_id: calendarRowId,
-        event_key: eventKey,
-        source_url: data.url,
-        name: ev.name,
-        description: ev.description,
-        cover_url: ev.coverUrl,
-        city: ev.city,
-        start_at: ev.startAt,
-        end_at: ev.endAt,
-        host_name: ev.hostName,
-        payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
-        updated_at: new Date().toISOString(),
-      } as never,
-      { onConflict: "user_id,event_key" },
-    );
+    const { error: upErr } = await upsertScrapedEvent({
+      user_id: context.userId,
+      calendar_id: calendarRowId,
+      event_key: eventKey,
+      source_url: data.url,
+      name: ev.name,
+      description: ev.description,
+      cover_url: ev.coverUrl,
+      city: ev.city,
+      start_at: ev.startAt,
+      end_at: ev.endAt,
+      host_name: ev.hostName,
+      payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
+      updated_at: new Date().toISOString(),
+    });
     if (upErr) throw new Error(upErr.message);
     const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
     await tryUpsertCanonicalEventSource(context.userId, {
@@ -377,6 +400,7 @@ export async function readScrapedEventById(
     )
     .eq("user_id", userId)
     .eq("event_key", eventKey)
+    .limit(1)
     .maybeSingle();
   const r = data as {
     event_key: string;

@@ -102,7 +102,9 @@ async function fetchPage(
   const res = await fetch(`${LUMA_API}/calendar/get-items?${qs.toString()}`, {
     headers: { accept: "application/json" },
   });
-  if (!res.ok) return { entries: [], hasMore: false };
+  if (!res.ok) {
+    throw new Error(`Luma calendar events request failed (${res.status})`);
+  }
   const json = (await res.json()) as {
     entries?: Array<{ event?: RawEvent }>;
     has_more?: boolean;
