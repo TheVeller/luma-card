@@ -632,10 +632,12 @@ async function syncApiCalendar(userId: string, source: SyncSourceRow, scope: Res
       authoritativeSnapshotAt: runStartedAt,
       emptyConfirmed: events.length === 0,
       nextEventAt: upcoming ?? null,
+      pages: apiPages,
+      paginationComplete: apiComplete,
     },
-    partial: false,
-    warning: null,
-    historicalComplete: scope.kind === "full",
+    partial: !apiComplete,
+    warning: apiComplete ? null : "Luma API pagination truncated; not marking as complete",
+    historicalComplete: scope.kind === "full" && apiComplete,
   };
 }
 
