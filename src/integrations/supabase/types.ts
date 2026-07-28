@@ -166,6 +166,7 @@ export type Database = {
           created_at: string
           description: string | null
           end_at: string | null
+          external_ids: Json
           host_name: string | null
           id: string
           identity_fingerprint: string | null
@@ -186,6 +187,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           end_at?: string | null
+          external_ids?: Json
           host_name?: string | null
           id?: string
           identity_fingerprint?: string | null
@@ -206,6 +208,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           end_at?: string | null
+          external_ids?: Json
           host_name?: string | null
           id?: string
           identity_fingerprint?: string | null
@@ -232,7 +235,10 @@ export type Database = {
           host_name: string | null
           id: string
           last_synced_at: string
+          origin_provider_source_id: string | null
           payload: Json
+          provider: string
+          provider_event_id: string | null
           source_key: string
           source_type: string
           source_url: string
@@ -249,7 +255,10 @@ export type Database = {
           host_name?: string | null
           id?: string
           last_synced_at?: string
+          origin_provider_source_id?: string | null
           payload?: Json
+          provider?: string
+          provider_event_id?: string | null
           source_key: string
           source_type: string
           source_url: string
@@ -266,7 +275,10 @@ export type Database = {
           host_name?: string | null
           id?: string
           last_synced_at?: string
+          origin_provider_source_id?: string | null
           payload?: Json
+          provider?: string
+          provider_event_id?: string | null
           source_key?: string
           source_type?: string
           source_url?: string
