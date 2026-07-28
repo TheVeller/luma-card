@@ -15,6 +15,11 @@ export type ProviderSnapshot = {
   coverUrl: string | null;
   description: string | null;
   complete: boolean;
+  discoveredCount?: number;
+  readableCount?: number;
+  truncated?: boolean;
+  warnings?: string[];
+  sourceMethod?: "provider_api" | "public_jsonld" | "firecrawl" | "hybrid";
 };
 
 export type ProviderSyncScope = { kind: "full" } | { kind: "maintenance"; after: string };
@@ -496,10 +501,18 @@ export async function fetchPublicProviderSnapshot(
       ),
     );
   }
-  if (events.length === 0 && urlsToRead.length > 0) {
+  if (readableCount === 0 && urlsToRead.length > 0) {
     throw new Error(`No readable ${provider} events were found`);
   }
   const branding = hasFirecrawl() ? await firecrawlScrapeSource(sourceUrl) : null;
+  const unreadableCount = urlsToRead.length - readableCount;
+  const truncated = !eventId && urls.length >= limit;
+  const usedJsonLd = events.some(({ payload }) =>
+    String(payload.source ?? "").endsWith("-public-jsonld"),
+  );
+  const usedFirecrawl = events.some(({ payload }) =>
+    String(payload.source ?? "").endsWith("-public-firecrawl"),
+  );
   return {
     name:
       branding?.name ??
@@ -509,6 +522,21 @@ export async function fetchPublicProviderSnapshot(
     avatarUrl: branding?.avatarUrl ?? null,
     coverUrl: branding?.coverUrl ?? events[0]?.event.coverUrl ?? null,
     description: branding?.description ?? null,
-    complete: readableCount + (urls.length - urlsToRead.length) === urls.length,
+    complete: unreadableCount === 0 && !truncated,
+    discoveredCount: urls.length,
+    readableCount,
+    truncated,
+    warnings: [
+      ...(unreadableCount > 0 ? [`${unreadableCount} discovered events could not be read`] : []),
+      ...(truncated ? [`Discovery reached the ${limit}-event limit`] : []),
+    ],
+    sourceMethod:
+      usedJsonLd && usedFirecrawl
+        ? "hybrid"
+        : usedFirecrawl
+          ? "firecrawl"
+          : usedJsonLd
+            ? "public_jsonld"
+            : "firecrawl",
   };
 }

@@ -132,32 +132,49 @@ export const connectProvider = createServerFn({ method: "POST" })
     const connectionId = (connection as { id: string }).id;
     const calendarId = `${data.provider}-${stableHash(externalAccountId)}`;
     const eventOnly = /:event:/.test(externalAccountId);
-    const { data: calendar, error: calendarError } = await supabaseAdmin
+    const calendarValues = {
+      calendar_name: data.name ?? snapshot.name,
+      remote_name: snapshot.name,
+      calendar_url: data.sourceUrl,
+      calendar_avatar_url: snapshot.avatarUrl,
+      calendar_cover_url: snapshot.coverUrl,
+      calendar_description: snapshot.description,
+      source_kind: eventOnly ? "event" : "calendar",
+      provider: data.provider,
+      provider_source_id: externalAccountId,
+      provider_connection_id: connectionId,
+      ownership: "connected",
+      sync_all_events: data.syncAllEvents,
+      event_limit: data.syncAllEvents ? 2000 : 80,
+      sync_enabled: true,
+      sync_status: "idle",
+    };
+    const { data: publicSource } = await supabaseAdmin
       .from("user_luma_calendars" as never)
-      .upsert(
-        {
-          user_id: context.userId,
-          calendar_id: calendarId,
-          calendar_name: data.name ?? snapshot.name,
-          remote_name: snapshot.name,
-          calendar_url: data.sourceUrl,
-          calendar_avatar_url: snapshot.avatarUrl,
-          calendar_cover_url: snapshot.coverUrl,
-          calendar_description: snapshot.description,
-          source: "scrape",
-          source_kind: eventOnly ? "event" : "calendar",
-          provider: data.provider,
-          provider_source_id: externalAccountId,
-          provider_connection_id: connectionId,
-          ownership: "connected",
-          sync_all_events: data.syncAllEvents,
-          event_limit: data.syncAllEvents ? 2000 : 80,
-          sync_enabled: true,
-          sync_status: "idle",
-          is_default: false,
-        } as never,
-        { onConflict: "user_id,calendar_id" },
-      )
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("provider", data.provider)
+      .eq("provider_source_id", externalAccountId)
+      .is("merged_into_id", null)
+      .maybeSingle();
+    const publicSourceId = (publicSource as { id?: string } | null)?.id;
+    const calendarQuery = publicSourceId
+      ? supabaseAdmin
+          .from("user_luma_calendars" as never)
+          .update(calendarValues as never)
+          .eq("id", publicSourceId)
+          .eq("user_id", context.userId)
+      : supabaseAdmin.from("user_luma_calendars" as never).upsert(
+          {
+            user_id: context.userId,
+            calendar_id: calendarId,
+            source: "scrape",
+            is_default: false,
+            ...calendarValues,
+          } as never,
+          { onConflict: "user_id,calendar_id" },
+        );
+    const { data: calendar, error: calendarError } = await calendarQuery
       .select("id,calendar_id,calendar_name")
       .single();
     if (calendarError || !calendar) {

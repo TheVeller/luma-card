@@ -416,6 +416,7 @@ async function syncConnectedProvider(
     scope.kind === "maintenance" || source.sync_all_events ? null : source.event_limit || 80,
     scope,
   );
+  const snapshotComplete = snapshot.complete && snapshot.truncated !== true;
   const rows = snapshot.events.map(({ event, externalId, hostName, payload }) => ({
     event_key: `${source.provider}-${externalId}`,
     source_url: event.url,
@@ -429,7 +430,7 @@ async function syncConnectedProvider(
     payload: { ...payload, externalEventId: externalId, provider: source.provider },
   }));
   await upsertScrapedRows(userId, source, rows, runStartedAt);
-  if (snapshot.complete) {
+  if (snapshotComplete) {
     const sourceTypes = source.provider === "eventbrite" ? ["eventbrite_api"] : ["meetup_api"];
     await finalizeScopedSync(userId, source, runStartedAt, sourceTypes, scope);
   }
@@ -448,15 +449,18 @@ async function syncConnectedProvider(
       syncScope: scope.kind,
       authoritativeSnapshotAt: runStartedAt,
       emptyConfirmed: rows.length === 0,
+      discoveredCount: snapshot.discoveredCount ?? rows.length,
+      readableCount: snapshot.readableCount ?? rows.length,
+      truncated: snapshot.truncated ?? false,
       nextEventAt:
         rows
           .map((row) => row.start_at)
           .filter((value) => Date.parse(value) >= Date.now())
           .sort()[0] ?? null,
     },
-    partial: !snapshot.complete,
-    warning: null,
-    historicalComplete: scope.kind === "full" && snapshot.complete,
+    partial: !snapshotComplete,
+    warning: snapshot.warnings?.join(" · ") || null,
+    historicalComplete: scope.kind === "full" && snapshotComplete,
   };
 }
 
@@ -486,6 +490,7 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
       after: scope.kind === "maintenance" ? scope.after : undefined,
     },
   );
+  const snapshotComplete = snapshot.complete && snapshot.truncated !== true;
   const rows = snapshot.events.map(({ event, externalId, hostName, payload }) => ({
     event_key: `${source.provider}-${externalId}`,
     source_url: event.url,
@@ -499,7 +504,7 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
     payload: { ...payload, externalEventId: externalId, provider: source.provider },
   }));
   await upsertScrapedRows(userId, source, rows, runStartedAt);
-  if (snapshot.complete) {
+  if (snapshotComplete) {
     await finalizeScopedSync(
       userId,
       source,
@@ -522,15 +527,18 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
       ingestion: `${source.provider}-public`,
       syncScope: scope.kind,
       emptyConfirmed: rows.length === 0,
+      discoveredCount: snapshot.discoveredCount ?? rows.length,
+      readableCount: snapshot.readableCount ?? rows.length,
+      truncated: snapshot.truncated ?? false,
       nextEventAt:
         rows
           .map((row) => row.start_at)
           .filter((value) => Date.parse(value) >= Date.now())
           .sort()[0] ?? null,
     },
-    partial: !snapshot.complete,
-    warning: null,
-    historicalComplete: scope.kind === "full" && snapshot.complete,
+    partial: !snapshotComplete,
+    warning: snapshot.warnings?.join(" · ") || null,
+    historicalComplete: scope.kind === "full" && snapshotComplete,
   };
 }
 

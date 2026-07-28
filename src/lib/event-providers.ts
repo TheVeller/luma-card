@@ -1,6 +1,16 @@
 import type { EventProvider } from "./canonical-events";
 
 export type SupportedProvider = EventProvider;
+export type ProviderImportKind = "calendar" | "event" | "profile" | "organizer" | "group";
+
+export type ProviderImportTarget = {
+  provider: SupportedProvider;
+  kind: ProviderImportKind;
+  providerSourceId: string;
+  normalizedUrl: string;
+  confidence: "certain" | "inferred";
+  supportedKinds: ProviderImportKind[];
+};
 
 export function providerForUrl(raw: string): SupportedProvider | null {
   try {
@@ -18,7 +28,7 @@ export function providerEventId(provider: SupportedProvider, raw: string): strin
   try {
     const url = new URL(raw);
     if (provider === "eventbrite") {
-      return url.pathname.match(/-(\d+)\/?$/)?.[1] ?? url.searchParams.get("eid");
+      return url.pathname.match(/\/e\/[^/]*-(\d+)\/?$/i)?.[1] ?? url.searchParams.get("eid");
     }
     if (provider === "meetup") return url.pathname.match(/\/events\/(\d+)\/?$/)?.[1] ?? null;
     return url.pathname.match(/(?:^|\/)(evt-[A-Za-z0-9]+)(?:\/|$)/)?.[1] ?? null;
@@ -34,4 +44,45 @@ export function providerSourceId(provider: SupportedProvider, raw: string): stri
   url.search = "";
   url.hash = "";
   return `${provider}:${url.hostname.replace(/^www\./, "").toLowerCase()}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+export function detectProviderImportTarget(raw: string): ProviderImportTarget | null {
+  const provider = providerForUrl(raw);
+  if (!provider) return null;
+  const url = new URL(raw);
+  url.hash = "";
+  const eventId = providerEventId(provider, url.toString());
+  let kind: ProviderImportKind;
+  let confidence: ProviderImportTarget["confidence"] = "certain";
+  let supportedKinds: ProviderImportKind[];
+
+  if (provider === "eventbrite") {
+    supportedKinds = ["event", "organizer"];
+    kind = eventId ? "event" : "organizer";
+  } else if (provider === "meetup") {
+    supportedKinds = ["event", "group"];
+    kind = eventId ? "event" : "group";
+  } else {
+    supportedKinds = ["event", "calendar", "profile"];
+    const path = url.pathname.replace(/^\/+|\/+$/g, "");
+    if (eventId) {
+      kind = "event";
+    } else if (/^(user|u|profile)\//i.test(path)) {
+      kind = "profile";
+    } else {
+      kind = "calendar";
+      if (path && !/^calendar\//i.test(path)) confidence = "inferred";
+    }
+  }
+
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  return {
+    provider,
+    kind,
+    providerSourceId: providerSourceId(provider, raw),
+    normalizedUrl: url.toString(),
+    confidence,
+    supportedKinds,
+  };
 }

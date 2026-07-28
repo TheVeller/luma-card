@@ -7,6 +7,14 @@ import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 import { downloadEventsDataset } from "@/lib/export-events";
 import { syncEventLibrary } from "@/lib/event-sync.functions";
+import { EventSourceImporter } from "@/components/EventSourceImporter";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   compareEventsStartDesc,
   compareEventsUpcomingFirst,
@@ -133,6 +141,7 @@ function EventsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -277,12 +286,30 @@ function EventsPage() {
               </div>
             )}
           </div>
-          <Link
-            to="/import"
-            className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
-          >
-            + Import link
-          </Link>
+          <Dialog open={importOpen} onOpenChange={setImportOpen}>
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+            >
+              + Import link
+            </button>
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Import event source</DialogTitle>
+                <DialogDescription>
+                  Paste a public Luma, Eventbrite, or Meetup link. The provider and source type are
+                  detected automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <EventSourceImporter
+                compact
+                onImported={async () => {
+                  await refetch();
+                }}
+              />
+            </DialogContent>
+          </Dialog>
           <button
             onClick={() => refetch()}
             className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"

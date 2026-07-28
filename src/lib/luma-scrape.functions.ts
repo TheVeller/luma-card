@@ -4,11 +4,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { providerForUrl, providerSourceId } from "./event-providers";
+import { detectProviderImportTarget } from "./event-providers";
 
 export type ImportResult = {
   kind: "calendar" | "event" | "profile";
   provider: "luma" | "eventbrite" | "meetup";
+  detectedType?: "calendar" | "event" | "profile" | "organizer" | "group";
+  sourceMethod?: "luma_public_api" | "provider_api" | "public_jsonld" | "firecrawl" | "hybrid";
+  status?: "imported" | "queued" | "partial";
+  discovered?: number;
+  warnings?: string[];
   calendarRowId: string; // uuid of the user_luma_calendars row
   calendarId: string; // stable synthetic id (`scr-<slug>`)
   calendarName: string;
@@ -66,9 +71,20 @@ export const importFromUrl = createServerFn({ method: "POST" })
     ): Promise<string> {
       const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
         await import("./calendar-identity.server");
-      const existingId =
+      let existingId =
         (lumaCalendarId && (await resolveCanonicalCalendarRowId(context.userId, lumaCalendarId))) ||
         (await resolveCanonicalCalendarRowId(context.userId, calendarId));
+      if (!existingId && provider !== "luma" && providerId) {
+        const { data: providerMatch } = await supabaseAdmin
+          .from("user_luma_calendars" as never)
+          .select("id")
+          .eq("user_id", context.userId)
+          .eq("provider", provider)
+          .eq("provider_source_id", providerId)
+          .is("merged_into_id", null)
+          .maybeSingle();
+        existingId = (providerMatch as { id?: string } | null)?.id ?? null;
+      }
       if (existingId) {
         const { error } = await supabaseAdmin
           .from("user_luma_calendars" as never)
@@ -147,16 +163,17 @@ export const importFromUrl = createServerFn({ method: "POST" })
     }
 
     const requestedKind = data.kind;
-    const kind = requestedKind === "auto" ? guessKind(data.url) : requestedKind;
-    const provider = providerForUrl(data.url);
-    if (!provider) {
+    const target = detectProviderImportTarget(data.url);
+    if (!target) {
       throw new Error("Supported event links are Luma, Eventbrite, and Meetup.");
     }
+    const provider = target.provider;
+    const kind = requestedKind === "auto" ? guessKind(data.url) : requestedKind;
 
     if (provider !== "luma") {
       const { fetchPublicProviderSnapshot } = await import("./event-providers.server");
-      const sourceId = providerSourceId(provider, data.url);
-      const isEvent = sourceId.includes(":event:");
+      const sourceId = target.providerSourceId;
+      const isEvent = target.kind === "event";
       const snapshot = await fetchPublicProviderSnapshot(
         provider,
         data.url,
@@ -231,13 +248,22 @@ export const importFromUrl = createServerFn({ method: "POST" })
           calendar_description: snapshot.description,
           discovered_count: snapshot.events.length,
           imported_count: imported.length,
-          sync_status: "completed",
+          sync_status: snapshot.complete ? "completed" : "partial",
+          sync_error: snapshot.warnings?.join(" · ") || null,
           last_synced_at: new Date().toISOString(),
+          last_sync_scope: "full",
+          historical_sync_completed_at: snapshot.complete ? new Date().toISOString() : null,
+          next_sync_at: new Date(
+            Date.now() + (snapshot.complete ? 24 * 60 * 60 * 1000 : 60 * 1000),
+          ).toISOString(),
           source_metadata: {
             provider,
             providerSourceId: sourceId,
             ingestion: `${provider}-public`,
             emptyConfirmed: imported.length === 0,
+            discoveredCount: snapshot.discoveredCount ?? snapshot.events.length,
+            readableCount: snapshot.readableCount ?? snapshot.events.length,
+            truncated: snapshot.truncated ?? false,
           },
         } as never)
         .eq("id", calendarRowId)
@@ -248,6 +274,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
       return {
         kind: isEvent ? "event" : "calendar",
         provider,
+        detectedType: target.kind,
+        sourceMethod: snapshot.sourceMethod,
+        status: snapshot.complete ? "imported" : "partial",
+        discovered: snapshot.discoveredCount ?? snapshot.events.length,
+        warnings: snapshot.warnings ?? [],
         calendarRowId,
         calendarId,
         calendarName: snapshot.name,
@@ -398,6 +429,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
           return {
             kind: "calendar",
             provider: "luma",
+            detectedType: "calendar",
+            sourceMethod: "luma_public_api",
+            status: "imported",
+            discovered: events.length,
+            warnings: [],
             calendarRowId,
             calendarId: canonicalPublicId,
             calendarName: canonicalName,
@@ -418,7 +454,8 @@ export const importFromUrl = createServerFn({ method: "POST" })
       const calendarId = `scr-profile-${hashKey(data.url).replace(/^scr-/, "")}`;
       const calendarName = `Profile: ${profileSlug}`;
       const calendarRowId = await ensureCalendarRow(calendarId, calendarName, data.url, "profile");
-      const urls = await firecrawlDiscoverLumaEvents(data.url, data.limit);
+      const profileLimit = data.allEvents ? 2000 : data.limit;
+      const urls = await firecrawlDiscoverLumaEvents(data.url, profileLimit);
       if (urls.length === 0) throw new Error("No public Luma events found on that profile.");
 
       const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
@@ -486,6 +523,12 @@ export const importFromUrl = createServerFn({ method: "POST" })
       return {
         kind: "profile",
         provider: "luma",
+        detectedType: "profile",
+        sourceMethod: "firecrawl",
+        status: urls.length >= profileLimit ? "partial" : "imported",
+        discovered: urls.length,
+        warnings:
+          urls.length >= profileLimit ? [`Discovery reached the ${profileLimit}-event limit`] : [],
         calendarRowId,
         calendarId,
         calendarName,
@@ -550,6 +593,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
     return {
       kind: "event",
       provider: "luma",
+      detectedType: "event",
+      sourceMethod: "firecrawl",
+      status: "imported",
+      discovered: 1,
+      warnings: [],
       calendarRowId,
       calendarId,
       calendarName,

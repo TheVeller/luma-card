@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { canonicalizeEvents, type SourceEventInput } from "../canonical-events";
-import { providerEventId, providerForUrl, providerSourceId } from "../event-providers";
-import { fetchPublicProviderEvent } from "../event-providers.server";
+import {
+  detectProviderImportTarget,
+  providerEventId,
+  providerForUrl,
+  providerSourceId,
+} from "../event-providers";
+import { fetchPublicProviderEvent, fetchPublicProviderSnapshot } from "../event-providers.server";
 
 const originalFetch = globalThis.fetch;
 
@@ -24,6 +29,34 @@ describe("event providers", () => {
     expect(providerSourceId("meetup", "https://www.meetup.com/coders/")).toBe(
       "meetup:meetup.com/coders",
     );
+  });
+
+  test("detects provider-specific collection types for the unified importer", () => {
+    expect(
+      detectProviderImportTarget("https://www.eventbrite.com/o/builders-latam-123456789"),
+    ).toMatchObject({
+      provider: "eventbrite",
+      kind: "organizer",
+      confidence: "certain",
+      supportedKinds: ["event", "organizer"],
+    });
+    expect(detectProviderImportTarget("https://www.meetup.com/coders/")).toMatchObject({
+      provider: "meetup",
+      kind: "group",
+      providerSourceId: "meetup:meetup.com/coders",
+    });
+    expect(
+      detectProviderImportTarget("https://www.meetup.com/coders/events/309123456/"),
+    ).toMatchObject({
+      provider: "meetup",
+      kind: "event",
+      providerSourceId: "meetup:event:309123456",
+    });
+    expect(detectProviderImportTarget("https://luma.com/user/demo")).toMatchObject({
+      provider: "luma",
+      kind: "profile",
+    });
+    expect(detectProviderImportTarget("https://example.com/events")).toBeNull();
   });
 
   test("deduplicates a cross-provider listing by event fingerprint and keeps both sources", () => {
@@ -85,5 +118,29 @@ describe("event providers", () => {
       city: "Lima",
       startAt: "2026-09-10T18:00:00-05:00",
     });
+  });
+
+  test("maintenance accepts a readable source with no events inside the lookback", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        `<script type="application/ld+json">${JSON.stringify({
+          "@type": "Event",
+          name: "Old launch",
+          startDate: "2024-01-01T18:00:00Z",
+          url: "https://www.eventbrite.com/e/old-launch-tickets-123456789",
+        })}</script>`,
+        { headers: { "content-type": "text/html" } },
+      )) as typeof fetch;
+
+    const snapshot = await fetchPublicProviderSnapshot(
+      "eventbrite",
+      "https://www.eventbrite.com/e/old-launch-tickets-123456789",
+      80,
+      { after: "2026-01-01T00:00:00Z" },
+    );
+
+    expect(snapshot.events).toEqual([]);
+    expect(snapshot.readableCount).toBe(1);
+    expect(snapshot.complete).toBe(true);
   });
 });

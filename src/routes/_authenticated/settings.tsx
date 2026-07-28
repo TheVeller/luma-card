@@ -3,8 +3,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { EventSourceImporter } from "@/components/EventSourceImporter";
 import { getLumaConfig } from "@/lib/user-luma-key.functions";
-import { importFromUrl } from "@/lib/luma-scrape.functions";
 import {
   addCalendar,
   listCalendars,
@@ -78,33 +78,6 @@ function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-
-  // --- Import a calendar by public link (Firecrawl scrape, no API key) ---
-  const runImport = useServerFn(importFromUrl);
-  const [importUrl, setImportUrl] = useState("");
-  const [importKind, setImportKind] = useState<"auto" | "calendar" | "event" | "profile">(
-    "calendar",
-  );
-  const [importLimit, setImportLimit] = useState(80);
-  const [importAllEvents, setImportAllEvents] = useState(false);
-  const importMut = useMutation({
-    mutationFn: () =>
-      runImport({
-        data: {
-          url: importUrl.trim(),
-          kind: importKind,
-          limit: importLimit,
-          allEvents: importAllEvents,
-        },
-      }),
-    onSuccess: async () => {
-      setImportUrl("");
-      await refetch();
-      qc.invalidateQueries({ queryKey: ["luma-events"] });
-      qc.invalidateQueries({ queryKey: ["luma-config"] });
-      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
-    },
-  });
 
   // --- External API tokens ---
   const fetchTokens = useServerFn(listApiTokens);
@@ -523,86 +496,14 @@ function SettingsPage() {
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
           Import a public Luma, Eventbrite, or Meetup calendar, organizer, group, or event URL.
         </p>
-
-        <input
-          value={importUrl}
-          onChange={(e) => setImportUrl(e.target.value)}
-          placeholder="https://luma.com/…, eventbrite.com/…, or meetup.com/…"
-          disabled={importMut.isPending}
-          className="mt-4 w-full rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
+        <EventSourceImporter
+          compact
+          className="mt-4"
+          onImported={async () => {
+            await refetch();
+            await refetchSyncSources();
+          }}
         />
-
-        <div className="mt-4 flex flex-wrap items-end gap-4">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Type
-            </div>
-            <div className="mt-1 inline-flex rounded-full border border-hairline bg-background/60 p-1 text-xs font-medium">
-              {(["calendar", "event", "profile", "auto"] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setImportKind(k)}
-                  disabled={importMut.isPending}
-                  className={
-                    "rounded-full px-3 py-1 capitalize transition " +
-                    (importKind === k
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground")
-                  }
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
-          </div>
-          {importKind !== "event" && (
-            <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                Max events
-              </div>
-              <input
-                type="number"
-                min={1}
-                max={2000}
-                value={importLimit}
-                onChange={(e) =>
-                  setImportLimit(Math.max(1, Math.min(2000, Number(e.target.value) || 80)))
-                }
-                disabled={importMut.isPending || importAllEvents}
-                className="mt-1 w-24 rounded-lg border border-hairline bg-background px-3 py-1.5 text-sm"
-              />
-            </div>
-          )}
-          {importKind !== "event" && (
-            <label className="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={importAllEvents}
-                onChange={(event) => setImportAllEvents(event.target.checked)}
-                disabled={importMut.isPending}
-              />
-              Sync all pages
-            </label>
-          )}
-          <button
-            onClick={() => importMut.mutate()}
-            disabled={importMut.isPending || !importUrl.trim()}
-            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            {importMut.isPending ? "Importing…" : "Import link"}
-          </button>
-        </div>
-
-        {importMut.isError && (
-          <p className="mt-3 text-xs text-destructive">{(importMut.error as Error).message}</p>
-        )}
-        {importMut.isSuccess && importMut.data && (
-          <p className="mt-3 text-xs text-emerald-400">
-            Imported {importMut.data.imported} event
-            {importMut.data.imported === 1 ? "" : "s"} into {importMut.data.calendarName}.
-          </p>
-        )}
       </div>
 
       <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
@@ -629,7 +530,7 @@ function SettingsPage() {
             placeholder={
               provider === "eventbrite"
                 ? "Event, organizer, or organization URL"
-                : "Meetup event URL"
+                : "Meetup event or group URL"
             }
             className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
           />

@@ -218,33 +218,62 @@ export async function firecrawlDiscoverProviderEvents(
   provider: "eventbrite" | "meetup",
   limit: number,
 ): Promise<string[]> {
-  const source = new URL(sourceUrl);
-  const response = await fcCall<ScrapeResponse>("/map", {
-    url: sourceUrl,
-    limit,
-    includeSubdomains: false,
-  });
-  const urls = linkUrls(
-    (response as unknown as { links?: unknown; data?: { links?: unknown } }).links ??
-      response.data?.links,
-  );
   const seen = new Set<string>();
-  for (const raw of urls) {
+  const addUrls = (urls: string[]) => {
+    for (const raw of urls) {
+      try {
+        const url = new URL(raw);
+        const host = url.hostname.replace(/^www\./, "").toLowerCase();
+        const matches =
+          provider === "eventbrite"
+            ? (host === "eventbrite.com" || host.includes(".eventbrite.")) &&
+              /\/e\/[^/]+-\d+\/?$/i.test(url.pathname)
+            : host === "meetup.com" && /\/[^/]+\/events\/\d+\/?$/i.test(url.pathname);
+        if (!matches) continue;
+        url.search = "";
+        url.hash = "";
+        seen.add(url.toString().replace(/\/$/, ""));
+        if (seen.size >= limit) break;
+      } catch {
+        // Ignore malformed discovery results.
+      }
+    }
+  };
+
+  try {
+    const response = await fcCall<ScrapeResponse>("/map", {
+      url: sourceUrl,
+      limit,
+      includeSubdomains: false,
+    });
+    addUrls(
+      linkUrls(
+        (response as unknown as { links?: unknown; data?: { links?: unknown } }).links ??
+          response.data?.links,
+      ),
+    );
+  } catch (error) {
+    console.error(`[firecrawl] ${provider} map failed:`, (error as Error).message);
+  }
+
+  if (seen.size < limit) {
     try {
-      const url = new URL(raw);
-      const host = url.hostname.replace(/^www\./, "").toLowerCase();
-      const matches =
-        provider === "eventbrite"
-          ? (host === "eventbrite.com" || host.includes(".eventbrite.")) &&
-            /\/e\/[^/]+-\d+\/?$/i.test(url.pathname)
-          : host === "meetup.com" && /\/[^/]+\/events\/\d+\/?$/i.test(url.pathname);
-      if (!matches) continue;
-      url.search = "";
-      url.hash = "";
-      seen.add(url.toString().replace(/\/$/, ""));
-      if (seen.size >= limit) break;
-    } catch {
-      // Ignore malformed map results.
+      const actions = Array.from({ length: 20 }, () => [
+        { type: "scroll", direction: "down" },
+        { type: "wait", milliseconds: 500 },
+      ]).flat();
+      const response = await fcCall<ScrapeResponse>("/scrape", {
+        url: sourceUrl,
+        formats: ["links"],
+        onlyMainContent: false,
+        waitFor: 1500,
+        maxAge: 0,
+        timeout: 120000,
+        actions,
+      });
+      addUrls(linkUrls(pickBody(response).links));
+    } catch (error) {
+      console.error(`[firecrawl] ${provider} link scrape failed:`, (error as Error).message);
     }
   }
   return [...seen];
