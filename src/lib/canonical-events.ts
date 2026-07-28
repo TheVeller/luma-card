@@ -112,13 +112,16 @@ function preferEvent(base: CanonicalEventDTO, next: CanonicalBaseEvent): Canonic
 
 export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDTO[] {
   const byKey = new Map<string, CanonicalEventDTO>();
+  const output = new Set<CanonicalEventDTO>();
   for (const input of inputs) {
     const key = canonicalKeyFor(input);
+    const normalizedUrl = normalizeCanonicalUrl(input.sourceUrl ?? input.event.url);
+    const aliases = [key, ...(normalizedUrl ? [`url:${normalizedUrl}`] : [])];
     const event = input.event;
     const source = sourceDTO(input);
-    const existing = byKey.get(key);
+    const existing = aliases.map((alias) => byKey.get(alias)).find(Boolean);
     if (!existing) {
-      byKey.set(key, {
+      const created: CanonicalEventDTO = {
         ...event,
         id: stableEventHash(key),
         externalIds: {
@@ -130,7 +133,9 @@ export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDT
         sources: [source],
         tags: [],
         suggestedTags: [],
-      });
+      };
+      for (const alias of aliases) byKey.set(alias, created);
+      output.add(created);
       continue;
     }
     const merged = preferEvent(existing, event);
@@ -147,7 +152,9 @@ export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDT
     ) {
       merged.sources.push(source);
     }
-    byKey.set(key, merged);
+    output.delete(existing);
+    output.add(merged);
+    for (const alias of aliases) byKey.set(alias, merged);
   }
-  return [...byKey.values()];
+  return [...output];
 }

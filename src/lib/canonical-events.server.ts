@@ -15,30 +15,44 @@ export async function upsertCanonicalEventSource(
   const canonicalKey = canonicalKeyFor(input);
   const source = sourceDTO(input);
   const event = input.event;
+  const normalizedUrl = normalizeCanonicalUrl(event.url) ?? event.url;
+  const canonicalValues = {
+    luma_event_id: /^evt-/i.test(input.externalEventId ?? event.id)
+      ? (input.externalEventId ?? event.id)
+      : null,
+    name: event.name,
+    url: normalizedUrl,
+    cover_url: event.coverUrl,
+    start_at: event.startAt,
+    end_at: event.endAt ?? null,
+    city: event.city ?? null,
+    description: event.description ?? null,
+    host_name: input.hostName ?? null,
+    updated_at: new Date().toISOString(),
+  };
 
-  const { data: canonical, error: canonicalError } = await supabaseAdmin
+  const { data: matchingUrl, error: matchingUrlError } = await supabaseAdmin
     .from("canonical_events" as never)
-    .upsert(
-      {
-        user_id: userId,
-        canonical_key: canonicalKey,
-        luma_event_id: /^evt-/i.test(input.externalEventId ?? event.id)
-          ? (input.externalEventId ?? event.id)
-          : null,
-        name: event.name,
-        url: normalizeCanonicalUrl(event.url) ?? event.url,
-        cover_url: event.coverUrl,
-        start_at: event.startAt,
-        end_at: event.endAt ?? null,
-        city: event.city ?? null,
-        description: event.description ?? null,
-        host_name: input.hostName ?? null,
-        updated_at: new Date().toISOString(),
-      } as never,
-      { onConflict: "user_id,canonical_key" },
-    )
     .select("id")
-    .single();
+    .eq("user_id", userId)
+    .eq("url", normalizedUrl)
+    .maybeSingle();
+  if (matchingUrlError) throw new Error(matchingUrlError.message);
+
+  const canonicalQuery = matchingUrl
+    ? supabaseAdmin
+        .from("canonical_events" as never)
+        .update(canonicalValues as never)
+        .eq("id", (matchingUrl as { id: string }).id)
+    : supabaseAdmin.from("canonical_events" as never).upsert(
+        {
+          ...canonicalValues,
+          user_id: userId,
+          canonical_key: canonicalKey,
+        } as never,
+        { onConflict: "user_id,canonical_key" },
+      );
+  const { data: canonical, error: canonicalError } = await canonicalQuery.select("id").single();
   if (canonicalError) throw new Error(canonicalError.message);
 
   const canonicalEventId = (canonical as { id: string }).id;

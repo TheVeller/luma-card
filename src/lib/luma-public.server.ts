@@ -28,8 +28,29 @@ export type PublicLumaEvent = {
 
 function normalize(input: string): { slug: string; url: string } {
   const u = new URL(input.trim());
-  const slug = u.pathname.replace(/^\/+|\/+$/g, "");
+  const manage = u.pathname.match(/^\/calendar\/manage\/(cal-[A-Za-z0-9]+)\/?$/i);
+  const pathname = manage ? `/calendar/${manage[1]}` : u.pathname;
+  const slug = pathname.replace(/^\/+|\/+$/g, "");
   return { slug, url: `${LUMA_ORIGIN}/${slug}` };
+}
+
+async function getCalendarById(apiId: string): Promise<ResolvedCalendar | null> {
+  const res = await fetch(`${LUMA_API}/calendar/get?api_id=${encodeURIComponent(apiId)}`, {
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    calendar?: { api_id?: string; name?: string; slug?: string | null };
+  };
+  const calendar = json.calendar;
+  if (calendar?.api_id !== apiId) return null;
+  const slug = calendar.slug ?? `calendar/${apiId}`;
+  return {
+    apiId,
+    name: calendar.name?.trim() || apiId,
+    slug,
+    url: `${LUMA_ORIGIN}/${slug}`,
+  };
 }
 
 /** Resolve a public calendar URL to its api id + display name. */
@@ -42,6 +63,8 @@ export async function resolveLumaCalendar(input: string): Promise<ResolvedCalend
     return null;
   }
   if (!slug) return null;
+  const directId = slug.match(/(?:^|\/)(cal-[A-Za-z0-9]+)$/i)?.[1];
+  if (directId) return getCalendarById(directId);
 
   const res = await fetch(url, {
     headers: { "user-agent": "Mozilla/5.0", accept: "text/html" },
@@ -66,6 +89,7 @@ export async function resolveLumaCalendar(input: string): Promise<ResolvedCalend
 
 type RawEvent = {
   api_id: string;
+  calendar_api_id?: string;
   name: string;
   url?: string;
   cover_url?: string | null;
@@ -124,6 +148,7 @@ export async function fetchPublicCalendarEvents(
 ): Promise<PublicLumaEvent[]> {
   const out: PublicLumaEvent[] = [];
   const seen = new Set<string>();
+  let mismatched = 0;
 
   for (const period of ["future", "past"] as const) {
     let cursor: string | undefined;
@@ -131,7 +156,12 @@ export async function fetchPublicCalendarEvents(
       const { entries, hasMore, nextCursor } = await fetchPage(calApiId, period, cursor);
       for (const e of entries) {
         const ev = e.event;
-        if (!ev?.api_id || seen.has(ev.api_id)) continue;
+        if (!ev?.api_id) continue;
+        if (ev.calendar_api_id !== calApiId) {
+          mismatched++;
+          continue;
+        }
+        if (seen.has(ev.api_id)) continue;
         seen.add(ev.api_id);
         out.push(toPublicEvent(ev));
       }
@@ -139,6 +169,9 @@ export async function fetchPublicCalendarEvents(
       if (!hasMore || !nextCursor) break;
       cursor = nextCursor;
     }
+  }
+  if (out.length === 0 && mismatched > 0) {
+    throw new Error("Calendar is not publicly accessible");
   }
   return out.slice(0, limit);
 }

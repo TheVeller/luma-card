@@ -55,4 +55,32 @@ describe("canonical events", () => {
     expect(events[0].externalIds.lumaEventId).toBe("evt-abc123");
     expect(events[0].sources.map((s) => s.sourceType).sort()).toEqual(["api", "calendar_scrape"]);
   });
+
+  test("merges a profile URL sighting with a Luma id sighting", () => {
+    const event = {
+      id: "scr-profile",
+      name: "Shared event",
+      coverUrl: null,
+      url: "https://luma.com/shared-event",
+      startAt: "2026-08-01T12:00:00.000Z",
+    };
+    const result = canonicalizeEvents([
+      {
+        event,
+        sourceType: "profile_scrape",
+        externalEventId: "scr-profile",
+        sourceUrl: event.url,
+      },
+      {
+        event: { ...event, id: "evt-real" },
+        sourceType: "calendar_scrape",
+        externalEventId: "evt-real",
+        sourceUrl: `${event.url}?utm_source=calendar`,
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].externalIds.lumaEventId).toBe("evt-real");
+    expect(result[0].sources).toHaveLength(2);
+  });
 });

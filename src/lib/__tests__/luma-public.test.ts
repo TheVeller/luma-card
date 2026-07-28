@@ -31,8 +31,22 @@ describe("public Luma calendars", () => {
       if (!cursor) {
         return Response.json({
           entries: [
-            { event: { api_id: "evt-1", name: "One", url: "one" } },
-            { event: { api_id: "evt-2", name: "Two", url: "two" } },
+            {
+              event: {
+                api_id: "evt-1",
+                calendar_api_id: "cal-abc123",
+                name: "One",
+                url: "one",
+              },
+            },
+            {
+              event: {
+                api_id: "evt-2",
+                calendar_api_id: "cal-abc123",
+                name: "Two",
+                url: "two",
+              },
+            },
           ],
           has_more: true,
           next_cursor: "page-2",
@@ -40,8 +54,22 @@ describe("public Luma calendars", () => {
       }
       return Response.json({
         entries: [
-          { event: { api_id: "evt-2", name: "Two", url: "two" } },
-          { event: { api_id: "evt-3", name: "Three", url: "three" } },
+          {
+            event: {
+              api_id: "evt-2",
+              calendar_api_id: "cal-abc123",
+              name: "Two",
+              url: "two",
+            },
+          },
+          {
+            event: {
+              api_id: "evt-3",
+              calendar_api_id: "cal-abc123",
+              name: "Three",
+              url: "three",
+            },
+          },
         ],
         has_more: false,
       });
@@ -52,6 +80,27 @@ describe("public Luma calendars", () => {
     expect(events.map((event) => event.apiId)).toEqual(["evt-1", "evt-2", "evt-3"]);
     expect(requested).toHaveLength(2);
     expect(requested[1]).toContain("pagination_cursor=page-2");
+  });
+
+  test("rejects events leaked from a different calendar", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({
+        entries: [
+          {
+            event: {
+              api_id: "evt-wrong",
+              calendar_api_id: "cal-other",
+              name: "Wrong calendar",
+              url: "wrong",
+            },
+          },
+        ],
+        has_more: false,
+      })) as unknown as typeof fetch;
+
+    expect(fetchPublicCalendarEvents("cal-requested", 80)).rejects.toThrow(
+      "Calendar is not publicly accessible",
+    );
   });
 
   test("surfaces upstream failures instead of reporting an empty calendar", async () => {

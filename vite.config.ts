@@ -6,8 +6,21 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/tanstack/vite";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  nitro: {
+    experimental: { tasks: true },
+    tasks: {
+      "calendar:sync": {
+        handler: fileURLToPath(new URL("./src/lib/calendar-sync.task.ts", import.meta.url)),
+        description: "Synchronize due Luma calendars and profiles",
+      },
+    },
+    scheduledTasks: {
+      "*/5 * * * *": ["calendar:sync"],
+    },
+  } as unknown as { preset?: string },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

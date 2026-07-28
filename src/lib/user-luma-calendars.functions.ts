@@ -16,7 +16,7 @@ export type UserCalendarDTO = {
   source: "api" | "scrape";
 };
 
-type Row = {
+export type Row = {
   id: string;
   user_id: string;
   calendar_id: string;
@@ -27,6 +27,15 @@ type Row = {
   api_key_ciphertext: string | null;
   is_default: boolean;
   source?: "api" | "scrape" | null;
+  source_kind?: "api" | "calendar" | "profile" | "event" | null;
+  curated_name?: string | null;
+  remote_name?: string | null;
+  sync_status?: string | null;
+  sync_error?: string | null;
+  discovered_count?: number | null;
+  imported_count?: number | null;
+  last_synced_at?: string | null;
+  next_sync_at?: string | null;
 };
 
 function toDTO(r: Row): UserCalendarDTO {
@@ -47,7 +56,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at",
     )
     .eq("user_id", userId)
     .order("is_default", { ascending: false })
@@ -96,6 +105,8 @@ export const listCalendars = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<UserCalendarDTO[]> => {
     try {
+      const { ensureOwnerCuratedCatalog } = await import("./calendar-sync.server");
+      await ensureOwnerCuratedCatalog(context.userId);
       const rows = await readUserCalendars(context.userId);
       return rows.map(toDTO);
     } catch (e) {
@@ -133,6 +144,7 @@ export const addCalendar = createServerFn({ method: "POST" })
           calendar_avatar_url: cal.avatar_url,
           calendar_url: cal.url,
           api_key_ciphertext: encryptString(data.apiKey),
+          source_kind: "api",
           is_default: isFirst,
           updated_at: new Date().toISOString(),
         } as never,
