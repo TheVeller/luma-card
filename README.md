@@ -1,7 +1,8 @@
-# luma-card — Luma Badge Studio
+# luma-card — Event Router & Badge Studio
 
-Reads your [Luma](https://lu.ma) event calendars and generates personalized,
-shareable badge images per event. Built and kept in sync with
+Aggregates Luma, Eventbrite, and Meetup sources into a canonical event router,
+then generates personalized, shareable badge images with reusable brand kits
+for owned events. Built and kept in sync with
 [Lovable](https://lovable.dev); every change pushed to `main` syncs back into the
 Lovable editor.
 
@@ -40,4 +41,4 @@ pagination, error codes, and TypeScript examples.
 - **Tailwind CSS** + shadcn/ui
 - **Supabase** — auth + Postgres (RLS)
 - **Cloudflare Workers** — deploy target (Nitro `cloudflare-module`)
-- Calendar sources: Luma public API + Firecrawl scraping
+- Event sources: Luma public/API, Eventbrite API/public links, Meetup GraphQL/public links, and Firecrawl fallbacks

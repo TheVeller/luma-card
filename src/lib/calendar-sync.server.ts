@@ -36,10 +36,16 @@ export type SyncSourceRow = {
   merged_into_id: string | null;
   source: "api" | "scrape";
   organization_manual: boolean;
+  provider: "luma" | "eventbrite" | "meetup";
+  provider_source_id: string | null;
+  provider_connection_id: string | null;
+  ownership: "connected" | "external";
+  sync_all_events: boolean;
+  brand_kit_id: string | null;
 };
 
 const SOURCE_COLUMNS =
-  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason,luma_calendar_id,merged_into_id,source,organization_manual";
+  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason,luma_calendar_id,merged_into_id,source,organization_manual,provider,provider_source_id,provider_connection_id,ownership,sync_all_events,brand_kit_id";
 
 const CALENDAR_METADATA_VERSION = 1;
 
@@ -122,6 +128,7 @@ async function ensureCuratedSourceRow(
           source_kind: source.kind,
         }),
     event_limit: source.kind === "profile" ? 500 : 80,
+    sync_all_events: /luma\.com\/cursorcommunity(?:[/?#]|$)/i.test(source.url),
     sync_enabled: true,
     ...(existingId
       ? {}
@@ -238,6 +245,7 @@ async function upsertScrapedRows(
   userId: string,
   source: SyncSourceRow,
   rows: Array<Record<string, unknown>>,
+  syncedAt = new Date().toISOString(),
 ) {
   if (rows.length === 0) return;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -245,7 +253,7 @@ async function upsertScrapedRows(
     ...row,
     user_id: userId,
     calendar_id: source.id,
-    updated_at: new Date().toISOString(),
+    updated_at: syncedAt,
   }));
   let result = await supabaseAdmin
     .from("scraped_events" as never)
@@ -266,6 +274,18 @@ async function upsertScrapedRows(
           typeof (row.payload as Record<string, unknown> | undefined)?.externalEventId === "string"
             ? String((row.payload as Record<string, unknown>).externalEventId)
             : eventKey;
+        const sourceType =
+          source.provider === "eventbrite"
+            ? source.ownership === "connected"
+              ? "eventbrite_api"
+              : "eventbrite_public"
+            : source.provider === "meetup"
+              ? source.ownership === "connected"
+                ? "meetup_api"
+                : "meetup_public"
+              : source.source_kind === "profile"
+                ? "profile_scrape"
+                : "calendar_scrape";
         return tryUpsertCanonicalEventSource(userId, {
           event: {
             id: eventKey,
@@ -279,7 +299,8 @@ async function upsertScrapedRows(
             calendarId: source.calendar_id,
             calendarName: source.curated_name ?? source.calendar_name ?? undefined,
           },
-          sourceType: source.source_kind === "profile" ? "profile_scrape" : "calendar_scrape",
+          sourceType,
+          provider: source.provider,
           calendarRowId: source.id,
           calendarId: source.calendar_id,
           calendarName: source.curated_name ?? source.calendar_name,
@@ -290,10 +311,182 @@ async function upsertScrapedRows(
             row.payload && typeof row.payload === "object"
               ? (row.payload as Record<string, unknown>)
               : {},
+          lastSyncedAt: syncedAt,
         });
       }),
     );
   }
+}
+
+async function syncConnectedProvider(userId: string, source: SyncSourceRow) {
+  if (source.provider === "luma" || !source.provider_connection_id) {
+    throw new Error("Provider connection is unavailable");
+  }
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: connection, error } = await supabaseAdmin
+    .from("provider_connections" as never)
+    .select("access_token_ciphertext,refresh_token_ciphertext,token_expires_at")
+    .eq("id", source.provider_connection_id)
+    .eq("user_id", userId)
+    .single();
+  if (error || !connection) throw new Error(error?.message ?? "Provider connection not found");
+  const { decryptString } = await import("./crypto.server");
+  const stored = connection as {
+    access_token_ciphertext: string;
+    refresh_token_ciphertext: string | null;
+    token_expires_at: string | null;
+  };
+  let token = decryptString(stored.access_token_ciphertext);
+  const { fetchConnectedProviderSnapshot, refreshMeetupAccessToken } =
+    await import("./event-providers.server");
+  if (
+    source.provider === "meetup" &&
+    stored.refresh_token_ciphertext &&
+    (!stored.token_expires_at || Date.parse(stored.token_expires_at) <= Date.now() + 60_000)
+  ) {
+    const refreshed = await refreshMeetupAccessToken(
+      decryptString(stored.refresh_token_ciphertext),
+    );
+    const { encryptString } = await import("./crypto.server");
+    token = refreshed.accessToken;
+    const { error: refreshError } = await supabaseAdmin
+      .from("provider_connections" as never)
+      .update({
+        access_token_ciphertext: encryptString(refreshed.accessToken),
+        refresh_token_ciphertext: encryptString(refreshed.refreshToken),
+        token_expires_at: refreshed.expiresAt,
+      } as never)
+      .eq("id", source.provider_connection_id)
+      .eq("user_id", userId);
+    if (refreshError) throw new Error(refreshError.message);
+  }
+  const runStartedAt = new Date().toISOString();
+  const snapshot = await fetchConnectedProviderSnapshot(
+    source.provider,
+    source.calendar_url ?? "",
+    token,
+    source.sync_all_events ? null : source.event_limit || 80,
+  );
+  const rows = snapshot.events.map(({ event, externalId, hostName, payload }) => ({
+    event_key: `${source.provider}-${externalId}`,
+    source_url: event.url,
+    name: event.name,
+    description: event.description ?? null,
+    cover_url: event.coverUrl,
+    city: event.city ?? null,
+    start_at: event.startAt,
+    end_at: event.endAt ?? null,
+    host_name: hostName,
+    payload: { ...payload, externalEventId: externalId, provider: source.provider },
+  }));
+  await upsertScrapedRows(userId, source, rows, runStartedAt);
+  if (snapshot.complete) {
+    const sourceTypes = source.provider === "eventbrite" ? ["eventbrite_api"] : ["meetup_api"];
+    const { error: staleRowsError } = await supabaseAdmin
+      .from("scraped_events" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_id", source.id)
+      .lt("updated_at", runStartedAt);
+    if (staleRowsError) throw new Error(staleRowsError.message);
+    const { error: staleSourcesError } = await supabaseAdmin
+      .from("event_sources" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_row_id", source.id)
+      .in("source_type", sourceTypes)
+      .lt("last_synced_at", runStartedAt);
+    if (staleSourcesError && !/schema cache|does not exist/i.test(staleSourcesError.message)) {
+      throw new Error(staleSourcesError.message);
+    }
+  }
+  return {
+    discovered: rows.length,
+    imported: rows.length,
+    remoteName: snapshot.name,
+    avatarUrl: snapshot.avatarUrl,
+    coverUrl: snapshot.coverUrl,
+    description: snapshot.description,
+    tintColor: null,
+    metadata: {
+      provider: source.provider,
+      providerSourceId: source.provider_source_id,
+      ingestion: `${source.provider}-api`,
+      authoritativeSnapshotAt: runStartedAt,
+      emptyConfirmed: rows.length === 0,
+      nextEventAt:
+        rows
+          .map((row) => row.start_at)
+          .filter((value) => Date.parse(value) >= Date.now())
+          .sort()[0] ?? null,
+    },
+    partial: !snapshot.complete,
+  };
+}
+
+async function syncPublicProvider(userId: string, source: SyncSourceRow) {
+  if (source.provider === "luma") throw new Error("Public provider source is invalid");
+  const { fetchPublicProviderSnapshot } = await import("./event-providers.server");
+  const runStartedAt = new Date().toISOString();
+  const snapshot = await fetchPublicProviderSnapshot(
+    source.provider,
+    source.calendar_url ?? "",
+    source.sync_all_events ? 2000 : source.event_limit || 80,
+  );
+  const rows = snapshot.events.map(({ event, externalId, hostName, payload }) => ({
+    event_key: `${source.provider}-${externalId}`,
+    source_url: event.url,
+    name: event.name,
+    description: event.description ?? null,
+    cover_url: event.coverUrl,
+    city: event.city ?? null,
+    start_at: event.startAt,
+    end_at: event.endAt ?? null,
+    host_name: hostName,
+    payload: { ...payload, externalEventId: externalId, provider: source.provider },
+  }));
+  await upsertScrapedRows(userId, source, rows, runStartedAt);
+  if (snapshot.complete) {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: staleRowsError } = await supabaseAdmin
+      .from("scraped_events" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_id", source.id)
+      .lt("updated_at", runStartedAt);
+    if (staleRowsError) throw new Error(staleRowsError.message);
+    const { error: staleSourcesError } = await supabaseAdmin
+      .from("event_sources" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_row_id", source.id)
+      .eq("source_type", source.provider === "eventbrite" ? "eventbrite_public" : "meetup_public")
+      .lt("last_synced_at", runStartedAt);
+    if (staleSourcesError && !/schema cache|does not exist/i.test(staleSourcesError.message)) {
+      throw new Error(staleSourcesError.message);
+    }
+  }
+  return {
+    discovered: rows.length,
+    imported: rows.length,
+    remoteName: snapshot.name,
+    avatarUrl: snapshot.avatarUrl,
+    coverUrl: snapshot.coverUrl,
+    description: snapshot.description,
+    tintColor: null,
+    metadata: {
+      provider: source.provider,
+      providerSourceId: source.provider_source_id,
+      ingestion: `${source.provider}-public`,
+      emptyConfirmed: rows.length === 0,
+      nextEventAt:
+        rows
+          .map((row) => row.start_at)
+          .filter((value) => Date.parse(value) >= Date.now())
+          .sort()[0] ?? null,
+    },
+    partial: !snapshot.complete,
+  };
 }
 
 async function syncApiCalendar(userId: string, source: SyncSourceRow) {
@@ -373,10 +566,14 @@ async function syncCalendar(userId: string, source: SyncSourceRow) {
   const { resolveLumaCalendar, fetchPublicCalendarEvents } = await import("./luma-public.server");
   const calendar = await resolveLumaCalendar(source.calendar_url ?? "");
   if (!calendar) throw new Error("Calendar is not publicly accessible");
+  const runStartedAt = new Date().toISOString();
   let events: Awaited<ReturnType<typeof fetchPublicCalendarEvents>> = [];
   let publicError: string | null = null;
   try {
-    events = await fetchPublicCalendarEvents(calendar.apiId, source.event_limit || 80);
+    events = await fetchPublicCalendarEvents(
+      calendar.apiId,
+      source.sync_all_events ? null : source.event_limit || 80,
+    );
   } catch (error) {
     publicError = error instanceof Error ? error.message : String(error);
   }
@@ -438,12 +635,34 @@ async function syncCalendar(userId: string, source: SyncSourceRow) {
           payload: {
             source: "luma-public-api",
             externalEventId: event.apiId,
+            listedByCalendarId: calendar.apiId,
+            originCalendarApiId: event.originCalendarApiId,
             hostIds: event.hostIds,
             hostNames: event.hostNames,
           },
         }))
       : fallbackRows;
-  await upsertScrapedRows(userId, source, rows);
+  await upsertScrapedRows(userId, source, rows, runStartedAt);
+  if (!publicError) {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: staleRowsError } = await supabaseAdmin
+      .from("scraped_events" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_id", source.id)
+      .lt("updated_at", runStartedAt);
+    if (staleRowsError) throw new Error(staleRowsError.message);
+    const { error: staleSourcesError } = await supabaseAdmin
+      .from("event_sources" as never)
+      .delete()
+      .eq("user_id", userId)
+      .eq("calendar_row_id", source.id)
+      .eq("source_type", "calendar_scrape")
+      .lt("last_synced_at", runStartedAt);
+    if (staleSourcesError && !/schema cache|does not exist/i.test(staleSourcesError.message)) {
+      throw new Error(staleSourcesError.message);
+    }
+  }
   return {
     discovered: rows.length,
     imported: rows.length,
@@ -459,6 +678,7 @@ async function syncCalendar(userId: string, source: SyncSourceRow) {
       personalUserId: calendar.personalUserId,
       personalUsername: calendar.personalUsername,
       ingestion: events.length > 0 ? "luma-public-api" : "firecrawl-fallback",
+      syncScope: source.sync_all_events ? "all" : "bounded",
       emptyConfirmed: rows.length === 0,
       publicError,
       nextEventAt:
@@ -666,11 +886,15 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
 
   try {
     const result =
-      source.source_kind === "api"
-        ? await syncApiCalendar(job.user_id, source)
-        : source.source_kind === "profile"
-          ? await syncProfile(job.user_id, source)
-          : await syncCalendar(job.user_id, source);
+      source.provider !== "luma" && source.provider_connection_id
+        ? await syncConnectedProvider(job.user_id, source)
+        : source.provider !== "luma"
+          ? await syncPublicProvider(job.user_id, source)
+          : source.source_kind === "api"
+            ? await syncApiCalendar(job.user_id, source)
+            : source.source_kind === "profile"
+              ? await syncProfile(job.user_id, source)
+              : await syncCalendar(job.user_id, source);
     const status = "partial" in result && result.partial ? "partial" : "completed";
     const suggestion = suggestedGroup(source, result.description);
     const now = new Date();

@@ -99,6 +99,8 @@ Response:
       "slug": "founder-dinners",
       "source": "api",
       "kind": "calendar",
+      "provider": "luma",
+      "ownership": "connected",
       "isDefault": true,
       "url": "https://lu.ma/founder-dinners",
       "avatarUrl": "https://images.lumacdn.com/calendars/founders.png",
@@ -150,6 +152,8 @@ Calendar fields:
 | `slug`                | `string \| null`                              | Luma slug when available.                                                        |
 | `source`              | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
 | `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).          |
+| `provider`            | `"luma" \| "eventbrite" \| "meetup"`          | Remote event provider.                                                           |
+| `ownership`           | `"connected" \| "external"`                   | Whether the source comes from an authorized organizer connection.                |
 | `isDefault`           | `boolean`                                     | User's default calendar in this app.                                             |
 | `url`                 | `string \| null`                              | Calendar URL when known.                                                         |
 | `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                           |
@@ -184,6 +188,8 @@ Query parameters:
 | Param      | Type                                  | Default     | Notes                                                                                                            |
 | ---------- | ------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------- |
 | `calendar` | `string`                              | `all`       | Use `all`, omit it, or pass a current `id`, `canonicalCalendarId`, or any alias returned by `/api/v1/calendars`. |
+| `provider` | `luma \| eventbrite \| meetup`        | —           | Restrict results to one provider.                                                                                |
+| `owned`    | `true \| false`                       | —           | Restrict results by authorized organizer ownership.                                                              |
 | `mode`     | `canonical \| sources`                | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting.        |
 | `status`   | `all \| upcoming \| ongoing \| past`  | `all`       | `upcoming` includes events currently in progress; use `ongoing` to return only those events.                     |
 | `sort`     | `upcoming \| start_asc \| start_desc` | `upcoming`  | `upcoming` orders ongoing events first, future events nearest-first, then past events newest-first.              |
@@ -371,6 +377,7 @@ agent/client that already speaks MCP and can complete the Supabase OAuth flow.
 
 ```ts
 type CalendarSource = "api" | "scrape";
+type EventProvider = "luma" | "eventbrite" | "meetup";
 
 type CalendarGroupDTO = {
   id: string;
@@ -386,6 +393,8 @@ type CalendarDTO = {
   slug: string | null;
   source: CalendarSource;
   sourceKind: "api" | "calendar" | "profile" | "event";
+  provider: EventProvider;
+  ownership: "connected" | "external";
   isDefault: boolean;
   url: string | null;
   avatarUrl: string | null;
@@ -406,10 +415,21 @@ type EventCalendarDTO = {
   name: string;
   slug: string | null;
   source: CalendarSource;
+  provider: EventProvider;
+  ownership: "connected" | "external";
 };
 
 type EventSourceDTO = {
-  sourceType: "api" | "calendar_scrape" | "event_scrape" | "profile_scrape";
+  provider: EventProvider;
+  sourceType:
+    | "api"
+    | "calendar_scrape"
+    | "event_scrape"
+    | "profile_scrape"
+    | "eventbrite_api"
+    | "eventbrite_public"
+    | "meetup_api"
+    | "meetup_public";
   sourceKey: string;
   calendarId: string | null;
   calendarName: string | null;

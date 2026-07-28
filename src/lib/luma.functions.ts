@@ -70,12 +70,10 @@ export const getEvent = createServerFn({ method: "GET" })
     return data;
   })
   .handler(async ({ data, context }) => {
-    // Scraped events are stored locally; route directly.
-    if (data.id.startsWith("scr-")) {
-      const found = await readScrapedEventById(context.userId, data.id);
-      if (!found) throw new Error(`Event ${data.id} not found`);
-      return found as EventDTO;
-    }
+    // Every imported provider is stored locally. Try it first; provider event
+    // IDs are intentionally not required to use Luma's `scr-` prefix.
+    const imported = await readScrapedEventById(context.userId, data.id);
+    if (imported) return imported as EventDTO;
 
     // With a specific calendarId, try that one directly.
     if (data.calendarId && data.calendarId !== "__all__") {

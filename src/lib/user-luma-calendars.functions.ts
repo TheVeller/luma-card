@@ -33,6 +33,11 @@ export type UserCalendarDTO = {
   suggestedGroupReason: string | null;
   nextEventAt: string | null;
   organizationManual: boolean;
+  provider: "luma" | "eventbrite" | "meetup";
+  ownership: "connected" | "external";
+  providerSourceId: string | null;
+  brandKitId: string | null;
+  syncAllEvents: boolean;
 };
 
 export type Row = {
@@ -67,6 +72,12 @@ export type Row = {
   organization_manual?: boolean | null;
   luma_calendar_id?: string | null;
   merged_into_id?: string | null;
+  provider?: "luma" | "eventbrite" | "meetup" | null;
+  provider_source_id?: string | null;
+  provider_connection_id?: string | null;
+  ownership?: "connected" | "external" | null;
+  sync_all_events?: boolean | null;
+  brand_kit_id?: string | null;
 };
 
 export type CalendarGroupRow = {
@@ -112,6 +123,11 @@ function toDTO(
     nextEventAt:
       typeof r.source_metadata?.nextEventAt === "string" ? r.source_metadata.nextEventAt : null,
     organizationManual: r.organization_manual ?? false,
+    provider: r.provider ?? "luma",
+    ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
+    providerSourceId: r.provider_source_id ?? null,
+    brandKitId: r.brand_kit_id ?? null,
+    syncAllEvents: r.sync_all_events ?? false,
   };
 }
 
@@ -120,7 +136,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id, provider, provider_source_id, provider_connection_id, ownership, sync_all_events, brand_kit_id",
     )
     .eq("user_id", userId)
     .is("merged_into_id", null)
@@ -254,6 +270,9 @@ export const addCalendar = createServerFn({ method: "POST" })
       api_key_ciphertext: encryptString(data.apiKey),
       source: "api",
       source_kind: "api",
+      provider: "luma",
+      provider_source_id: cal.id,
+      ownership: "connected",
       updated_at: new Date().toISOString(),
     };
     const query = canonicalRowId

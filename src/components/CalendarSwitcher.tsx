@@ -65,7 +65,7 @@ export function CalendarSwitcher() {
         )}
         <div className="leading-tight text-left">
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-            Luma Badge Studio
+            Event Router · Badge Studio
           </div>
           <div className="flex items-center gap-1 font-display text-sm font-semibold tracking-tight">
             <span className="max-w-[180px] truncate">{active.name}</span>
@@ -129,6 +129,9 @@ export function CalendarSwitcher() {
                         )}
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
                           {c.name}
+                          <span className="ml-1 font-mono text-[8px] uppercase text-muted-foreground">
+                            {c.provider}
+                          </span>
                         </span>
                         <span
                           className="font-mono text-[10px] tabular-nums text-muted-foreground"

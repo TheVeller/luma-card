@@ -29,6 +29,7 @@ import { CameraCapture } from "@/components/CameraCapture";
 import { EventBadgeGallery } from "@/components/EventBadgeGallery";
 import { supabase } from "@/integrations/supabase/client";
 import { copyToClipboard, prettyUrl } from "@/lib/utils";
+import { getEventBrandKit } from "@/lib/brand-kits.functions";
 
 export const Route = createFileRoute("/_authenticated/e/$eventId")({
   head: ({ params }) => ({
@@ -84,6 +85,7 @@ function EventBadgePage() {
   const fetchPresets = useServerFn(listEventPresets);
   const savePreset = useServerFn(saveEventPreset);
   const removePreset = useServerFn(deleteEventPreset);
+  const fetchBrandKit = useServerFn(getEventBrandKit);
   const qc = useQueryClient();
 
   const {
@@ -103,6 +105,10 @@ function EventBadgePage() {
   const { data: presets } = useQuery({
     queryKey: ["event-presets", eventId],
     queryFn: () => fetchPresets({ data: { eventId } }),
+  });
+  const { data: brandKit } = useQuery({
+    queryKey: ["event-brand-kit", eventId],
+    queryFn: () => fetchBrandKit({ data: { eventId } }),
   });
 
   const [firstName, setFirstName] = useState("");
@@ -191,10 +197,18 @@ function EventBadgePage() {
   // Runs once per event id, and only before the user has touched the style.
   const hydratedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!presets || hydratedForRef.current === eventId) return;
+    if (!presets || brandKit === undefined || hydratedForRef.current === eventId) return;
     hydratedForRef.current = eventId;
-    if (presets.length > 0) setSpec(presets[0].styleSpec);
-  }, [presets, eventId]);
+    if (presets.length > 0) {
+      setSpec(presets[0].styleSpec);
+      return;
+    }
+    if (brandKit) {
+      setSpec(brandKit.styleSpec);
+      if (brandKit.badgeDoc) setDoc(brandKit.badgeDoc);
+      setLogos(brandKit.logos);
+    }
+  }, [presets, brandKit, eventId]);
 
   useEffect(() => {
     loadGoogleFontPair(spec.fonts.heading, spec.fonts.body);

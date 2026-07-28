@@ -104,7 +104,7 @@ describe("public Luma calendars", () => {
     expect(requested[1]).toContain("pagination_cursor=page-2");
   });
 
-  test("rejects events leaked from a different calendar", async () => {
+  test("keeps events listed by an aggregator calendar and records their origin", async () => {
     globalThis.fetch = (async () =>
       Response.json({
         entries: [
@@ -120,9 +120,35 @@ describe("public Luma calendars", () => {
         has_more: false,
       })) as unknown as typeof fetch;
 
-    expect(fetchPublicCalendarEvents("cal-requested", 80)).rejects.toThrow(
-      "Calendar is not publicly accessible",
-    );
+    const events = await fetchPublicCalendarEvents("cal-requested", 80);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.originCalendarApiId).toBe("cal-other");
+  });
+
+  test("an unbounded sync reads both future and past feeds to exhaustion", async () => {
+    const periods: string[] = [];
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      const period = url.searchParams.get("period")!;
+      periods.push(period);
+      return Response.json({
+        entries: [
+          {
+            event: {
+              api_id: period === "future" ? "evt-future" : "evt-past",
+              calendar_api_id: "cal-origin",
+              name: period,
+              url: period,
+            },
+          },
+        ],
+        has_more: false,
+      });
+    }) as typeof fetch;
+
+    const events = await fetchPublicCalendarEvents("cal-aggregator", null);
+    expect(events.map((event) => event.apiId)).toEqual(["evt-future", "evt-past"]);
+    expect(periods).toEqual(["future", "past"]);
   });
 
   test("surfaces upstream failures instead of reporting an empty calendar", async () => {

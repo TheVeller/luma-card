@@ -31,6 +31,17 @@ export const Route = createFileRoute("/api/v1/events")({
 
         const params = new URL(request.url).searchParams;
         const calendar = params.get("calendar") ?? "all";
+        const provider = params.get("provider");
+        if (provider && !["luma", "eventbrite", "meetup"].includes(provider)) {
+          return json(400, {
+            error: "bad_params",
+            detail: "provider must be luma, eventbrite, or meetup",
+          });
+        }
+        const ownedParam = params.get("owned");
+        if (ownedParam && !["true", "false"].includes(ownedParam)) {
+          return json(400, { error: "bad_params", detail: "owned must be true or false" });
+        }
         const mode = params.get("mode") ?? "canonical";
         if (mode !== "canonical" && mode !== "sources") {
           return json(400, { error: "bad_params", detail: "mode must be canonical or sources" });
@@ -79,6 +90,33 @@ export const Route = createFileRoute("/api/v1/events")({
           const fromTs = from ? Date.parse(from) : null;
           const toTs = to ? Date.parse(to) : null;
           let filtered = events;
+          if (provider) {
+            filtered = filtered.filter((event) => {
+              const sources =
+                "sources" in event ? (event.sources as CanonicalEventSourceDTO[]) : null;
+              if (sources) {
+                return sources.some((source) => source.provider === provider);
+              }
+              const calendarMeta = event.calendarId ? calById.get(event.calendarId) : null;
+              return calendarMeta?.provider === provider;
+            });
+          }
+          if (ownedParam) {
+            const wanted = ownedParam === "true";
+            filtered = filtered.filter((event) => {
+              const sources =
+                "sources" in event ? (event.sources as CanonicalEventSourceDTO[]) : null;
+              const ids = sources
+                ? sources
+                    .map((source) => source.calendarId)
+                    .filter((id): id is string => Boolean(id))
+                : event.calendarId
+                  ? [event.calendarId]
+                  : [];
+              const hasOwnedSource = ids.some((id) => calById.get(id)?.ownership === "connected");
+              return wanted ? hasOwnedSource : !hasOwnedSource;
+            });
+          }
           if (fromTs !== null) filtered = filtered.filter((e) => Date.parse(e.startAt) >= fromTs);
           if (toTs !== null) filtered = filtered.filter((e) => Date.parse(e.startAt) <= toTs);
           if (status !== "all") {
@@ -134,7 +172,7 @@ export const Route = createFileRoute("/api/v1/events")({
             }),
             page: { limit, offset, total, nextCursor },
             mode,
-            filters: { calendar, status, at, from, to },
+            filters: { calendar, provider, owned: ownedParam, status, at, from, to },
             sort,
             generatedAt: new Date(now).toISOString(),
           });

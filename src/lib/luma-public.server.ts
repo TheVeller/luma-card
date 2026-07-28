@@ -32,6 +32,8 @@ export type PublicLumaEvent = {
   city: string | null;
   hostIds: string[];
   hostNames: string[];
+  /** Calendar that originally created the event. It may differ for aggregator calendars. */
+  originCalendarApiId: string | null;
   url: string; // https://luma.com/<slug>
 };
 
@@ -156,6 +158,7 @@ function toPublicEvent(entry: RawEntry): PublicLumaEvent {
     city: ev.geo_address_info?.city_state ?? null,
     hostIds: (entry.hosts ?? []).flatMap((host) => (host.api_id ? [host.api_id] : [])),
     hostNames: (entry.hosts ?? []).flatMap((host) => (host.name ? [host.name] : [])),
+    originCalendarApiId: ev.calendar_api_id ?? null,
     url: `${LUMA_ORIGIN}/${slug}`,
   };
 }
@@ -189,37 +192,34 @@ async function fetchPage(
   };
 }
 
-/** Fetch up to `limit` events for a public calendar (upcoming first, then past). */
+/** Fetch a public calendar's listed events (upcoming first, then past).
+ *
+ * Luma aggregator calendars legitimately list events created by other
+ * calendars. The get-items endpoint is already scoped to `calApiId`, so
+ * `event.calendar_api_id` is provenance, not a membership check.
+ */
 export async function fetchPublicCalendarEvents(
   calApiId: string,
-  limit: number,
+  limit: number | null,
 ): Promise<PublicLumaEvent[]> {
   const out: PublicLumaEvent[] = [];
   const seen = new Set<string>();
-  let mismatched = 0;
 
   for (const period of ["future", "past"] as const) {
     let cursor: string | undefined;
-    for (let page = 0; page < 20; page++) {
+    for (let page = 0; page < 100; page++) {
       const { entries, hasMore, nextCursor } = await fetchPage(calApiId, period, cursor);
       for (const e of entries) {
         const ev = e.event;
         if (!ev?.api_id) continue;
-        if (ev.calendar_api_id !== calApiId) {
-          mismatched++;
-          continue;
-        }
         if (seen.has(ev.api_id)) continue;
         seen.add(ev.api_id);
         out.push(toPublicEvent(e));
       }
-      if (out.length >= limit) return out.slice(0, limit);
+      if (limit !== null && out.length >= limit) return out.slice(0, limit);
       if (!hasMore || !nextCursor) break;
       cursor = nextCursor;
     }
   }
-  if (out.length === 0 && mismatched > 0) {
-    throw new Error("Calendar is not publicly accessible");
-  }
-  return out.slice(0, limit);
+  return limit === null ? out : out.slice(0, limit);
 }

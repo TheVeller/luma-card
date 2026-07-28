@@ -1,4 +1,13 @@
-export type EventSourceType = "api" | "calendar_scrape" | "event_scrape" | "profile_scrape";
+export type EventProvider = "luma" | "eventbrite" | "meetup";
+export type EventSourceType =
+  | "api"
+  | "calendar_scrape"
+  | "event_scrape"
+  | "profile_scrape"
+  | "eventbrite_api"
+  | "eventbrite_public"
+  | "meetup_api"
+  | "meetup_public";
 
 export type CanonicalBaseEvent = {
   id: string;
@@ -14,6 +23,7 @@ export type CanonicalBaseEvent = {
 };
 
 export type CanonicalEventSourceDTO = {
+  provider: EventProvider;
   sourceType: EventSourceType;
   sourceKey: string;
   calendarId: string | null;
@@ -27,6 +37,8 @@ export type CanonicalEventSourceDTO = {
 export type CanonicalEventDTO = CanonicalBaseEvent & {
   externalIds: {
     lumaEventId?: string;
+    eventbriteEventId?: string;
+    meetupEventId?: string;
     scrapedEventKeys: string[];
   };
   sources: CanonicalEventSourceDTO[];
@@ -37,6 +49,7 @@ export type CanonicalEventDTO = CanonicalBaseEvent & {
 export type SourceEventInput = {
   event: CanonicalBaseEvent;
   sourceType: EventSourceType;
+  provider?: EventProvider;
   sourceKey?: string;
   calendarRowId?: string | null;
   calendarId?: string | null;
@@ -85,6 +98,8 @@ export function eventIdentityFingerprint(input: SourceEventInput): string {
 
 export function canonicalKeyFor(input: SourceEventInput): string {
   const externalId = input.externalEventId ?? input.event.id;
+  if (input.provider === "eventbrite" && externalId) return `eventbrite:${externalId}`;
+  if (input.provider === "meetup" && externalId) return `meetup:${externalId}`;
   if (/^evt-/i.test(externalId)) return `luma:${externalId}`;
   const normalized = normalizeCanonicalUrl(input.sourceUrl ?? input.event.url);
   if (normalized) return `url:${normalized}`;
@@ -102,6 +117,7 @@ export function sourceKeyFor(input: SourceEventInput): string {
 
 export function sourceDTO(input: SourceEventInput): CanonicalEventSourceDTO {
   return {
+    provider: input.provider ?? "luma",
     sourceType: input.sourceType,
     sourceKey: sourceKeyFor(input),
     calendarId: input.calendarId ?? input.event.calendarId ?? null,
@@ -151,6 +167,10 @@ export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDT
           lumaEventId: /^evt-/i.test(input.externalEventId ?? event.id)
             ? (input.externalEventId ?? event.id)
             : undefined,
+          eventbriteEventId:
+            input.provider === "eventbrite" ? (input.externalEventId ?? event.id) : undefined,
+          meetupEventId:
+            input.provider === "meetup" ? (input.externalEventId ?? event.id) : undefined,
           scrapedEventKeys: event.id.startsWith("scr-") ? [event.id] : [],
         },
         sources: [source],
@@ -164,6 +184,12 @@ export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDT
     const merged = preferEvent(existing, event);
     if (/^evt-/i.test(input.externalEventId ?? event.id)) {
       merged.externalIds.lumaEventId = input.externalEventId ?? event.id;
+    }
+    if (input.provider === "eventbrite") {
+      merged.externalIds.eventbriteEventId = input.externalEventId ?? event.id;
+    }
+    if (input.provider === "meetup") {
+      merged.externalIds.meetupEventId = input.externalEventId ?? event.id;
     }
     if (event.id.startsWith("scr-") && !merged.externalIds.scrapedEventKeys.includes(event.id)) {
       merged.externalIds.scrapedEventKeys.push(event.id);

@@ -18,6 +18,13 @@ export async function upsertCanonicalEventSource(
   const source = sourceDTO(input);
   const event = input.event;
   const normalizedUrl = normalizeCanonicalUrl(event.url) ?? event.url;
+  const providerExternalIds = {
+    ...(input.provider === "eventbrite" ? { eventbrite: input.externalEventId ?? event.id } : {}),
+    ...(input.provider === "meetup" ? { meetup: input.externalEventId ?? event.id } : {}),
+    ...((input.provider ?? "luma") === "luma" && /^evt-/i.test(input.externalEventId ?? event.id)
+      ? { luma: input.externalEventId ?? event.id }
+      : {}),
+  };
   const canonicalValues = {
     luma_event_id: /^evt-/i.test(input.externalEventId ?? event.id)
       ? (input.externalEventId ?? event.id)
@@ -32,11 +39,12 @@ export async function upsertCanonicalEventSource(
     host_name: input.hostName ?? null,
     updated_at: new Date().toISOString(),
     identity_fingerprint: identityFingerprint,
+    external_ids: providerExternalIds,
   };
 
   const { data: matchingUrl, error: matchingUrlError } = await supabaseAdmin
     .from("canonical_events" as never)
-    .select("id")
+    .select("id,external_ids")
     .eq("user_id", userId)
     .eq("url", normalizedUrl)
     .maybeSingle();
@@ -46,7 +54,7 @@ export async function upsertCanonicalEventSource(
     ? { data: null, error: null }
     : await supabaseAdmin
         .from("canonical_events" as never)
-        .select("id")
+        .select("id,external_ids")
         .eq("user_id", userId)
         .eq("identity_fingerprint", identityFingerprint)
         .maybeSingle();
@@ -56,7 +64,14 @@ export async function upsertCanonicalEventSource(
   const canonicalQuery = matchingCanonical
     ? supabaseAdmin
         .from("canonical_events" as never)
-        .update(canonicalValues as never)
+        .update({
+          ...canonicalValues,
+          external_ids: {
+            ...(((matchingCanonical as { external_ids?: Record<string, string> }).external_ids ??
+              {}) as Record<string, string>),
+            ...providerExternalIds,
+          },
+        } as never)
         .eq("id", (matchingCanonical as { id: string }).id)
     : supabaseAdmin.from("canonical_events" as never).upsert(
         {
@@ -75,6 +90,12 @@ export async function upsertCanonicalEventSource(
       user_id: userId,
       canonical_event_id: canonicalEventId,
       source_type: source.sourceType,
+      provider: source.provider,
+      provider_event_id: source.externalEventId,
+      origin_provider_source_id:
+        typeof input.payload?.originCalendarApiId === "string"
+          ? input.payload.originCalendarApiId
+          : null,
       source_key: source.sourceKey,
       calendar_row_id: input.calendarRowId ?? null,
       calendar_public_id: source.calendarId,
@@ -97,7 +118,9 @@ function isMissingCanonicalSchema(error: unknown): boolean {
   return (
     /canonical_events.*schema cache/i.test(message) ||
     /identity_fingerprint.*schema cache/i.test(message) ||
+    /external_ids.*schema cache/i.test(message) ||
     /event_sources.*schema cache/i.test(message) ||
+    /(provider|provider_event_id|origin_provider_source_id).*schema cache/i.test(message) ||
     /relation ["']?public\.(canonical_events|event_sources)["']? does not exist/i.test(message)
   );
 }

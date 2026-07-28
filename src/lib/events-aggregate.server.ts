@@ -54,6 +54,8 @@ export type CalendarMeta = {
   slug: string | null;
   source: "api" | "scrape";
   sourceKind: "api" | "calendar" | "profile" | "event";
+  provider: "luma" | "eventbrite" | "meetup";
+  ownership: "connected" | "external";
 };
 
 function metaFor(r: CalendarRow): CalendarMeta {
@@ -64,6 +66,8 @@ function metaFor(r: CalendarRow): CalendarMeta {
     slug: r.calendar_slug ?? null,
     source: (r.source ?? "api") as "api" | "scrape",
     sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
+    provider: r.provider ?? "luma",
+    ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
   };
 }
 
@@ -85,7 +89,7 @@ async function collectEventSourceInputsForUser(
   const keyed = await resolveAllKeys(userId);
   const apiResults = await Promise.all(
     keyed
-      .filter(({ row }) => selectedRowIds.has(row.id))
+      .filter(({ row }) => selectedRowIds.has(row.id) && (row.provider ?? "luma") === "luma")
       .map(async ({ key, row }) => {
         try {
           const events = await fetchAllEvents(key);
@@ -116,7 +120,17 @@ async function collectEventSourceInputsForUser(
       );
       return events.map((event) => ({
         event,
-        sourceType: "calendar_scrape" as const,
+        sourceType:
+          r.provider === "eventbrite"
+            ? r.ownership === "connected"
+              ? ("eventbrite_api" as const)
+              : ("eventbrite_public" as const)
+            : r.provider === "meetup"
+              ? r.ownership === "connected"
+                ? ("meetup_api" as const)
+                : ("meetup_public" as const)
+              : ("calendar_scrape" as const),
+        provider: r.provider ?? "luma",
         calendarRowId: r.id,
         calendarId: r.calendar_id,
         calendarName: r.calendar_name ?? "Imported",

@@ -33,9 +33,10 @@ function ImportPage() {
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<"auto" | "calendar" | "event" | "profile">("auto");
   const [limit, setLimit] = useState(80);
+  const [allEvents, setAllEvents] = useState(false);
 
   const mut = useMutation({
-    mutationFn: () => run({ data: { url: url.trim(), kind, limit } }),
+    mutationFn: () => run({ data: { url: url.trim(), kind, limit, allEvents } }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["luma-events"] });
       qc.invalidateQueries({ queryKey: ["calendars"] });
@@ -58,9 +59,8 @@ function ImportPage() {
         Import from a link
       </h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Paste a Luma calendar URL (like <code>https://lu.ma/hack0</code>) to import every event, or
-        a single event URL (like <code>https://lu.ma/abcd1234</code>) to import just that one. Host
-        profile URLs sync the public events they expose. No API key needed.
+        Paste a Luma, Eventbrite, or Meetup calendar, organizer, group, or event URL. Public links
+        are imported without a provider token.
       </p>
 
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/60 p-5">
@@ -70,7 +70,7 @@ function ImportPage() {
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://lu.ma/…"
+          placeholder="https://luma.com/…, eventbrite.com/…, or meetup.com/…"
           className="mt-2 w-full rounded-xl border border-hairline bg-surface px-4 py-2.5 text-sm focus:border-accent focus:outline-none"
           disabled={mut.isPending}
         />
@@ -107,13 +107,26 @@ function ImportPage() {
               <input
                 type="number"
                 min={1}
-                max={80}
+                max={2000}
                 value={limit}
-                onChange={(e) => setLimit(Math.max(1, Math.min(80, Number(e.target.value) || 40)))}
-                disabled={mut.isPending}
+                onChange={(e) =>
+                  setLimit(Math.max(1, Math.min(2000, Number(e.target.value) || 80)))
+                }
+                disabled={mut.isPending || allEvents}
                 className="mt-1 w-24 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-sm"
               />
             </div>
+          )}
+          {kind !== "event" && (
+            <label className="flex items-center gap-2 self-end pb-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allEvents}
+                onChange={(event) => setAllEvents(event.target.checked)}
+                disabled={mut.isPending}
+              />
+              Sync all pages
+            </label>
           )}
         </div>
 
@@ -148,9 +161,8 @@ function ImportPage() {
       </div>
 
       <p className="mt-6 font-mono text-[11px] leading-relaxed text-muted-foreground">
-        Scraped calendars appear in your calendar switcher with a ⌘ marker. Reruns re-scrape and
-        refresh the cached events. This currently supports <b>lu.ma</b>; other providers land in a
-        follow-up.
+        Public sources stay in the unified calendar switcher. Connect an organizer account in
+        Settings for authoritative Eventbrite or Meetup sync and owned-event branding.
       </p>
     </div>
   );

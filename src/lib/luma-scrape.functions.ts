@@ -4,9 +4,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { providerForUrl, providerSourceId } from "./event-providers";
 
 export type ImportResult = {
   kind: "calendar" | "event" | "profile";
+  provider: "luma" | "eventbrite" | "meetup";
   calendarRowId: string; // uuid of the user_luma_calendars row
   calendarId: string; // stable synthetic id (`scr-<slug>`)
   calendarName: string;
@@ -17,7 +19,8 @@ export type ImportResult = {
 const InputSchema = z.object({
   url: z.string().url(),
   kind: z.enum(["auto", "calendar", "event", "profile"]).default("auto"),
-  limit: z.number().int().min(1).max(80).default(80),
+  limit: z.number().int().min(1).max(2000).default(80),
+  allEvents: z.boolean().default(false),
 });
 
 function hashKey(s: string): string {
@@ -56,6 +59,10 @@ export const importFromUrl = createServerFn({ method: "POST" })
       calendarUrl: string | null,
       sourceKind: "calendar" | "profile" | "event",
       lumaCalendarId?: string | null,
+      provider: "luma" | "eventbrite" | "meetup" = "luma",
+      providerId?: string | null,
+      ownership: "connected" | "external" = "external",
+      syncAllEvents = false,
     ): Promise<string> {
       const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
         await import("./calendar-identity.server");
@@ -69,6 +76,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
             remote_name: calendarName,
             calendar_name: calendarName,
             calendar_url: calendarUrl ?? undefined,
+            provider,
+            provider_source_id: providerId ?? undefined,
+            ownership,
+            sync_all_events: syncAllEvents,
+            event_limit: syncAllEvents ? 2000 : data.limit,
             updated_at: new Date().toISOString(),
           } as never)
           .eq("id", existingId)
@@ -98,6 +110,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
             // null avoids racing the partial unique index with another importer.
             luma_calendar_id: null,
             source_metadata: lumaCalendarId ? { lumaCalendarId } : {},
+            provider,
+            provider_source_id: providerId,
+            ownership,
+            sync_all_events: syncAllEvents,
+            event_limit: syncAllEvents ? 2000 : data.limit,
             is_default: false,
           } as never,
           { onConflict: "user_id,calendar_id" },
@@ -131,6 +148,113 @@ export const importFromUrl = createServerFn({ method: "POST" })
 
     const requestedKind = data.kind;
     const kind = requestedKind === "auto" ? guessKind(data.url) : requestedKind;
+    const provider = providerForUrl(data.url);
+    if (!provider) {
+      throw new Error("Supported event links are Luma, Eventbrite, and Meetup.");
+    }
+
+    if (provider !== "luma") {
+      const { fetchPublicProviderSnapshot } = await import("./event-providers.server");
+      const sourceId = providerSourceId(provider, data.url);
+      const isEvent = sourceId.includes(":event:");
+      const snapshot = await fetchPublicProviderSnapshot(
+        provider,
+        data.url,
+        data.allEvents ? 2000 : data.limit,
+      );
+      const calendarId = `scr-${provider}-${hashKey(sourceId).replace(/^scr-/, "")}`;
+      const calendarRowId = await ensureCalendarRow(
+        calendarId,
+        snapshot.name,
+        data.url,
+        isEvent ? "event" : "calendar",
+        null,
+        provider,
+        sourceId,
+        "external",
+        data.allEvents,
+      );
+      const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
+      const imported: string[] = [];
+      for (let offset = 0; offset < snapshot.events.length; offset += 10) {
+        const batch = await Promise.all(
+          snapshot.events.slice(offset, offset + 10).map(async (item) => {
+            const eventKey = `${provider}-${item.externalId}`;
+            const { error } = await upsertScrapedEvent({
+              user_id: context.userId,
+              calendar_id: calendarRowId,
+              event_key: eventKey,
+              source_url: item.event.url,
+              name: item.event.name,
+              description: item.event.description ?? null,
+              cover_url: item.event.coverUrl,
+              city: item.event.city ?? null,
+              start_at: item.event.startAt,
+              end_at: item.event.endAt ?? null,
+              host_name: item.hostName,
+              payload: {
+                ...item.payload,
+                provider,
+                externalEventId: item.externalId,
+              },
+              updated_at: new Date().toISOString(),
+            });
+            if (error) throw new Error(error.message);
+            await tryUpsertCanonicalEventSource(context.userId, {
+              event: {
+                ...item.event,
+                id: eventKey,
+                calendarId,
+                calendarName: snapshot.name,
+              },
+              sourceType: provider === "eventbrite" ? "eventbrite_public" : "meetup_public",
+              provider,
+              calendarRowId,
+              calendarId,
+              calendarName: snapshot.name,
+              sourceUrl: item.event.url,
+              externalEventId: item.externalId,
+              hostName: item.hostName,
+              payload: item.payload,
+            });
+            return eventKey;
+          }),
+        );
+        imported.push(...batch);
+      }
+      const { error: metadataError } = await supabaseAdmin
+        .from("user_luma_calendars" as never)
+        .update({
+          remote_name: snapshot.name,
+          calendar_avatar_url: snapshot.avatarUrl,
+          calendar_cover_url: snapshot.coverUrl,
+          calendar_description: snapshot.description,
+          discovered_count: snapshot.events.length,
+          imported_count: imported.length,
+          sync_status: "completed",
+          last_synced_at: new Date().toISOString(),
+          source_metadata: {
+            provider,
+            providerSourceId: sourceId,
+            ingestion: `${provider}-public`,
+            emptyConfirmed: imported.length === 0,
+          },
+        } as never)
+        .eq("id", calendarRowId)
+        .eq("user_id", context.userId);
+      if (metadataError) throw new Error(metadataError.message);
+      const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+      invalidateEventLibraryStatsCache(context.userId);
+      return {
+        kind: isEvent ? "event" : "calendar",
+        provider,
+        calendarRowId,
+        calendarId,
+        calendarName: snapshot.name,
+        imported: imported.length,
+        eventIds: imported,
+      };
+    }
 
     // --- Calendar: use Luma's public API (no API key, no Firecrawl). ---
     if (kind === "calendar") {
@@ -147,7 +271,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
           );
         }
       } else {
-        const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
+        const syncAllEvents = data.allEvents || /\/cursorcommunity(?:[/?#]|$)/i.test(data.url);
+        const events = await fetchPublicCalendarEvents(
+          cal.apiId,
+          syncAllEvents ? null : data.limit,
+        );
         {
           const calendarId = `scr-${cal.apiId}`;
           const calendarRowId = await ensureCalendarRow(
@@ -156,6 +284,10 @@ export const importFromUrl = createServerFn({ method: "POST" })
             cal.url,
             "calendar",
             cal.apiId,
+            "luma",
+            cal.apiId,
+            "external",
+            syncAllEvents,
           );
           const { data: canonicalCalendar } = await supabaseAdmin
             .from("user_luma_calendars" as never)
@@ -207,7 +339,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
               calendarName: canonicalName,
               sourceUrl: ev.url,
               externalEventId: ev.apiId,
-              payload: { source: "luma-public-api" },
+              payload: {
+                source: "luma-public-api",
+                listedByCalendarId: cal.apiId,
+                originCalendarApiId: ev.originCalendarApiId,
+              },
             });
             return ev.apiId;
           };
@@ -261,6 +397,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
 
           return {
             kind: "calendar",
+            provider: "luma",
             calendarRowId,
             calendarId: canonicalPublicId,
             calendarName: canonicalName,
@@ -348,6 +485,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
       invalidateEventLibraryStatsCache(context.userId);
       return {
         kind: "profile",
+        provider: "luma",
         calendarRowId,
         calendarId,
         calendarName,
@@ -411,6 +549,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
 
     return {
       kind: "event",
+      provider: "luma",
       calendarRowId,
       calendarId,
       calendarName,

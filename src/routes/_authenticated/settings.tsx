@@ -28,6 +28,14 @@ import {
   saveCalendarOrganization,
 } from "@/lib/calendar-groups.functions";
 import { getEventLibraryStats } from "@/lib/event-library-stats.functions";
+import {
+  connectProvider,
+  listProviderConnections,
+  removeProviderConnection,
+} from "@/lib/provider-connections.functions";
+import { assignCalendarBrandKit, listBrandKits, saveBrandKit } from "@/lib/brand-kits.functions";
+import { DEFAULT_STYLE_SPEC } from "@/lib/style-spec";
+import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -78,9 +86,17 @@ function SettingsPage() {
     "calendar",
   );
   const [importLimit, setImportLimit] = useState(80);
+  const [importAllEvents, setImportAllEvents] = useState(false);
   const importMut = useMutation({
     mutationFn: () =>
-      runImport({ data: { url: importUrl.trim(), kind: importKind, limit: importLimit } }),
+      runImport({
+        data: {
+          url: importUrl.trim(),
+          kind: importKind,
+          limit: importLimit,
+          allEvents: importAllEvents,
+        },
+      }),
     onSuccess: async () => {
       setImportUrl("");
       await refetch();
@@ -159,6 +175,61 @@ function SettingsPage() {
     },
   });
   const apiOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const fetchProviderConnections = useServerFn(listProviderConnections);
+  const addProviderConnection = useServerFn(connectProvider);
+  const deleteProviderConnection = useServerFn(removeProviderConnection);
+  const { data: providerConnections = [], refetch: refetchProviderConnections } = useQuery({
+    queryKey: ["provider-connections"],
+    queryFn: () => fetchProviderConnections(),
+  });
+  const [provider, setProvider] = useState<"eventbrite" | "meetup">("eventbrite");
+  const [providerUrl, setProviderUrl] = useState("");
+  const [providerToken, setProviderToken] = useState("");
+  const [providerRefreshToken, setProviderRefreshToken] = useState("");
+  const providerMut = useMutation({
+    mutationFn: () =>
+      addProviderConnection({
+        data: {
+          provider,
+          sourceUrl: providerUrl.trim(),
+          accessToken: providerToken.trim(),
+          refreshToken: providerRefreshToken.trim() || undefined,
+          syncAllEvents: true,
+        },
+      }),
+    onSuccess: async () => {
+      setProviderUrl("");
+      setProviderToken("");
+      setProviderRefreshToken("");
+      await Promise.all([refetchProviderConnections(), refetch(), refetchSyncSources()]);
+      qc.invalidateQueries({ queryKey: ["luma-events"] });
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+    },
+  });
+  const fetchBrandKits = useServerFn(listBrandKits);
+  const createBrandKit = useServerFn(saveBrandKit);
+  const assignBrandKit = useServerFn(assignCalendarBrandKit);
+  const { data: brandKits = [], refetch: refetchBrandKits } = useQuery({
+    queryKey: ["brand-kits"],
+    queryFn: () => fetchBrandKits(),
+  });
+  const [brandKitName, setBrandKitName] = useState("");
+  const brandKitMut = useMutation({
+    mutationFn: () =>
+      createBrandKit({
+        data: {
+          name: brandKitName.trim(),
+          styleSpec: DEFAULT_STYLE_SPEC,
+          badgeDoc: CLASSIC_BADGE_DOC,
+          logos: [],
+          isDefault: brandKits.length === 0,
+        },
+      }),
+    onSuccess: async () => {
+      setBrandKitName("");
+      await refetchBrandKits();
+    },
+  });
 
   async function onCreateToken() {
     if (!tokenName.trim()) return;
@@ -393,10 +464,15 @@ function SettingsPage() {
         ) : (
           <CalendarOrganizer
             calendars={cals!}
+            brandKits={brandKits}
             busy={busy}
             onSetDefault={onSetDefault}
             onRemove={onRemove}
             onChanged={refetch}
+            onAssignBrandKit={async (calendarId, brandKitId) => {
+              await assignBrandKit({ data: { calendarId, brandKitId } });
+              await refetch();
+            }}
           />
         )}
       </div>
@@ -435,14 +511,13 @@ function SettingsPage() {
         </div>
         <h2 className="mt-1 font-display text-xl font-semibold">No API key? Paste a link</h2>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Connect a public Luma calendar, event, or host profile by URL. Public calendars use
-          Luma&apos;s public data when possible; event and profile sync use Firecrawl.
+          Import a public Luma, Eventbrite, or Meetup calendar, organizer, group, or event URL.
         </p>
 
         <input
           value={importUrl}
           onChange={(e) => setImportUrl(e.target.value)}
-          placeholder="https://lu.ma/…"
+          placeholder="https://luma.com/…, eventbrite.com/…, or meetup.com/…"
           disabled={importMut.isPending}
           className="mt-4 w-full rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
         />
@@ -479,15 +554,26 @@ function SettingsPage() {
               <input
                 type="number"
                 min={1}
-                max={80}
+                max={2000}
                 value={importLimit}
                 onChange={(e) =>
-                  setImportLimit(Math.max(1, Math.min(80, Number(e.target.value) || 40)))
+                  setImportLimit(Math.max(1, Math.min(2000, Number(e.target.value) || 80)))
                 }
-                disabled={importMut.isPending}
+                disabled={importMut.isPending || importAllEvents}
                 className="mt-1 w-24 rounded-lg border border-hairline bg-background px-3 py-1.5 text-sm"
               />
             </div>
+          )}
+          {importKind !== "event" && (
+            <label className="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={importAllEvents}
+                onChange={(event) => setImportAllEvents(event.target.checked)}
+                disabled={importMut.isPending}
+              />
+              Sync all pages
+            </label>
           )}
           <button
             onClick={() => importMut.mutate()}
@@ -506,6 +592,121 @@ function SettingsPage() {
             Imported {importMut.data.imported} event
             {importMut.data.imported === 1 ? "" : "s"} into {importMut.data.calendarName}.
           </p>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+          Event providers
+        </div>
+        <h2 className="mt-1 font-display text-xl font-semibold">Eventbrite and Meetup</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Public links work in the importer below. Add an organizer access token here for
+          authoritative sync and to mark its events as owned.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[130px_1fr]">
+          <select
+            value={provider}
+            onChange={(event) => setProvider(event.target.value as "eventbrite" | "meetup")}
+            className="rounded-xl border border-hairline bg-background px-3 py-2.5 text-sm"
+          >
+            <option value="eventbrite">Eventbrite</option>
+            <option value="meetup">Meetup</option>
+          </select>
+          <input
+            value={providerUrl}
+            onChange={(event) => setProviderUrl(event.target.value)}
+            placeholder={
+              provider === "eventbrite"
+                ? "Event, organizer, or organization URL"
+                : "Meetup event URL"
+            }
+            className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
+          />
+          {provider === "meetup" && (
+            <>
+              <div />
+              <input
+                value={providerRefreshToken}
+                onChange={(event) => setProviderRefreshToken(event.target.value)}
+                type="password"
+                placeholder="Meetup refresh token (optional)"
+                className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
+              />
+            </>
+          )}
+          <div />
+          <input
+            value={providerToken}
+            onChange={(event) => setProviderToken(event.target.value)}
+            type="password"
+            placeholder={`${provider} access token`}
+            className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
+          />
+        </div>
+        <button
+          onClick={() => providerMut.mutate()}
+          disabled={providerMut.isPending || !providerUrl.trim() || !providerToken.trim()}
+          className="mt-3 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+        >
+          {providerMut.isPending ? "Connecting…" : `Connect ${provider}`}
+        </button>
+        {providerMut.isError && (
+          <p className="mt-2 text-xs text-destructive">{providerMut.error.message}</p>
+        )}
+        {providerConnections.length > 0 && (
+          <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
+            {providerConnections.map((connection) => (
+              <li key={connection.id} className="flex items-center gap-3 py-3">
+                <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase">
+                  {connection.provider}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {connection.name}
+                </span>
+                <button
+                  onClick={async () => {
+                    await deleteProviderConnection({ data: { id: connection.id } });
+                    await Promise.all([refetchProviderConnections(), refetch()]);
+                  }}
+                  className="text-xs text-destructive"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+          Design automation
+        </div>
+        <h2 className="mt-1 font-display text-xl font-semibold">Brand kits</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Owned calendars can prefill the badge editor with a reusable style and layout. Create a
+          starter kit, then assign it beside a calendar above.
+        </p>
+        <div className="mt-4 flex gap-2">
+          <input
+            value={brandKitName}
+            onChange={(event) => setBrandKitName(event.target.value)}
+            placeholder="Brand kit name"
+            className="min-w-0 flex-1 rounded-xl border border-hairline bg-background px-4 py-2.5 text-sm"
+          />
+          <button
+            onClick={() => brandKitMut.mutate()}
+            disabled={brandKitMut.isPending || !brandKitName.trim()}
+            className="rounded-full border border-hairline px-4 py-2 text-xs font-semibold disabled:opacity-40"
+          >
+            Create
+          </button>
+        </div>
+        {brandKits.length > 0 && (
+          <div className="mt-3 font-mono text-[10px] text-muted-foreground">
+            {brandKits.map((kit) => `${kit.name}${kit.isDefault ? " (default)" : ""}`).join(" · ")}
+          </div>
         )}
       </div>
 
@@ -610,16 +811,20 @@ function SettingsPage() {
 
 function CalendarOrganizer({
   calendars,
+  brandKits,
   busy,
   onSetDefault,
   onRemove,
   onChanged,
+  onAssignBrandKit,
 }: {
   calendars: UserCalendarDTO[];
+  brandKits: Array<{ id: string; name: string }>;
   busy: boolean;
   onSetDefault: (id: string) => Promise<void>;
   onRemove: (id: string, name: string) => Promise<void>;
   onChanged: () => Promise<unknown>;
+  onAssignBrandKit: (calendarId: string, brandKitId: string | null) => Promise<void>;
 }) {
   const qc = useQueryClient();
   const fetchGroups = useServerFn(listCalendarGroups);
@@ -796,6 +1001,7 @@ function CalendarOrganizer({
                       )}
                     </div>
                     <div className="font-mono text-[10px] text-muted-foreground">
+                      {calendar.provider} · {calendar.ownership} ·{" "}
                       {calendar.eventCount > 0
                         ? `${calendar.eventCount} events`
                         : "No published events"}{" "}
@@ -815,6 +1021,23 @@ function CalendarOrganizer({
                     )}
                   </div>
                   <div className="col-span-3 flex items-center justify-end gap-1 sm:col-span-1">
+                    {calendar.ownership === "connected" && brandKits.length > 0 && (
+                      <select
+                        value={calendar.brandKitId ?? ""}
+                        onChange={(event) =>
+                          onAssignBrandKit(calendar.id, event.target.value || null)
+                        }
+                        className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
+                        aria-label={`Brand kit for ${calendar.name}`}
+                      >
+                        <option value="">Default kit</option>
+                        {brandKits.map((kit) => (
+                          <option key={kit.id} value={kit.id}>
+                            {kit.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <select
                       value={calendar.groupId ?? ""}
                       onChange={(event) => moveCalendar(calendar.id, event.target.value || null)}

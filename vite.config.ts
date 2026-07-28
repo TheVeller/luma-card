@@ -14,7 +14,7 @@ export default defineConfig({
     tasks: {
       "calendar:sync": {
         handler: fileURLToPath(new URL("./src/lib/calendar-sync.task.ts", import.meta.url)),
-        description: "Synchronize due Luma calendars and profiles",
+        description: "Synchronize due Luma, Eventbrite, and Meetup sources",
       },
     },
     scheduledTasks: {

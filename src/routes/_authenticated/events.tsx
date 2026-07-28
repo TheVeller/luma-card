@@ -17,12 +17,12 @@ import {
 export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
     meta: [
-      { title: "Your Luma events — Badge Studio" },
+      { title: "Your events — Event Router" },
       {
         name: "description",
-        content: "Pick a Luma event to generate personalized shareable badges.",
+        content: "Browse aggregated events and generate personalized shareable badges.",
       },
-      { property: "og:title", content: "Your Luma events" },
+      { property: "og:title", content: "Your aggregated events" },
       {
         property: "og:description",
         content: "Personalized badges for every event on your Luma calendar.",

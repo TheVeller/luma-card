@@ -136,7 +136,7 @@ export async function firecrawlScrapeSource(url: string): Promise<{
   }
 }
 
-/** Scrape a Luma event page and extract structured event data. */
+/** Scrape an event page and extract provider-neutral structured event data. */
 export async function firecrawlScrapeEvent(url: string): Promise<{
   name: string;
   description: string | null;
@@ -172,7 +172,7 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
           type: "json",
           schema,
           prompt:
-            "Extract the event's name, one-paragraph description, cover image URL, city (or 'Online'), ISO start date, ISO end date, and host/organizer name from this Luma event page.",
+            "Extract the event's name, one-paragraph description, cover image URL, city (or 'Online'), ISO start date, ISO end date, and host/organizer name. Dates must include a timezone offset when the page provides one.",
         },
       ],
       onlyMainContent: true,
@@ -210,6 +210,44 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
     console.error("[firecrawl] scrapeEvent failed:", (e as Error).message);
     return null;
   }
+}
+
+/** Discover Eventbrite or Meetup event detail links from a public collection. */
+export async function firecrawlDiscoverProviderEvents(
+  sourceUrl: string,
+  provider: "eventbrite" | "meetup",
+  limit: number,
+): Promise<string[]> {
+  const source = new URL(sourceUrl);
+  const response = await fcCall<ScrapeResponse>("/map", {
+    url: sourceUrl,
+    limit,
+    includeSubdomains: false,
+  });
+  const urls = linkUrls(
+    (response as unknown as { links?: unknown; data?: { links?: unknown } }).links ??
+      response.data?.links,
+  );
+  const seen = new Set<string>();
+  for (const raw of urls) {
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.replace(/^www\./, "").toLowerCase();
+      const matches =
+        provider === "eventbrite"
+          ? (host === "eventbrite.com" || host.includes(".eventbrite.")) &&
+            /\/e\/[^/]+-\d+\/?$/i.test(url.pathname)
+          : host === "meetup.com" && /\/[^/]+\/events\/\d+\/?$/i.test(url.pathname);
+      if (!matches) continue;
+      url.search = "";
+      url.hash = "";
+      seen.add(url.toString().replace(/\/$/, ""));
+      if (seen.size >= limit) break;
+    } catch {
+      // Ignore malformed map results.
+    }
+  }
+  return [...seen];
 }
 
 const RESERVED_SEGMENTS = new Set([
