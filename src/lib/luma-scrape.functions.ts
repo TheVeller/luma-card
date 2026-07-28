@@ -17,7 +17,7 @@ export type ImportResult = {
 const InputSchema = z.object({
   url: z.string().url(),
   kind: z.enum(["auto", "calendar", "event", "profile"]).default("auto"),
-  limit: z.number().int().min(1).max(80).default(40),
+  limit: z.number().int().min(1).max(80).default(80),
 });
 
 function hashKey(s: string): string {
