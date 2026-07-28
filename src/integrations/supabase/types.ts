@@ -107,6 +107,65 @@ export type Database = {
         }
         Relationships: []
       }
+      event_sync_jobs: {
+        Row: {
+          attempt: number
+          batch_id: string
+          created_at: string
+          discovered_count: number | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          imported_count: number | null
+          scheduled_at: string
+          source_id: string
+          started_at: string | null
+          status: string
+          trigger: string
+          user_id: string
+        }
+        Insert: {
+          attempt?: number
+          batch_id: string
+          created_at?: string
+          discovered_count?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          imported_count?: number | null
+          scheduled_at?: string
+          source_id: string
+          started_at?: string | null
+          status?: string
+          trigger: string
+          user_id: string
+        }
+        Update: {
+          attempt?: number
+          batch_id?: string
+          created_at?: string
+          discovered_count?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          imported_count?: number | null
+          scheduled_at?: string
+          source_id?: string
+          started_at?: string | null
+          status?: string
+          trigger?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_sync_jobs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "user_luma_calendars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scraped_events: {
         Row: {
           calendar_id: string | null
@@ -220,9 +279,21 @@ export type Database = {
           calendar_slug: string | null
           calendar_url: string | null
           created_at: string
+          curated_name: string | null
+          discovered_count: number
+          event_limit: number
           id: string
+          imported_count: number
           is_default: boolean
+          last_synced_at: string | null
+          next_sync_at: string | null
+          remote_name: string | null
           source: string
+          source_kind: string | null
+          source_metadata: Json | null
+          sync_enabled: boolean
+          sync_error: string | null
+          sync_status: string
           updated_at: string
           user_id: string
         }
@@ -234,9 +305,21 @@ export type Database = {
           calendar_slug?: string | null
           calendar_url?: string | null
           created_at?: string
+          curated_name?: string | null
+          discovered_count?: number
+          event_limit?: number
           id?: string
+          imported_count?: number
           is_default?: boolean
+          last_synced_at?: string | null
+          next_sync_at?: string | null
+          remote_name?: string | null
           source?: string
+          source_kind?: string | null
+          source_metadata?: Json | null
+          sync_enabled?: boolean
+          sync_error?: string | null
+          sync_status?: string
           updated_at?: string
           user_id: string
         }
@@ -248,9 +331,21 @@ export type Database = {
           calendar_slug?: string | null
           calendar_url?: string | null
           created_at?: string
+          curated_name?: string | null
+          discovered_count?: number
+          event_limit?: number
           id?: string
+          imported_count?: number
           is_default?: boolean
+          last_synced_at?: string | null
+          next_sync_at?: string | null
+          remote_name?: string | null
           source?: string
+          source_kind?: string | null
+          source_metadata?: Json | null
+          sync_enabled?: boolean
+          sync_error?: string | null
+          sync_status?: string
           updated_at?: string
           user_id?: string
         }
