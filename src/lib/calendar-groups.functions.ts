@@ -112,7 +112,7 @@ export const acceptCalendarGroupSuggestion = createServerFn({ method: "POST" })
       .single();
     if (calendarError) throw new Error(calendarError.message);
     const name = (calendar as { suggested_group_name: string | null }).suggested_group_name;
-    if (!name) throw new Error("This calendar has no group suggestion");
+    if (!name) return { ok: true, skipped: true as const };
     const { data: existingGroup } = await supabaseAdmin
       .from("calendar_groups" as never)
       .select("id")
