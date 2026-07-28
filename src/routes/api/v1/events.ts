@@ -3,7 +3,8 @@
 // with its source calendar. Live passthrough: reuses aggregateEventsForUser.
 //
 //   Authorization: Bearer luma_sk_...
-//   ?calendar=<calendar_id|all>  ?from=<ISO>  ?to=<ISO>  ?limit=1..200  ?cursor=<opaque>
+//   ?calendar=<calendar_id|all>  ?mode=<canonical|sources>
+//   ?from=<ISO>  ?to=<ISO>  ?limit=1..200  ?cursor=<opaque>
 //
 // Server-only helpers are imported dynamically inside the handlers because this
 // route file ships to the client bundle.
@@ -27,6 +28,10 @@ export const Route = createFileRoute("/api/v1/events")({
 
         const params = new URL(request.url).searchParams;
         const calendar = params.get("calendar") ?? "all";
+        const mode = params.get("mode") ?? "canonical";
+        if (mode !== "canonical" && mode !== "sources") {
+          return json(400, { error: "bad_params", detail: "mode must be canonical or sources" });
+        }
         const from = params.get("from");
         const to = params.get("to");
         if (isBadDate(from) || isBadDate(to)) {
@@ -37,10 +42,12 @@ export const Route = createFileRoute("/api/v1/events")({
         if (offset === null) return json(400, { error: "bad_params", detail: "invalid cursor" });
 
         try {
-          const { aggregateEventsForUser } = await import("@/lib/events-aggregate.server");
-          const { events, calendars } = await aggregateEventsForUser(auth.userId, {
-            calendarId: calendar,
-          });
+          const { aggregateCanonicalEventsForUser, aggregateEventsForUser } =
+            await import("@/lib/events-aggregate.server");
+          const { events, calendars } =
+            mode === "sources"
+              ? await aggregateEventsForUser(auth.userId, { calendarId: calendar })
+              : await aggregateCanonicalEventsForUser(auth.userId, { calendarId: calendar });
           const calById = new Map(calendars.map((c) => [c.calendarId, c]));
 
           const fromTs = from ? Date.parse(from) : null;
@@ -63,9 +70,13 @@ export const Route = createFileRoute("/api/v1/events")({
               endAt: e.endAt ?? null,
               city: e.city ?? null,
               description: e.description ?? null,
+              externalIds: "externalIds" in e ? e.externalIds : null,
+              sources: "sources" in e ? e.sources : null,
+              tags: "tags" in e ? e.tags : [],
               calendar: (e.calendarId && calById.get(e.calendarId)) || null,
             })),
             page: { limit, offset, total, nextCursor },
+            mode,
           });
         } catch (err) {
           console.error("[/api/v1/events] failed", err);

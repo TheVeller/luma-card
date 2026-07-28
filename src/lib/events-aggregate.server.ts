@@ -10,6 +10,11 @@
 import { fetchAllEvents, type LumaEvent } from "./luma.server";
 import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
 import { readScrapedEventsForCalendar } from "./luma-scrape.functions";
+import {
+  canonicalizeEvents,
+  type CanonicalEventDTO,
+  type SourceEventInput,
+} from "./canonical-events";
 
 export type EventDTO = {
   id: string;
@@ -75,6 +80,62 @@ function metaFor(r: CalendarRow): CalendarMeta {
 
 export type AggregateResult = { events: EventDTO[]; calendars: CalendarMeta[] };
 
+async function collectEventSourceInputsForUser(
+  userId: string,
+  opts: { calendarId?: string } = {},
+): Promise<{ inputs: SourceEventInput[]; rows: CalendarRow[] }> {
+  const allRows = await readUserCalendars(userId);
+  const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
+  const rows = wantAll ? allRows : allRows.filter((r) => r.calendar_id === opts.calendarId);
+
+  const selectedRowIds = new Set(rows.map((r) => r.id));
+  const keyed = await resolveAllKeys(userId);
+  const apiResults = await Promise.all(
+    keyed
+      .filter(({ row }) => selectedRowIds.has(row.id))
+      .map(async ({ key, row }) => {
+        try {
+          const events = await fetchAllEvents(key);
+          return events.map((e) => ({
+            event: toDTO(e, row.calendar_id, row.calendar_name ?? undefined),
+            sourceType: "api" as const,
+            calendarRowId: row.id,
+            calendarId: row.calendar_id,
+            calendarName: row.calendar_name ?? undefined,
+            sourceUrl: e.url,
+            externalEventId: e.api_id,
+          }));
+        } catch (e) {
+          console.error(`[aggregate] calendar ${row.calendar_id} failed`, e);
+          return [] as SourceEventInput[];
+        }
+      }),
+  );
+
+  const scrapedRows = rows.filter((r) => r.source === "scrape");
+  const scrapedResults = await Promise.all(
+    scrapedRows.map(async (r) => {
+      const events = await readScrapedEventsForCalendar(
+        userId,
+        r.id,
+        r.calendar_id,
+        r.calendar_name ?? "Imported",
+      );
+      return events.map((event) => ({
+        event,
+        sourceType: "calendar_scrape" as const,
+        calendarRowId: r.id,
+        calendarId: r.calendar_id,
+        calendarName: r.calendar_name ?? "Imported",
+        sourceUrl: event.url,
+        externalEventId: event.id,
+      }));
+    }),
+  );
+
+  return { inputs: [...apiResults, ...scrapedResults].flat(), rows };
+}
+
 /**
  * Aggregate events for a user across their calendars.
  * @param opts.calendarId  omit / "all" / "__all__" → every calendar; otherwise
@@ -84,50 +145,34 @@ export async function aggregateEventsForUser(
   userId: string,
   opts: { calendarId?: string } = {},
 ): Promise<AggregateResult> {
-  const allRows = await readUserCalendars(userId);
-  const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
-  const rows = wantAll ? allRows : allRows.filter((r) => r.calendar_id === opts.calendarId);
-
-  // API calendars: resolveAllKeys already excludes scrape rows (null ciphertext).
-  // Filter the decrypted keys down to the selected rows.
-  const selectedRowIds = new Set(rows.map((r) => r.id));
-  const keyed = await resolveAllKeys(userId);
-  const apiResults = await Promise.all(
-    keyed
-      .filter(({ row }) => selectedRowIds.has(row.id))
-      .map(async ({ key, row }) => {
-        try {
-          const events = await fetchAllEvents(key);
-          return events.map((e) => toDTO(e, row.calendar_id, row.calendar_name ?? undefined));
-        } catch (e) {
-          console.error(`[aggregate] calendar ${row.calendar_id} failed`, e);
-          return [] as EventDTO[];
-        }
-      }),
-  );
-
-  // Scraped calendars: read from scraped_events.
-  const scrapedRows = rows.filter((r) => r.source === "scrape");
-  const scrapedResults = await Promise.all(
-    scrapedRows.map((r) =>
-      readScrapedEventsForCalendar(userId, r.id, r.calendar_id, r.calendar_name ?? "Imported"),
-    ),
-  );
+  const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
 
   // Merge + dedupe by `${calendarId}:${id}` (identical to legacy listEvents).
   const merged: EventDTO[] = [];
   const seen = new Set<string>();
-  for (const arr of [...apiResults, ...scrapedResults]) {
-    for (const ev of arr) {
-      const k = `${ev.calendarId}:${ev.id}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      merged.push(ev as EventDTO);
-    }
+  for (const { event } of inputs) {
+    const k = `${event.calendarId}:${event.id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(event);
   }
 
   // Deterministic order (ascending by start) so offset pagination is stable.
   merged.sort(compareEventsByStart);
 
   return { events: merged, calendars: rows.map(metaFor) };
+}
+
+export async function aggregateCanonicalEventsForUser(
+  userId: string,
+  opts: { calendarId?: string } = {},
+): Promise<{
+  events: CanonicalEventDTO[];
+  calendars: CalendarMeta[];
+  sourceRows: SourceEventInput[];
+}> {
+  const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
+  const events = canonicalizeEvents(inputs);
+  events.sort(compareEventsByStart);
+  return { events, calendars: rows.map(metaFor), sourceRows: inputs };
 }

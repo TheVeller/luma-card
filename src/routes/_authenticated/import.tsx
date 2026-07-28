@@ -12,14 +12,12 @@ export const Route = createFileRoute("/_authenticated/import")({
       { title: "Import from a link — Badge Studio" },
       {
         name: "description",
-        content:
-          "Import a Luma calendar or a single event by URL — no API key required.",
+        content: "Import a Luma calendar or a single event by URL — no API key required.",
       },
       { property: "og:title", content: "Import from a link" },
       {
         property: "og:description",
-        content:
-          "Turn any Luma calendar or event URL into personalized badges.",
+        content: "Turn any Luma calendar or event URL into personalized badges.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -33,7 +31,7 @@ function ImportPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
-  const [kind, setKind] = useState<"auto" | "calendar" | "event">("auto");
+  const [kind, setKind] = useState<"auto" | "calendar" | "event" | "profile">("auto");
   const [limit, setLimit] = useState(40);
 
   const mut = useMutation({
@@ -60,9 +58,9 @@ function ImportPage() {
         Import from a link
       </h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Paste a Luma calendar URL (like <code>https://lu.ma/hack0</code>) to import
-        every event, or a single event URL (like <code>https://lu.ma/abcd1234</code>)
-        to import just that one. No API key needed — we scrape the public page.
+        Paste a Luma calendar URL (like <code>https://lu.ma/hack0</code>) to import every event, or
+        a single event URL (like <code>https://lu.ma/abcd1234</code>) to import just that one. Host
+        profile URLs sync the public events they expose. No API key needed.
       </p>
 
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/60 p-5">
@@ -83,7 +81,7 @@ function ImportPage() {
               Type
             </div>
             <div className="mt-1 inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
-              {(["auto", "calendar", "event"] as const).map((k) => (
+              {(["auto", "calendar", "event", "profile"] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -111,9 +109,7 @@ function ImportPage() {
                 min={1}
                 max={80}
                 value={limit}
-                onChange={(e) =>
-                  setLimit(Math.max(1, Math.min(80, Number(e.target.value) || 40)))
-                }
+                onChange={(e) => setLimit(Math.max(1, Math.min(80, Number(e.target.value) || 40)))}
                 disabled={mut.isPending}
                 className="mt-1 w-24 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-sm"
               />
@@ -140,9 +136,7 @@ function ImportPage() {
         {mut.isError && (
           <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs">
             <b>Import failed.</b>
-            <div className="mt-1 font-mono opacity-80">
-              {(mut.error as Error).message}
-            </div>
+            <div className="mt-1 font-mono opacity-80">{(mut.error as Error).message}</div>
           </div>
         )}
         {mut.isSuccess && mut.data && (
@@ -154,9 +148,9 @@ function ImportPage() {
       </div>
 
       <p className="mt-6 font-mono text-[11px] leading-relaxed text-muted-foreground">
-        Scraped calendars appear in your calendar switcher with a ⌘ marker.
-        Reruns re-scrape and refresh the cached events. This currently supports{" "}
-        <b>lu.ma</b>; other providers land in a follow-up.
+        Scraped calendars appear in your calendar switcher with a ⌘ marker. Reruns re-scrape and
+        refresh the cached events. This currently supports <b>lu.ma</b>; other providers land in a
+        follow-up.
       </p>
     </div>
   );

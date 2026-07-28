@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Grid3X3, List } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 import { downloadEventsDataset } from "@/lib/export-events";
+import { syncEventLibrary } from "@/lib/event-sync.functions";
 
 export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
@@ -138,10 +139,18 @@ function sourceLabel(ev: EventDTO) {
 
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
+  const runSync = useServerFn(syncEventLibrary);
+  const qc = useQueryClient();
   const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
     queryFn: () => fetchEvents({ data: { calendarId: activeCalendarId ?? undefined } }),
+  });
+  const syncMut = useMutation({
+    mutationFn: () => runSync(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["luma-events"] });
+    },
   });
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
@@ -297,8 +306,27 @@ function EventsPage() {
           >
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
+          <button
+            onClick={() => syncMut.mutate()}
+            disabled={!data || data.length === 0 || syncMut.isPending}
+            className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40"
+          >
+            {syncMut.isPending ? "Syncing…" : "Sync library"}
+          </button>
         </div>
       </div>
+
+      {syncMut.isSuccess && (
+        <div className="mt-4 rounded-xl border border-hairline bg-surface/60 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          Synced {syncMut.data.synced}/{syncMut.data.scanned} sources
+          {syncMut.data.failed > 0 ? ` · ${syncMut.data.failed} failed` : ""}
+        </div>
+      )}
+      {syncMut.isError && (
+        <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          Sync failed: {(syncMut.error as Error).message}
+        </div>
+      )}
 
       {data && data.length > 0 && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">

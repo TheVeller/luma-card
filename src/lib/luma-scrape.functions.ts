@@ -6,7 +6,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 export type ImportResult = {
-  kind: "calendar" | "event";
+  kind: "calendar" | "event" | "profile";
   calendarRowId: string; // uuid of the user_luma_calendars row
   calendarId: string; // stable synthetic id (`scr-<slug>`)
   calendarName: string;
@@ -16,7 +16,7 @@ export type ImportResult = {
 
 const InputSchema = z.object({
   url: z.string().url(),
-  kind: z.enum(["auto", "calendar", "event"]).default("auto"),
+  kind: z.enum(["auto", "calendar", "event", "profile"]).default("auto"),
   limit: z.number().int().min(1).max(80).default(40),
 });
 
@@ -26,11 +26,12 @@ function hashKey(s: string): string {
   return `scr-${Math.abs(h).toString(36)}`;
 }
 
-function guessKind(url: string): "calendar" | "event" {
+function guessKind(url: string): "calendar" | "event" | "profile" {
   try {
     const u = new URL(url);
     const seg = u.pathname.replace(/^\/+|\/+$/g, "");
     if (!seg) return "calendar";
+    if (/^(user|u|profile)\//i.test(seg)) return "profile";
     // Only `evt-...` ids are unambiguously events. Human slugs like `hack0`
     // are much more likely to be calendars, and even a short hash slug can be
     // a calendar — so default to calendar and let the handler fall back to
@@ -105,31 +106,50 @@ export const importFromUrl = createServerFn({ method: "POST" })
 
           const imported: string[] = [];
           for (const ev of events) {
-            const { error: upErr } = await supabaseAdmin
-              .from("scraped_events" as never)
-              .upsert(
-                {
-                  user_id: context.userId,
-                  calendar_id: calendarRowId,
-                  event_key: ev.apiId,
-                  source_url: ev.url,
-                  name: ev.name,
-                  description: null,
-                  cover_url: ev.coverUrl,
-                  city: ev.city,
-                  start_at: ev.startAt,
-                  end_at: ev.endAt,
-                  host_name: null,
-                  payload: { source: "luma-api" },
-                  updated_at: new Date().toISOString(),
-                } as never,
-                { onConflict: "user_id,event_key" },
-              );
+            const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
+              {
+                user_id: context.userId,
+                calendar_id: calendarRowId,
+                event_key: ev.apiId,
+                source_url: ev.url,
+                name: ev.name,
+                description: null,
+                cover_url: ev.coverUrl,
+                city: ev.city,
+                start_at: ev.startAt,
+                end_at: ev.endAt,
+                host_name: null,
+                payload: { source: "luma-api" },
+                updated_at: new Date().toISOString(),
+              } as never,
+              { onConflict: "user_id,event_key" },
+            );
             if (upErr) {
               console.error("scraped_events upsert failed", upErr);
               continue;
             }
             imported.push(ev.apiId);
+            const { upsertCanonicalEventSource } = await import("./canonical-events.server");
+            await upsertCanonicalEventSource(context.userId, {
+              event: {
+                id: ev.apiId,
+                name: ev.name,
+                coverUrl: ev.coverUrl,
+                url: ev.url,
+                startAt: ev.startAt ?? new Date().toISOString(),
+                endAt: ev.endAt ?? undefined,
+                city: ev.city ?? undefined,
+                calendarId,
+                calendarName: cal.name,
+              },
+              sourceType: "calendar_scrape",
+              calendarRowId,
+              calendarId,
+              calendarName: cal.name,
+              sourceUrl: ev.url,
+              externalEventId: ev.apiId,
+              payload: { source: "luma-public-api" },
+            });
           }
 
           return {
@@ -145,6 +165,82 @@ export const importFromUrl = createServerFn({ method: "POST" })
       // auto + calendar resolution empty/failed → fall through to event scrape.
     }
 
+    if (kind === "profile") {
+      const { hasFirecrawl, firecrawlDiscoverLumaEvents, firecrawlScrapeEvent } =
+        await import("./firecrawl.server");
+      if (!hasFirecrawl()) throw new Error("Firecrawl connector not configured");
+
+      const profileSlug = new URL(data.url).pathname.replace(/^\/+|\/+$/g, "") || "profile";
+      const calendarId = `scr-profile-${hashKey(data.url).replace(/^scr-/, "")}`;
+      const calendarName = `Profile: ${profileSlug}`;
+      const calendarRowId = await ensureCalendarRow(calendarId, calendarName, data.url);
+      const urls = await firecrawlDiscoverLumaEvents(data.url, data.limit);
+      if (urls.length === 0) throw new Error("No public Luma events found on that profile.");
+
+      const imported: string[] = [];
+      const { upsertCanonicalEventSource } = await import("./canonical-events.server");
+      for (const url of urls) {
+        const ev = await firecrawlScrapeEvent(url);
+        if (!ev) continue;
+        const eventKey = hashKey(url);
+        const eventDto = {
+          id: eventKey,
+          name: ev.name,
+          coverUrl: ev.coverUrl,
+          url,
+          startAt: ev.startAt ?? new Date().toISOString(),
+          endAt: ev.endAt ?? undefined,
+          city: ev.city ?? undefined,
+          description: ev.description ?? undefined,
+          calendarId,
+          calendarName,
+        };
+        const { error: upErr } = await supabaseAdmin.from("scraped_events" as never).upsert(
+          {
+            user_id: context.userId,
+            calendar_id: calendarRowId,
+            event_key: eventKey,
+            source_url: url,
+            name: ev.name,
+            description: ev.description,
+            cover_url: ev.coverUrl,
+            city: ev.city,
+            start_at: ev.startAt,
+            end_at: ev.endAt,
+            host_name: ev.hostName,
+            payload: { source: "profile", profileUrl: data.url, branding: ev.branding ?? null },
+            updated_at: new Date().toISOString(),
+          } as never,
+          { onConflict: "user_id,event_key" },
+        );
+        if (upErr) {
+          console.error("profile scraped_events upsert failed", upErr);
+          continue;
+        }
+        await upsertCanonicalEventSource(context.userId, {
+          event: eventDto,
+          sourceType: "profile_scrape",
+          calendarRowId,
+          calendarId,
+          calendarName,
+          sourceUrl: url,
+          externalEventId: eventKey,
+          hostName: ev.hostName,
+          payload: { profileUrl: data.url },
+        });
+        imported.push(eventKey);
+      }
+      if (imported.length === 0)
+        throw new Error("Profile events were found, but none could be read.");
+      return {
+        kind: "profile",
+        calendarRowId,
+        calendarId,
+        calendarName,
+        imported: imported.length,
+        eventIds: imported,
+      };
+    }
 
     // --- Single event: scrape the page with Firecrawl. ---
     const { hasFirecrawl, firecrawlScrapeEvent } = await import("./firecrawl.server");
@@ -176,6 +272,29 @@ export const importFromUrl = createServerFn({ method: "POST" })
       { onConflict: "user_id,event_key" },
     );
     if (upErr) throw new Error(upErr.message);
+    const { upsertCanonicalEventSource } = await import("./canonical-events.server");
+    await upsertCanonicalEventSource(context.userId, {
+      event: {
+        id: eventKey,
+        name: ev.name,
+        coverUrl: ev.coverUrl,
+        url: data.url,
+        startAt: ev.startAt ?? new Date().toISOString(),
+        endAt: ev.endAt ?? undefined,
+        city: ev.city ?? undefined,
+        description: ev.description ?? undefined,
+        calendarId,
+        calendarName,
+      },
+      sourceType: "event_scrape",
+      calendarRowId,
+      calendarId,
+      calendarName,
+      sourceUrl: data.url,
+      externalEventId: eventKey,
+      hostName: ev.hostName,
+      payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
+    });
 
     return {
       kind: "event",
@@ -185,7 +304,6 @@ export const importFromUrl = createServerFn({ method: "POST" })
       imported: 1,
       eventIds: [eventKey],
     };
-
   });
 
 export type ScrapedEventDTO = {

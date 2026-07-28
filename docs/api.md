@@ -122,14 +122,15 @@ Calendar fields:
 ### `GET /api/v1/events`
 
 Returns routed events for the caller. By default it reads all connected
-calendars, merges API-backed and imported calendars, deduplicates events per
-calendar, and tags each event with its source calendar.
+calendars, merges API-backed and imported calendars, and returns one canonical
+event with every source where it appeared.
 
 Query parameters:
 
 | Param | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `calendar` | `string` | `all` | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`. |
+| `mode` | `canonical \| sources` | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
 | `from` | ISO date string | none | Inclusive lower bound on `startAt`. |
 | `to` | ISO date string | none | Inclusive upper bound on `startAt`. |
 | `limit` | integer `1..200` | `100` | Page size. |
@@ -156,6 +157,23 @@ Response:
       "endAt": "2026-08-01T02:00:00.000Z",
       "city": "Lima, Peru",
       "description": "A meetup for builders.",
+      "externalIds": {
+        "lumaEventId": "evt-abc123",
+        "scrapedEventKeys": []
+      },
+      "sources": [
+        {
+          "sourceType": "api",
+          "sourceKey": "api:cal-abc123:evt-abc123",
+          "calendarId": "cal-abc123",
+          "calendarName": "Founder Dinners",
+          "sourceUrl": "https://lu.ma/ai-builders-night",
+          "externalEventId": "evt-abc123",
+          "hostName": null,
+          "lastSyncedAt": "2026-07-28T14:00:00.000Z"
+        }
+      ],
+      "tags": [],
       "calendar": {
         "calendarId": "cal-abc123",
         "name": "Founder Dinners",
@@ -169,7 +187,8 @@ Response:
     "offset": 0,
     "total": 88,
     "nextCursor": "MjU"
-  }
+  },
+  "mode": "canonical"
 }
 ```
 
@@ -185,7 +204,13 @@ Event fields:
 | `endAt` | `string \| null` | ISO date string when known. |
 | `city` | `string \| null` | Human-readable city/location when available. |
 | `description` | `string \| null` | Markdown/text description when available. |
+| `externalIds` | `object \| null` | Canonical mode only: known Luma/scraped ids. |
+| `sources` | `array \| null` | Canonical mode only: calendars/imports/profile sources where the event appeared. |
+| `tags` | `string[]` | Approved tags. Empty until tagging is configured. |
 | `calendar` | `object \| null` | Source calendar metadata. |
+
+Use `mode=sources` when your integration needs one row per calendar/source
+instead of deduplicated canonical events.
 
 Pagination:
 
@@ -297,6 +322,17 @@ type EventCalendarDTO = {
   source: CalendarSource;
 };
 
+type EventSourceDTO = {
+  sourceType: "api" | "calendar_scrape" | "event_scrape" | "profile_scrape";
+  sourceKey: string;
+  calendarId: string | null;
+  calendarName: string | null;
+  sourceUrl: string;
+  externalEventId: string | null;
+  hostName: string | null;
+  lastSyncedAt: string;
+};
+
 type EventDTO = {
   id: string;
   name: string;
@@ -306,6 +342,12 @@ type EventDTO = {
   endAt: string | null;
   city: string | null;
   description: string | null;
+  externalIds: {
+    lumaEventId?: string;
+    scrapedEventKeys: string[];
+  } | null;
+  sources: EventSourceDTO[] | null;
+  tags: string[];
   calendar: EventCalendarDTO | null;
 };
 
@@ -321,5 +363,6 @@ type EventsResponse = {
     total: number;
     nextCursor: string | null;
   };
+  mode: "canonical" | "sources";
 };
 ```

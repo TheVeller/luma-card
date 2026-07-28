@@ -52,7 +52,9 @@ function SettingsPage() {
   // --- Import a calendar by public link (Firecrawl scrape, no API key) ---
   const runImport = useServerFn(importFromUrl);
   const [importUrl, setImportUrl] = useState("");
-  const [importKind, setImportKind] = useState<"auto" | "calendar" | "event">("calendar");
+  const [importKind, setImportKind] = useState<"auto" | "calendar" | "event" | "profile">(
+    "calendar",
+  );
   const [importLimit, setImportLimit] = useState(40);
   const importMut = useMutation({
     mutationFn: () =>
@@ -303,8 +305,8 @@ function SettingsPage() {
         </div>
         <h2 className="mt-1 font-display text-xl font-semibold">No API key? Paste a link</h2>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Connect a public Luma calendar (like <code>https://lu.ma/your-calendar</code>) by URL — we
-          scrape its public page. Great when you don&apos;t own the calendar&apos;s API key.
+          Connect a public Luma calendar, event, or host profile by URL. Public calendars use
+          Luma&apos;s public data when possible; event and profile sync use Firecrawl.
         </p>
 
         <input
@@ -321,7 +323,7 @@ function SettingsPage() {
               Type
             </div>
             <div className="mt-1 inline-flex rounded-full border border-hairline bg-background/60 p-1 text-xs font-medium">
-              {(["calendar", "event", "auto"] as const).map((k) => (
+              {(["calendar", "event", "profile", "auto"] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -362,7 +364,7 @@ function SettingsPage() {
             disabled={importMut.isPending || !importUrl.trim()}
             className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
-            {importMut.isPending ? "Importing…" : "Import calendar"}
+            {importMut.isPending ? "Importing…" : "Import link"}
           </button>
         </div>
 
