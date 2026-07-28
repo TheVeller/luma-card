@@ -27,6 +27,16 @@ export const Route = createFileRoute("/api/v1/calendars")({
             await import("@/lib/user-luma-calendars.functions");
           const rows = await readUserCalendars(auth.userId);
           const groups = await readCalendarGroups(auth.userId);
+          const { readCalendarAliases } = await import("@/lib/calendar-identity.server");
+          const aliases = await readCalendarAliases(
+            auth.userId,
+            rows.map((row) => row.id),
+          );
+          const { readEventLibraryStats } = await import("@/lib/event-library-stats.functions");
+          const eventStats = await readEventLibraryStats(auth.userId);
+          const eventStatsByCalendar = new Map(
+            eventStats.calendars.map((stats) => [stats.calendarRowId, stats]),
+          );
           const groupById = new Map(groups.map((group) => [group.id, group]));
           return json(200, {
             groups: groups.map((group) => ({
@@ -37,13 +47,17 @@ export const Route = createFileRoute("/api/v1/calendars")({
             calendars: rows
               .map((r) => {
                 const group = r.group_id ? groupById.get(r.group_id) : null;
-                const eventCount = r.imported_count ?? 0;
+                const calendarStats = eventStatsByCalendar.get(r.id);
+                const eventCount = calendarStats?.total ?? r.imported_count ?? 0;
                 return {
                   id: r.calendar_id,
+                  canonicalCalendarId: r.luma_calendar_id ?? null,
+                  aliases: aliases.get(r.id) ?? [],
                   name: r.calendar_name,
                   slug: r.calendar_slug,
                   source: r.source ?? "api",
                   kind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
+                  sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
                   isDefault: r.is_default,
                   url: r.calendar_url,
                   avatarUrl: r.calendar_avatar_url,
@@ -51,6 +65,9 @@ export const Route = createFileRoute("/api/v1/calendars")({
                   description: r.calendar_description,
                   color: r.calendar_tint_color,
                   eventCount,
+                  upcomingCount: calendarStats?.upcoming ?? 0,
+                  pastCount: calendarStats?.past ?? 0,
+                  unknownCount: calendarStats?.unknown ?? 0,
                   hasEvents: eventCount > 0,
                   order: r.sort_order ?? 0,
                   group: group ? { id: group.id, name: group.name, order: group.sort_order } : null,

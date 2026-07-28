@@ -27,6 +27,7 @@ import {
   listCalendarGroups,
   saveCalendarOrganization,
 } from "@/lib/calendar-groups.functions";
+import { getEventLibraryStats } from "@/lib/event-library-stats.functions";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -44,6 +45,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
 
 function SettingsPage() {
   const fetchList = useServerFn(listCalendars);
+  const fetchEventStats = useServerFn(getEventLibraryStats);
   const add = useServerFn(addCalendar);
   const remove = useServerFn(removeCalendar);
   const setDefault = useServerFn(setDefaultCalendar);
@@ -58,6 +60,10 @@ function SettingsPage() {
   } = useQuery({
     queryKey: ["luma-calendars"],
     queryFn: () => fetchList(),
+  });
+  const { data: eventStats } = useQuery({
+    queryKey: ["event-library-stats"],
+    queryFn: () => fetchEventStats(),
   });
 
   const [apiKey, setApiKey] = useState("");
@@ -80,6 +86,7 @@ function SettingsPage() {
       await refetch();
       qc.invalidateQueries({ queryKey: ["luma-events"] });
       qc.invalidateQueries({ queryKey: ["luma-config"] });
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
     },
   });
 
@@ -125,6 +132,7 @@ function SettingsPage() {
       refetchSyncSources();
       qc.invalidateQueries({ queryKey: ["luma-events"] });
       qc.invalidateQueries({ queryKey: ["luma-calendars"] });
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
     },
   });
   useEffect(() => {
@@ -136,6 +144,7 @@ function SettingsPage() {
       await refetchSyncSources();
       qc.invalidateQueries({ queryKey: ["luma-calendars"] });
       qc.invalidateQueries({ queryKey: ["luma-events"] });
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
     }, 6000);
     return () => {
       cancelled = true;
@@ -261,6 +270,29 @@ function SettingsPage() {
         </a>
         .
       </p>
+
+      <section className="mt-8 grid grid-cols-3 overflow-hidden rounded-xl border border-hairline bg-surface/60">
+        {[
+          ["Total", eventStats?.total ?? 0],
+          ["Upcoming", eventStats?.upcoming ?? 0],
+          ["Past", eventStats?.past ?? 0],
+        ].map(([label, value]) => (
+          <div
+            key={label}
+            className="border-r border-hairline px-4 py-4 text-center last:border-r-0"
+          >
+            <div className="font-display text-2xl font-semibold tabular-nums">{value}</div>
+            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+              {label}
+            </div>
+          </div>
+        ))}
+        {(eventStats?.unknown ?? 0) > 0 && (
+          <div className="col-span-3 border-t border-hairline px-3 py-2 text-center font-mono text-[9px] text-muted-foreground">
+            {eventStats?.unknown} events without a known date
+          </div>
+        )}
+      </section>
 
       <section className="mt-8 border-y border-hairline py-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

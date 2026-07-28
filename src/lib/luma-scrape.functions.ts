@@ -54,41 +54,67 @@ export const importFromUrl = createServerFn({ method: "POST" })
       calendarId: string,
       calendarName: string,
       calendarUrl: string | null,
+      sourceKind: "calendar" | "profile" | "event",
+      lumaCalendarId?: string | null,
     ): Promise<string> {
-      const { data: existingCal } = await supabaseAdmin
-        .from("user_luma_calendars" as never)
-        .select("id")
-        .eq("user_id", context.userId)
-        .eq("calendar_id", calendarId)
-        .maybeSingle();
-      const existingId = (existingCal as { id?: string } | null)?.id;
+      const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
+        await import("./calendar-identity.server");
+      const existingId =
+        (lumaCalendarId && (await resolveCanonicalCalendarRowId(context.userId, lumaCalendarId))) ||
+        (await resolveCanonicalCalendarRowId(context.userId, calendarId));
       if (existingId) {
         const { error } = await supabaseAdmin
           .from("user_luma_calendars" as never)
           .update({
+            remote_name: calendarName,
             calendar_name: calendarName,
-            calendar_url: calendarUrl,
+            calendar_url: calendarUrl ?? undefined,
             updated_at: new Date().toISOString(),
           } as never)
           .eq("id", existingId)
           .eq("user_id", context.userId);
         if (error) throw new Error(error.message);
-        return existingId;
+        const winnerId = lumaCalendarId
+          ? await registerLumaCalendarIdentity(context.userId, existingId, lumaCalendarId)
+          : existingId;
+        await addCalendarAliases(context.userId, winnerId, [
+          { value: calendarId, kind: "legacy_id" },
+          { value: calendarUrl, kind: "url" },
+          { value: lumaCalendarId, kind: "luma_id" },
+        ]);
+        return winnerId;
       }
       const { data: inserted, error } = await supabaseAdmin
         .from("user_luma_calendars" as never)
-        .insert({
-          user_id: context.userId,
-          calendar_id: calendarId,
-          calendar_name: calendarName,
-          calendar_url: calendarUrl,
-          source: "scrape",
-          is_default: false,
-        } as never)
+        .upsert(
+          {
+            user_id: context.userId,
+            calendar_id: calendarId,
+            calendar_name: calendarName,
+            calendar_url: calendarUrl,
+            source: "scrape",
+            source_kind: sourceKind,
+            // Identity is claimed transactionally after insertion. Leaving this
+            // null avoids racing the partial unique index with another importer.
+            luma_calendar_id: null,
+            source_metadata: lumaCalendarId ? { lumaCalendarId } : {},
+            is_default: false,
+          } as never,
+          { onConflict: "user_id,calendar_id" },
+        )
         .select("id")
         .single();
       if (error) throw new Error(error.message);
-      return (inserted as { id: string }).id;
+      const insertedId = (inserted as { id: string }).id;
+      const winnerId = lumaCalendarId
+        ? await registerLumaCalendarIdentity(context.userId, insertedId, lumaCalendarId)
+        : insertedId;
+      await addCalendarAliases(context.userId, winnerId, [
+        { value: calendarId, kind: "legacy_id" },
+        { value: calendarUrl, kind: "url" },
+        { value: lumaCalendarId, kind: "luma_id" },
+      ]);
+      return winnerId;
     }
 
     async function upsertScrapedEvent(values: Record<string, unknown>) {
@@ -122,11 +148,25 @@ export const importFromUrl = createServerFn({ method: "POST" })
         }
       } else {
         const events = await fetchPublicCalendarEvents(cal.apiId, data.limit);
-        if (events.length === 0 && requestedKind !== "auto")
-          throw new Error("That calendar has no events to import.");
-        if (events.length > 0) {
+        {
           const calendarId = `scr-${cal.apiId}`;
-          const calendarRowId = await ensureCalendarRow(calendarId, cal.name, data.url);
+          const calendarRowId = await ensureCalendarRow(
+            calendarId,
+            cal.name,
+            cal.url,
+            "calendar",
+            cal.apiId,
+          );
+          const { data: canonicalCalendar } = await supabaseAdmin
+            .from("user_luma_calendars" as never)
+            .select("calendar_id,calendar_name")
+            .eq("id", calendarRowId)
+            .single();
+          const canonicalPublicId =
+            (canonicalCalendar as { calendar_id?: string } | null)?.calendar_id ?? calendarId;
+          const canonicalName =
+            (canonicalCalendar as { calendar_name?: string | null } | null)?.calendar_name ??
+            cal.name;
 
           const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
           const importCalendarEvent = async (ev: (typeof events)[number]) => {
@@ -158,13 +198,13 @@ export const importFromUrl = createServerFn({ method: "POST" })
                 startAt: ev.startAt ?? new Date().toISOString(),
                 endAt: ev.endAt ?? undefined,
                 city: ev.city ?? undefined,
-                calendarId,
-                calendarName: cal.name,
+                calendarId: canonicalPublicId,
+                calendarName: canonicalName,
               },
               sourceType: "calendar_scrape",
               calendarRowId,
-              calendarId,
-              calendarName: cal.name,
+              calendarId: canonicalPublicId,
+              calendarName: canonicalName,
               sourceUrl: ev.url,
               externalEventId: ev.apiId,
               payload: { source: "luma-public-api" },
@@ -180,12 +220,47 @@ export const importFromUrl = createServerFn({ method: "POST" })
             );
             imported.push(...batch.filter((eventId): eventId is string => eventId !== null));
           }
+          const nextEventAt =
+            events
+              .map((event) => event.startAt)
+              .filter((value): value is string => Boolean(value))
+              .filter((value) => Date.parse(value) >= Date.now())
+              .sort()[0] ?? null;
+          const { error: metadataError } = await supabaseAdmin
+            .from("user_luma_calendars" as never)
+            .update({
+              remote_name: cal.name,
+              calendar_slug: cal.slug,
+              calendar_url: cal.url,
+              calendar_avatar_url: cal.avatarUrl,
+              calendar_cover_url: cal.coverUrl,
+              calendar_description: cal.description,
+              calendar_tint_color: cal.tintColor,
+              discovered_count: events.length,
+              imported_count: imported.length,
+              source_metadata: {
+                lumaCalendarId: cal.apiId,
+                slug: cal.slug,
+                timezone: cal.timezone,
+                personalUserId: cal.personalUserId,
+                personalUsername: cal.personalUsername,
+                ingestion: "luma-public-api",
+                nextEventAt,
+              },
+              last_synced_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } as never)
+            .eq("id", calendarRowId)
+            .eq("user_id", context.userId);
+          if (metadataError) throw new Error(metadataError.message);
+          const { enqueueSource } = await import("./calendar-sync.server");
+          await enqueueSource(context.userId, calendarRowId, "manual");
 
           return {
             kind: "calendar",
             calendarRowId,
-            calendarId,
-            calendarName: cal.name,
+            calendarId: canonicalPublicId,
+            calendarName: canonicalName,
             imported: imported.length,
             eventIds: imported,
           };
@@ -202,7 +277,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
       const profileSlug = new URL(data.url).pathname.replace(/^\/+|\/+$/g, "") || "profile";
       const calendarId = `scr-profile-${hashKey(data.url).replace(/^scr-/, "")}`;
       const calendarName = `Profile: ${profileSlug}`;
-      const calendarRowId = await ensureCalendarRow(calendarId, calendarName, data.url);
+      const calendarRowId = await ensureCalendarRow(calendarId, calendarName, data.url, "profile");
       const urls = await firecrawlDiscoverLumaEvents(data.url, data.limit);
       if (urls.length === 0) throw new Error("No public Luma events found on that profile.");
 
@@ -282,7 +357,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
 
     const calendarId = `scr-standalone-${context.userId.slice(0, 8)}`;
     const calendarName = "Imported events";
-    const calendarRowId = await ensureCalendarRow(calendarId, calendarName, null);
+    const calendarRowId = await ensureCalendarRow(calendarId, calendarName, null, "event");
 
     const ev = await firecrawlScrapeEvent(data.url);
     if (!ev) throw new Error("Couldn't read that event page.");

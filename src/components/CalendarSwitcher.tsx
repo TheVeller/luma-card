@@ -6,12 +6,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { listCalendars, type UserCalendarDTO } from "@/lib/user-luma-calendars.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
+import { getEventLibraryStats } from "@/lib/event-library-stats.functions";
 
 export function CalendarSwitcher() {
   const fetchList = useServerFn(listCalendars);
+  const fetchEventStats = useServerFn(getEventLibraryStats);
   const { data: cals } = useQuery({
     queryKey: ["luma-calendars"],
     queryFn: () => fetchList(),
+  });
+  const { data: eventStats } = useQuery({
+    queryKey: ["event-library-stats"],
+    queryFn: () => fetchEventStats(),
   });
   const { activeCalendarId, setActiveCalendarId } = useActiveCalendar();
   const [open, setOpen] = useState(false);
@@ -88,6 +94,9 @@ export function CalendarSwitcher() {
                     ∞
                   </div>
                   <span className="text-sm font-medium">All calendars combined</span>
+                  <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {eventStats?.upcoming ?? 0}/{eventStats?.total ?? 0}
+                  </span>
                 </button>
               </li>
             )}
@@ -121,9 +130,12 @@ export function CalendarSwitcher() {
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
                           {c.name}
                         </span>
-                        {c.eventCount === 0 && (
-                          <span className="font-mono text-[9px] text-muted-foreground">empty</span>
-                        )}
+                        <span
+                          className="font-mono text-[10px] tabular-nums text-muted-foreground"
+                          title={`${c.upcomingCount} upcoming of ${c.eventCount} total events`}
+                        >
+                          {c.upcomingCount}/{c.eventCount}
+                        </span>
                         {c.isDefault && (
                           <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
                             default

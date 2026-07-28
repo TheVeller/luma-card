@@ -23,6 +23,7 @@ export default defineTool({
     const { data, error } = await sb
       .from("user_luma_calendars")
       .select("calendar_id, calendar_name, calendar_slug, calendar_url, source, is_default")
+      .is("merged_into_id", null)
       .order("is_default", { ascending: false });
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     return {

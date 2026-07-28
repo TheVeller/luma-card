@@ -127,6 +127,8 @@ Response:
     },
     {
       "id": "scr-xyz789",
+      "canonicalCalendarId": "cal-xyz789",
+      "aliases": ["scr-cal-xyz789", "https://luma.com/example"],
       "name": "Imported events",
       "slug": null,
       "source": "scrape",
@@ -139,27 +141,32 @@ Response:
 
 Calendar fields:
 
-| Field            | Type                                          | Notes                                                                            |
-| ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
-| `id`             | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
-| `name`           | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
-| `slug`           | `string \| null`                              | Luma slug when available.                                                        |
-| `source`         | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
-| `kind`           | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type.                                                         |
-| `isDefault`      | `boolean`                                     | User's default calendar in this app.                                             |
-| `url`            | `string \| null`                              | Calendar URL when known.                                                         |
-| `avatarUrl`      | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                           |
-| `coverUrl`       | `string \| null`                              | Calendar cover or social image.                                                  |
-| `description`    | `string \| null`                              | Latest public description.                                                       |
-| `color`          | `string \| null`                              | Luma tint color when available.                                                  |
-| `eventCount`     | `number`                                      | Number of imported events currently stored.                                      |
-| `hasEvents`      | `boolean`                                     | Convenience flag derived from `eventCount`.                                      |
-| `group`          | `object \| null`                              | User-defined group and its display order.                                        |
-| `order`          | `number`                                      | Calendar order inside its group.                                                 |
-| `curatedName`    | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
-| `remoteName`     | `string \| null`                              | Latest name reported by Luma.                                                    |
-| `suggestedGroup` | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                             |
-| `sync`           | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
+| Field                 | Type                                          | Notes                                                                            |
+| --------------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `id`                  | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
+| `canonicalCalendarId` | `string \| null`                              | Stable Luma `cal-*` identity when it has been resolved.                          |
+| `aliases`             | `string[]`                                    | Permanent legacy IDs, URLs, and slugs accepted anywhere a calendar ID is used.   |
+| `name`                | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
+| `slug`                | `string \| null`                              | Luma slug when available.                                                        |
+| `source`              | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
+| `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).          |
+| `isDefault`           | `boolean`                                     | User's default calendar in this app.                                             |
+| `url`                 | `string \| null`                              | Calendar URL when known.                                                         |
+| `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                           |
+| `coverUrl`            | `string \| null`                              | Calendar cover or social image.                                                  |
+| `description`         | `string \| null`                              | Latest public description.                                                       |
+| `color`               | `string \| null`                              | Luma tint color when available.                                                  |
+| `eventCount`          | `number`                                      | Number of imported events currently stored.                                      |
+| `upcomingCount`       | `number`                                      | Upcoming and currently ongoing canonical events for this calendar.               |
+| `pastCount`           | `number`                                      | Canonical events that have already ended or started without an end time.         |
+| `unknownCount`        | `number`                                      | Canonical events without a usable start timestamp.                               |
+| `hasEvents`           | `boolean`                                     | Convenience flag derived from `eventCount`.                                      |
+| `group`               | `object \| null`                              | User-defined group and its display order.                                        |
+| `order`               | `number`                                      | Calendar order inside its group.                                                 |
+| `curatedName`         | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
+| `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                    |
+| `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                             |
+| `sync`                | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
 `failed`, or `inaccessible`. A `partial` source used a fallback but could not
@@ -174,17 +181,17 @@ event with every source where it appeared.
 
 Query parameters:
 
-| Param      | Type                                  | Default     | Notes                                                                                                     |
-| ---------- | ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| `calendar` | `string`                              | `all`       | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`.                                     |
-| `mode`     | `canonical \| sources`                | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
-| `status`   | `all \| upcoming \| ongoing \| past`  | `all`       | `upcoming` includes events currently in progress; use `ongoing` to return only those events.              |
-| `sort`     | `upcoming \| start_asc \| start_desc` | `upcoming`  | `upcoming` orders ongoing events first, future events nearest-first, then past events newest-first.       |
-| `at`       | ISO date string                       | server time | Reference instant for status/order. Reuse the first response's `generatedAt` on later pages.              |
-| `from`     | ISO date string                       | none        | Inclusive lower bound on `startAt`.                                                                       |
-| `to`       | ISO date string                       | none        | Inclusive upper bound on `startAt`.                                                                       |
-| `limit`    | integer `1..200`                      | `100`       | Page size.                                                                                                |
-| `cursor`   | opaque string                         | none        | `page.nextCursor` from the previous response.                                                             |
+| Param      | Type                                  | Default     | Notes                                                                                                            |
+| ---------- | ------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------- |
+| `calendar` | `string`                              | `all`       | Use `all`, omit it, or pass a current `id`, `canonicalCalendarId`, or any alias returned by `/api/v1/calendars`. |
+| `mode`     | `canonical \| sources`                | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting.        |
+| `status`   | `all \| upcoming \| ongoing \| past`  | `all`       | `upcoming` includes events currently in progress; use `ongoing` to return only those events.                     |
+| `sort`     | `upcoming \| start_asc \| start_desc` | `upcoming`  | `upcoming` orders ongoing events first, future events nearest-first, then past events newest-first.              |
+| `at`       | ISO date string                       | server time | Reference instant for status/order. Reuse the first response's `generatedAt` on later pages.                     |
+| `from`     | ISO date string                       | none        | Inclusive lower bound on `startAt`.                                                                              |
+| `to`       | ISO date string                       | none        | Inclusive upper bound on `startAt`.                                                                              |
+| `limit`    | integer `1..200`                      | `100`       | Page size.                                                                                                       |
+| `cursor`   | opaque string                         | none        | `page.nextCursor` from the previous response.                                                                    |
 
 Example:
 
@@ -373,9 +380,12 @@ type CalendarGroupDTO = {
 
 type CalendarDTO = {
   id: string;
+  canonicalCalendarId: string | null;
+  aliases: string[];
   name: string | null;
   slug: string | null;
   source: CalendarSource;
+  sourceKind: "api" | "calendar" | "profile" | "event";
   isDefault: boolean;
   url: string | null;
   avatarUrl: string | null;
@@ -383,6 +393,9 @@ type CalendarDTO = {
   description: string | null;
   color: string | null;
   eventCount: number;
+  upcomingCount: number;
+  pastCount: number;
+  unknownCount: number;
   hasEvents: boolean;
   group: CalendarGroupDTO | null;
   order: number;

@@ -3,6 +3,7 @@ import {
   compareEventsUpcomingFirst,
   eventDurationMinutes,
   eventTemporalStatus,
+  summarizeEventCounts,
 } from "../event-time";
 
 const NOW = Date.parse("2026-07-28T12:00:00.000Z");
@@ -52,5 +53,19 @@ describe("event temporal status", () => {
       }),
     ).toBe(90);
     expect(eventDurationMinutes({ startAt: "2026-07-28T10:00:00Z" })).toBeNull();
+  });
+
+  test("summarizes ongoing events as upcoming and keeps unknown dates visible", () => {
+    expect(
+      summarizeEventCounts(
+        [
+          { startAt: "2026-07-28T11:00:00Z", endAt: "2026-07-28T13:00:00Z" },
+          { startAt: "2026-07-29T12:00:00Z" },
+          { startAt: "2026-07-27T12:00:00Z" },
+          { startAt: "unknown" },
+        ],
+        NOW,
+      ),
+    ).toEqual({ total: 4, upcoming: 2, past: 1, unknown: 1 });
   });
 });

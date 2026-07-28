@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalizeEvents, canonicalKeyFor, normalizeCanonicalUrl } from "../canonical-events";
+import {
+  canonicalizeEvents,
+  canonicalKeyFor,
+  normalizeCanonicalUrl,
+  sourceDTO,
+} from "../canonical-events";
 
 describe("canonical events", () => {
   test("uses a Luma event id as the strongest canonical key", () => {
@@ -142,5 +147,24 @@ describe("canonical events", () => {
       },
     ]);
     expect(result).toHaveLength(2);
+  });
+
+  test("uses the authoritative snapshot time on synchronized sources", () => {
+    const lastSyncedAt = "2026-07-27T12:34:56.000Z";
+    const source = sourceDTO({
+      event: {
+        id: "evt-api",
+        name: "API event",
+        coverUrl: null,
+        url: "https://luma.com/api-event",
+        startAt: "2026-08-01T12:00:00Z",
+      },
+      sourceType: "api",
+      calendarRowId: "row-api",
+      calendarId: "cal-api",
+      externalEventId: "evt-api",
+      lastSyncedAt,
+    });
+    expect(source.lastSyncedAt).toBe(lastSyncedAt);
   });
 });

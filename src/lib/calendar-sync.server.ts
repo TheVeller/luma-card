@@ -32,10 +32,14 @@ export type SyncSourceRow = {
   sort_order: number;
   suggested_group_name: string | null;
   suggested_group_reason: string | null;
+  luma_calendar_id: string | null;
+  merged_into_id: string | null;
+  source: "api" | "scrape";
+  organization_manual: boolean;
 };
 
 const SOURCE_COLUMNS =
-  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason";
+  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason,luma_calendar_id,merged_into_id,source,organization_manual";
 
 const CALENDAR_METADATA_VERSION = 1;
 
@@ -78,88 +82,97 @@ export async function ensureOwnerCuratedCatalog(userId: string): Promise<void> {
   const { data: user } = await supabaseAdmin.auth.admin.getUserById(userId);
   if (user.user?.email?.toLowerCase() !== CURATED_OWNER_EMAIL) return;
 
-  const { data: existing } = await supabaseAdmin
-    .from("user_luma_calendars" as never)
-    .select(
-      "id,calendar_id,last_synced_at,metadata_version,calendar_avatar_url,imported_count,source_metadata",
-    )
-    .eq("user_id", userId);
-  const byId = new Map(
-    (
-      (existing as Array<{
-        id: string;
-        calendar_id: string;
-        last_synced_at: string | null;
-        metadata_version: number | null;
-        calendar_avatar_url: string | null;
-        imported_count: number | null;
-        source_metadata: { emptyConfirmed?: boolean } | null;
-      }> | null) ?? []
-    ).map((row) => [row.calendar_id, row]),
-  );
-  if (OWNER_CURATED_SOURCES.every((source) => byId.has(sourceCalendarId(source)))) {
-    for (const row of byId.values()) {
-      if (
-        (row.metadata_version ?? 0) < CALENDAR_METADATA_VERSION ||
-        !row.calendar_avatar_url ||
-        ((row.imported_count ?? 0) === 0 && !row.source_metadata?.emptyConfirmed)
-      ) {
-        await enqueueSource(userId, row.id, "initial");
-      }
+  for (const [index, source] of OWNER_CURATED_SOURCES.entries()) {
+    const row = await ensureCuratedSourceRow(userId, source, index);
+    if (
+      (row.metadata_version ?? 0) < CALENDAR_METADATA_VERSION ||
+      !row.calendar_avatar_url ||
+      ((row.imported_count ?? 0) === 0 && !row.source_metadata?.emptyConfirmed)
+    ) {
+      await enqueueSource(userId, row.id, "initial");
     }
-    return;
   }
+}
 
-  const values = OWNER_CURATED_SOURCES.map((source, index) => {
-    const calendarId = sourceCalendarId(source);
-    return {
-      user_id: userId,
-      calendar_id: calendarId,
-      calendar_name: source.name,
-      curated_name: source.name,
-      calendar_url: normalizeSourceUrl(source.url),
-      source: "scrape",
-      source_kind: source.kind,
-      event_limit: source.kind === "profile" ? 500 : 80,
-      sync_enabled: true,
-      is_default: false,
-      sort_order: index,
-      next_sync_at: byId.get(calendarId)?.last_synced_at ? undefined : new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-  });
-  const { data: upserted, error } = await supabaseAdmin
-    .from("user_luma_calendars" as never)
-    .upsert(values as never, { onConflict: "user_id,calendar_id" })
-    .select("id,calendar_id");
+async function ensureCuratedSourceRow(
+  userId: string,
+  source: CuratedSource,
+  sortOrder: number,
+): Promise<SyncSourceRow> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { lumaCalendarIdFromValues } = await import("./calendar-identity");
+  const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
+    await import("./calendar-identity.server");
+  const calendarId = sourceCalendarId(source);
+  const calendarUrl = normalizeSourceUrl(source.url);
+  const identity = lumaCalendarIdFromValues({ calendarId, url: calendarUrl });
+  const existingId =
+    (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
+    (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
+    (await resolveCanonicalCalendarRowId(userId, calendarUrl));
+  const values = {
+    user_id: userId,
+    ...(existingId
+      ? {}
+      : {
+          calendar_id: calendarId,
+          calendar_name: source.name,
+          calendar_url: calendarUrl,
+          source: "scrape",
+          source_kind: source.kind,
+        }),
+    event_limit: source.kind === "profile" ? 500 : 80,
+    sync_enabled: true,
+    ...(existingId
+      ? {}
+      : {
+          is_default: false,
+          sort_order: sortOrder,
+          next_sync_at: new Date().toISOString(),
+        }),
+    updated_at: new Date().toISOString(),
+  };
+  const query = existingId
+    ? supabaseAdmin
+        .from("user_luma_calendars" as never)
+        .update(values as never)
+        .eq("id", existingId)
+        .eq("user_id", userId)
+    : supabaseAdmin
+        .from("user_luma_calendars" as never)
+        .upsert(values as never, { onConflict: "user_id,calendar_id" });
+  const { data, error } = await query.select(SOURCE_COLUMNS).single();
   if (error) throw new Error(error.message);
-  const rows = (upserted as Array<{ id: string; calendar_id: string }> | null) ?? [];
-  if (existing?.length === 0 && rows.length > 0) {
-    const batchId = crypto.randomUUID();
-    const { error: jobsError } = await supabaseAdmin.from("event_sync_jobs" as never).insert(
-      rows.map((row) => ({
-        user_id: userId,
-        source_id: row.id,
-        batch_id: batchId,
-        trigger: "initial",
-        status: "queued",
-      })) as never,
-    );
-    if (jobsError && jobsError.code !== "23505") throw new Error(jobsError.message);
-    await supabaseAdmin
+  let row = data as unknown as SyncSourceRow;
+  // Never overwrite a user's manually curated display name.
+  if (!row.organization_manual && row.curated_name !== source.name) {
+    const { data: named, error: nameError } = await supabaseAdmin
       .from("user_luma_calendars" as never)
-      .update({ sync_status: "queued" } as never)
-      .in(
-        "id",
-        rows.map((row) => row.id),
-      );
-  } else {
-    for (const row of rows) {
-      if (!byId.get(row.calendar_id)?.last_synced_at) {
-        await enqueueSource(userId, row.id, "initial");
-      }
+      .update({ curated_name: source.name } as never)
+      .eq("id", row.id)
+      .select(SOURCE_COLUMNS)
+      .single();
+    if (nameError) throw new Error(nameError.message);
+    row = named as unknown as SyncSourceRow;
+  }
+  if (identity) {
+    const winnerId = await registerLumaCalendarIdentity(userId, row.id, identity);
+    if (winnerId !== row.id) {
+      const { data: winner, error: winnerError } = await supabaseAdmin
+        .from("user_luma_calendars" as never)
+        .select(SOURCE_COLUMNS)
+        .eq("id", winnerId)
+        .single();
+      if (winnerError) throw new Error(winnerError.message);
+      row = winner as unknown as SyncSourceRow;
     }
   }
+  await addCalendarAliases(userId, row.id, [
+    { value: calendarId, kind: "legacy_id" },
+    { value: calendarUrl, kind: "url" },
+    { value: identity, kind: "luma_id" },
+  ]);
+  return row;
 }
 
 export async function listSyncSourcesForUser(userId: string): Promise<SyncSourceRow[]> {
@@ -168,6 +181,7 @@ export async function listSyncSourcesForUser(userId: string): Promise<SyncSource
     .from("user_luma_calendars" as never)
     .select(SOURCE_COLUMNS)
     .eq("user_id", userId)
+    .is("merged_into_id", null)
     .order("curated_name", { ascending: true });
   if (error) throw new Error(error.message);
   return (data as SyncSourceRow[] | null) ?? [];
@@ -177,32 +191,10 @@ export async function upsertCuratedSources(
   userId: string,
   sources: CuratedSource[],
 ): Promise<number> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   let count = 0;
-  for (const source of sources) {
-    const { data, error } = await supabaseAdmin
-      .from("user_luma_calendars" as never)
-      .upsert(
-        {
-          user_id: userId,
-          calendar_id: sourceCalendarId(source),
-          calendar_name: source.name,
-          curated_name: source.name,
-          calendar_url: normalizeSourceUrl(source.url),
-          source: "scrape",
-          source_kind: source.kind,
-          event_limit: source.kind === "profile" ? 500 : 80,
-          sync_enabled: true,
-          is_default: false,
-          next_sync_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        } as never,
-        { onConflict: "user_id,calendar_id" },
-      )
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    await enqueueSource(userId, (data as { id: string }).id, "manual");
+  for (const [index, source] of sources.entries()) {
+    const row = await ensureCuratedSourceRow(userId, source, index);
+    await enqueueSource(userId, row.id, "manual");
     count++;
   }
   return count;
@@ -302,6 +294,79 @@ async function upsertScrapedRows(
       }),
     );
   }
+}
+
+async function syncApiCalendar(userId: string, source: SyncSourceRow) {
+  const { resolveKeyForCalendar } = await import("./user-luma-calendars.functions");
+  const resolved = await resolveKeyForCalendar(userId, source.calendar_id);
+  if (!resolved?.key) throw new Error("Luma API key is unavailable for this calendar");
+  const { fetchAllEvents, fetchCalendar } = await import("./luma.server");
+  const runStartedAt = new Date().toISOString();
+  const [calendar, events] = await Promise.all([
+    fetchCalendar(resolved.key),
+    fetchAllEvents(resolved.key),
+  ]);
+  const { upsertCanonicalEventSource } = await import("./canonical-events.server");
+  for (let offset = 0; offset < events.length; offset += 10) {
+    await Promise.all(
+      events.slice(offset, offset + 10).map((event) =>
+        upsertCanonicalEventSource(userId, {
+          event: {
+            id: event.api_id,
+            name: event.name,
+            coverUrl: event.cover_url,
+            url: event.url,
+            startAt: event.start_at,
+            endAt: event.end_at,
+            city: event.geo_address_info?.city_state,
+            description: event.description_md,
+            calendarId: source.calendar_id,
+            calendarName: calendar.name,
+          },
+          sourceType: "api",
+          calendarRowId: source.id,
+          calendarId: source.calendar_id,
+          calendarName: calendar.name,
+          sourceUrl: event.url,
+          externalEventId: event.api_id,
+          payload: { source: "luma-api", timezone: event.timezone ?? null },
+          lastSyncedAt: runStartedAt,
+        }),
+      ),
+    );
+  }
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error: finalizeError } = await supabaseAdmin.rpc(
+    "finalize_api_calendar_sync" as never,
+    {
+      p_user_id: userId,
+      p_calendar_row_id: source.id,
+      p_run_started_at: runStartedAt,
+    } as never,
+  );
+  if (finalizeError) throw new Error(finalizeError.message);
+  const upcoming = events
+    .map((event) => event.start_at)
+    .filter((value) => Date.parse(value) >= Date.now())
+    .sort()[0];
+  return {
+    discovered: events.length,
+    imported: events.length,
+    remoteName: calendar.name,
+    avatarUrl: calendar.avatar_url,
+    coverUrl: calendar.cover_image_url,
+    description: source.calendar_description,
+    tintColor: source.calendar_tint_color,
+    metadata: {
+      lumaCalendarId: calendar.id,
+      slug: calendar.slug,
+      ingestion: "luma-api",
+      authoritativeSnapshotAt: runStartedAt,
+      emptyConfirmed: events.length === 0,
+      nextEventAt: upcoming ?? null,
+    },
+    partial: false,
+  };
 }
 
 async function syncCalendar(userId: string, source: SyncSourceRow) {
@@ -583,10 +648,14 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
     .maybeSingle();
   if (!claimed) return false;
 
+  const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
+    await import("./calendar-identity.server");
+  const canonicalSourceId =
+    (await resolveCanonicalCalendarRowId(job.user_id, job.source_id)) ?? job.source_id;
   const { data: sourceData } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(SOURCE_COLUMNS)
-    .eq("id", job.source_id)
+    .eq("id", canonicalSourceId)
     .single();
   if (!sourceData) throw new Error("Sync source not found");
   const source = sourceData as unknown as SyncSourceRow;
@@ -597,9 +666,11 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
 
   try {
     const result =
-      source.source_kind === "profile"
-        ? await syncProfile(job.user_id, source)
-        : await syncCalendar(job.user_id, source);
+      source.source_kind === "api"
+        ? await syncApiCalendar(job.user_id, source)
+        : source.source_kind === "profile"
+          ? await syncProfile(job.user_id, source)
+          : await syncCalendar(job.user_id, source);
     const status = "partial" in result && result.partial ? "partial" : "completed";
     const suggestion = suggestedGroup(source, result.description);
     const now = new Date();
@@ -628,6 +699,30 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
         next_sync_at: next,
       } as never)
       .eq("id", source.id);
+    const discoveredIdentity =
+      "lumaCalendarId" in result.metadata && typeof result.metadata.lumaCalendarId === "string"
+        ? result.metadata.lumaCalendarId
+        : null;
+    if (discoveredIdentity) {
+      const winnerId = await registerLumaCalendarIdentity(
+        job.user_id,
+        source.id,
+        discoveredIdentity,
+      );
+      await addCalendarAliases(job.user_id, winnerId, [
+        { value: source.calendar_id, kind: "legacy_id" },
+        { value: source.calendar_url, kind: "url" },
+        { value: discoveredIdentity, kind: "luma_id" },
+        {
+          value:
+            "slug" in result.metadata && typeof result.metadata.slug === "string"
+              ? result.metadata.slug
+              : null,
+          kind: "slug",
+        },
+      ]);
+      if (winnerId !== source.id) await enqueueSource(job.user_id, winnerId, "scheduled");
+    }
     await supabaseAdmin
       .from("event_sync_jobs" as never)
       .update({
@@ -653,6 +748,13 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
       .from("event_sync_jobs" as never)
       .update({ status: "failed", error: message, finished_at: new Date().toISOString() } as never)
       .eq("id", job.id);
+  }
+  const { error: cleanupError } = await supabaseAdmin.rpc(
+    "cleanup_merged_calendar_rows" as never,
+    { p_user_id: job.user_id } as never,
+  );
+  if (cleanupError && !/schema cache|does not exist/i.test(cleanupError.message)) {
+    console.warn("[calendar-sync] merged calendar cleanup failed", cleanupError.message);
   }
   return true;
 }
@@ -694,6 +796,7 @@ export async function enqueueDueSources(): Promise<number> {
     .from("user_luma_calendars" as never)
     .select("id,user_id")
     .eq("sync_enabled", true)
+    .is("merged_into_id", null)
     .lte("next_sync_at", new Date().toISOString());
   const rows = (data as Array<{ id: string; user_id: string }> | null) ?? [];
   for (const row of rows) await enqueueSource(row.user_id, row.id, "scheduled");

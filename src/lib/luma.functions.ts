@@ -27,6 +27,11 @@ export const listEvents = createServerFn({ method: "GET" })
   .handler(async ({ data, context }): Promise<EventDTO[]> => {
     const calendarId = data?.calendarId;
     const allRows = await readUserCalendars(context.userId);
+    const { resolveCanonicalCalendarRowId } = await import("./calendar-identity.server");
+    const resolvedRowId =
+      calendarId && calendarId !== "__all__"
+        ? await resolveCanonicalCalendarRowId(context.userId, calendarId)
+        : null;
 
     // Combined view: fan out across every linked calendar + scraped ones.
     // Shared with the external /api/v1/events route via aggregateEventsForUser.
@@ -40,7 +45,7 @@ export const listEvents = createServerFn({ method: "GET" })
 
     // Specific calendar — could be scraped (source='scrape') or api.
     const row = calendarId
-      ? allRows.find((r) => r.calendar_id === calendarId)
+      ? allRows.find((r) => r.id === resolvedRowId)
       : (allRows.find((r) => r.is_default) ?? allRows[0]);
     if (row?.source === "scrape") {
       return readScrapedEventsForCalendar(
@@ -50,10 +55,12 @@ export const listEvents = createServerFn({ method: "GET" })
         row.calendar_name ?? "Imported",
       );
     }
-    const key = await resolveUserLumaKey(context.userId, calendarId);
+    const key = await resolveUserLumaKey(context.userId, row?.calendar_id ?? calendarId);
     if (!key) throw new NoLumaKeyError();
     const events = await fetchAllEvents(key);
-    return events.map((e) => toDTO(e, calendarId ?? undefined));
+    return events.map((e) =>
+      toDTO(e, row?.calendar_id ?? calendarId ?? undefined, row?.calendar_name ?? undefined),
+    );
   });
 
 export const getEvent = createServerFn({ method: "GET" })

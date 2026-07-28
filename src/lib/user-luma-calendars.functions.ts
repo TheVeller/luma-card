@@ -8,16 +8,22 @@ import { z } from "zod";
 export type UserCalendarDTO = {
   id: string; // uuid PK of the row
   calendarId: string;
+  canonicalCalendarId: string | null;
   name: string;
   slug: string | null;
   avatarUrl: string | null;
   url: string | null;
   isDefault: boolean;
   source: "api" | "scrape";
+  sourceKind: "api" | "calendar" | "profile" | "event";
+  aliases: string[];
   coverUrl: string | null;
   description: string | null;
   color: string | null;
   eventCount: number;
+  upcomingCount: number;
+  pastCount: number;
+  unknownCount: number;
   syncStatus: string;
   groupId: string | null;
   groupName: string | null;
@@ -59,6 +65,8 @@ export type Row = {
   suggested_group_reason?: string | null;
   source_metadata?: Record<string, unknown> | null;
   organization_manual?: boolean | null;
+  luma_calendar_id?: string | null;
+  merged_into_id?: string | null;
 };
 
 export type CalendarGroupRow = {
@@ -68,21 +76,32 @@ export type CalendarGroupRow = {
   sort_order: number;
 };
 
-function toDTO(r: Row, groups = new Map<string, CalendarGroupRow>()): UserCalendarDTO {
+function toDTO(
+  r: Row,
+  groups = new Map<string, CalendarGroupRow>(),
+  aliases: string[] = [],
+  eventStats?: { total: number; upcoming: number; past: number; unknown: number },
+): UserCalendarDTO {
   const group = r.group_id ? groups.get(r.group_id) : null;
   return {
     id: r.id,
     calendarId: r.calendar_id,
+    canonicalCalendarId: r.luma_calendar_id ?? null,
     name: r.calendar_name ?? "Your calendar",
     slug: r.calendar_slug,
     avatarUrl: r.calendar_avatar_url,
     url: r.calendar_url,
     isDefault: r.is_default,
     source: (r.source ?? "api") as "api" | "scrape",
+    sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
+    aliases,
     coverUrl: r.calendar_cover_url ?? null,
     description: r.calendar_description ?? null,
     color: r.calendar_tint_color ?? null,
-    eventCount: r.imported_count ?? 0,
+    eventCount: eventStats?.total ?? r.imported_count ?? 0,
+    upcomingCount: eventStats?.upcoming ?? 0,
+    pastCount: eventStats?.past ?? 0,
+    unknownCount: eventStats?.unknown ?? 0,
     syncStatus: r.sync_status ?? "idle",
     groupId: r.group_id ?? null,
     groupName: group?.name ?? null,
@@ -101,9 +120,10 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id",
     )
     .eq("user_id", userId)
+    .is("merged_into_id", null)
     .order("is_default", { ascending: false })
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
@@ -139,8 +159,10 @@ export async function resolveKeyForCalendar(
 ): Promise<{ key: string; row: Row } | null> {
   const rows = await readUserCalendars(userId);
   if (rows.length === 0) return null;
+  const { resolveCanonicalCalendarRowId } = await import("./calendar-identity.server");
+  const resolvedRowId = calendarId ? await resolveCanonicalCalendarRowId(userId, calendarId) : null;
   const picked =
-    (calendarId && rows.find((r) => r.calendar_id === calendarId)) ||
+    (resolvedRowId && rows.find((r) => r.id === resolvedRowId)) ||
     rows.find((r) => r.is_default) ||
     rows[0];
   const key = await resolveKeyFromRow(picked);
@@ -167,9 +189,21 @@ export const listCalendars = createServerFn({ method: "GET" })
       await ensureOwnerCuratedCatalog(context.userId);
       const rows = await readUserCalendars(context.userId);
       const groups = await readCalendarGroups(context.userId);
+      const { readCalendarAliases } = await import("./calendar-identity.server");
+      const { readEventLibraryStats } = await import("./event-library-stats.functions");
+      const eventStats = await readEventLibraryStats(context.userId);
+      const eventStatsByCalendar = new Map(
+        eventStats.calendars.map((stats) => [stats.calendarRowId, stats]),
+      );
+      const aliases = await readCalendarAliases(
+        context.userId,
+        rows.map((row) => row.id),
+      );
       const groupMap = new Map(groups.map((group) => [group.id, group]));
       return rows
-        .map((row) => toDTO(row, groupMap))
+        .map((row) =>
+          toDTO(row, groupMap, aliases.get(row.id) ?? [], eventStatsByCalendar.get(row.id)),
+        )
         .sort(
           (a, b) =>
             (a.groupOrder ?? Number.MAX_SAFE_INTEGER) - (b.groupOrder ?? Number.MAX_SAFE_INTEGER) ||
@@ -199,34 +233,60 @@ export const addCalendar = createServerFn({ method: "POST" })
     const cal = await fetchCalendar(data.apiKey);
     const { encryptString } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
+      await import("./calendar-identity.server");
 
     // First calendar becomes default automatically.
     const existing = await readUserCalendars(context.userId);
     const isFirst = existing.length === 0;
 
-    const { data: row, error } = await supabaseAdmin
-      .from("user_luma_calendars" as never)
-      .upsert(
-        {
-          user_id: context.userId,
-          calendar_id: cal.id,
-          calendar_name: cal.name,
-          calendar_slug: cal.slug,
-          calendar_avatar_url: cal.avatar_url,
-          calendar_url: cal.url,
-          api_key_ciphertext: encryptString(data.apiKey),
-          source_kind: "api",
-          is_default: isFirst,
-          updated_at: new Date().toISOString(),
-        } as never,
-        { onConflict: "user_id,calendar_id" },
-      )
+    const canonicalRowId = await resolveCanonicalCalendarRowId(context.userId, cal.id);
+    const values = {
+      user_id: context.userId,
+      ...(canonicalRowId
+        ? {}
+        : { calendar_id: cal.id, luma_calendar_id: cal.id, is_default: isFirst }),
+      calendar_name: cal.name,
+      remote_name: cal.name,
+      calendar_slug: cal.slug,
+      calendar_avatar_url: cal.avatar_url,
+      calendar_url: cal.url,
+      api_key_ciphertext: encryptString(data.apiKey),
+      source: "api",
+      source_kind: "api",
+      updated_at: new Date().toISOString(),
+    };
+    const query = canonicalRowId
+      ? supabaseAdmin
+          .from("user_luma_calendars" as never)
+          .update(values as never)
+          .eq("id", canonicalRowId)
+          .eq("user_id", context.userId)
+      : supabaseAdmin
+          .from("user_luma_calendars" as never)
+          .upsert(values as never, { onConflict: "user_id,calendar_id" });
+    const { data: row, error } = await query
       .select(
-        "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default",
+        "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, luma_calendar_id, merged_into_id",
       )
       .single();
     if (error) throw new Error(error.message);
-    return toDTO(row as Row);
+    const winnerId = await registerLumaCalendarIdentity(context.userId, (row as Row).id, cal.id);
+    await addCalendarAliases(context.userId, winnerId, [
+      { value: (row as Row).calendar_id, kind: "legacy_id" },
+      { value: cal.id, kind: "luma_id" },
+      { value: cal.url, kind: "url" },
+      { value: cal.slug, kind: "slug" },
+    ]);
+    const { enqueueSource } = await import("./calendar-sync.server");
+    await enqueueSource(context.userId, winnerId, "manual");
+    const winner = (await readUserCalendars(context.userId)).find(
+      (calendar) => calendar.id === winnerId,
+    );
+    if (!winner) throw new Error("Canonical calendar was not found after registration");
+    const { readCalendarAliases } = await import("./calendar-identity.server");
+    const aliases = await readCalendarAliases(context.userId, [winnerId]);
+    return toDTO(winner, new Map(), aliases.get(winnerId) ?? []);
   });
 
 export const removeCalendar = createServerFn({ method: "POST" })

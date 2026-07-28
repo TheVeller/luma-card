@@ -45,6 +45,7 @@ export type SourceEventInput = {
   externalEventId?: string | null;
   hostName?: string | null;
   payload?: Record<string, unknown>;
+  lastSyncedAt?: string;
 };
 
 export function normalizeCanonicalUrl(raw: string | null | undefined): string | null {
@@ -108,7 +109,7 @@ export function sourceDTO(input: SourceEventInput): CanonicalEventSourceDTO {
     sourceUrl: normalizeCanonicalUrl(input.sourceUrl ?? input.event.url) ?? input.event.url,
     externalEventId: input.externalEventId ?? input.event.id ?? null,
     hostName: input.hostName ?? null,
-    lastSyncedAt: new Date().toISOString(),
+    lastSyncedAt: input.lastSyncedAt ?? new Date().toISOString(),
   };
 }
 

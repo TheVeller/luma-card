@@ -33,6 +33,20 @@ export function eventDurationMinutes(event: Pick<TimedEvent, "startAt" | "endAt"
   return Math.round((end - start) / 60_000);
 }
 
+export function summarizeEventCounts(
+  events: Array<Pick<TimedEvent, "startAt" | "endAt">>,
+  now = Date.now(),
+): { total: number; upcoming: number; past: number; unknown: number } {
+  const summary = { total: events.length, upcoming: 0, past: 0, unknown: 0 };
+  for (const event of events) {
+    const status = eventTemporalStatus(event, now);
+    if (status === "upcoming" || status === "ongoing") summary.upcoming++;
+    else if (status === "past") summary.past++;
+    else summary.unknown++;
+  }
+  return summary;
+}
+
 function compareName(a: TimedEvent, b: TimedEvent): number {
   return (
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) ||

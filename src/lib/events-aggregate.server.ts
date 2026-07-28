@@ -49,17 +49,21 @@ type CalendarRow = Awaited<ReturnType<typeof readUserCalendars>>[number];
 
 export type CalendarMeta = {
   calendarId: string; // public text id (row.calendar_id)
+  canonicalCalendarId: string | null;
   name: string;
   slug: string | null;
   source: "api" | "scrape";
+  sourceKind: "api" | "calendar" | "profile" | "event";
 };
 
 function metaFor(r: CalendarRow): CalendarMeta {
   return {
     calendarId: r.calendar_id,
+    canonicalCalendarId: r.luma_calendar_id ?? null,
     name: r.calendar_name ?? "Your calendar",
     slug: r.calendar_slug ?? null,
     source: (r.source ?? "api") as "api" | "scrape",
+    sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
   };
 }
 
@@ -71,7 +75,11 @@ async function collectEventSourceInputsForUser(
 ): Promise<{ inputs: SourceEventInput[]; rows: CalendarRow[] }> {
   const allRows = await readUserCalendars(userId);
   const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
-  const rows = wantAll ? allRows : allRows.filter((r) => r.calendar_id === opts.calendarId);
+  const { resolveCanonicalCalendarRowId } = await import("./calendar-identity.server");
+  const resolvedRowId = wantAll
+    ? null
+    : await resolveCanonicalCalendarRowId(userId, opts.calendarId);
+  const rows = wantAll ? allRows : allRows.filter((r) => r.id === resolvedRowId);
 
   const selectedRowIds = new Set(rows.map((r) => r.id));
   const keyed = await resolveAllKeys(userId);
