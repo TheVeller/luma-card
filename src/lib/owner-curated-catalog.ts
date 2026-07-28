@@ -1,9 +1,12 @@
+import { detectProviderImportTarget } from "./event-providers";
+
 export const CURATED_OWNER_EMAIL = "ivelasquezfr@gmail.com";
 
 export type CuratedSource = {
   name: string;
   url: string;
-  kind: "calendar" | "profile";
+  kind: "calendar" | "profile" | "group";
+  provider: "luma" | "meetup";
 };
 
 export const OWNER_CURATED_SOURCES: CuratedSource[] = [
@@ -73,12 +76,18 @@ export const OWNER_CURATED_SOURCES: CuratedSource[] = [
   name,
   url,
   kind: kind as "calendar" | "profile",
+  provider: "luma" as const,
 }));
 
 export function normalizeSourceUrl(raw: string): string {
   const url = new URL(raw.trim());
   url.search = "";
   url.hash = "";
+  if (url.hostname.replace(/^www\./, "").toLowerCase() === "meetup.com") {
+    const slug = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+    if (!slug) throw new Error("Meetup group URL is missing its slug");
+    return `https://www.meetup.com/${slug}`;
+  }
   url.hostname = "luma.com";
   const manage = url.pathname.match(/^\/calendar\/manage\/(cal-[A-Za-z0-9]+)\/?$/i);
   if (manage) url.pathname = `/calendar/${manage[1]}`;
@@ -88,31 +97,111 @@ export function normalizeSourceUrl(raw: string): string {
 
 export function sourceCalendarId(source: CuratedSource): string {
   const normalized = normalizeSourceUrl(source.url);
-  const calendarId = normalized.match(/\/calendar\/(cal-[A-Za-z0-9]+)$/i)?.[1];
+  const calendarId =
+    source.provider === "luma" ? normalized.match(/\/calendar\/(cal-[A-Za-z0-9]+)$/i)?.[1] : null;
   if (calendarId) return `scr-${calendarId}`;
   let hash = 5381;
   for (const char of normalized) hash = ((hash << 5) + hash + char.charCodeAt(0)) | 0;
-  return `scr-${source.kind}-${Math.abs(hash).toString(36)}`;
+  return source.provider === "luma"
+    ? `scr-${source.kind}-${Math.abs(hash).toString(36)}`
+    : `scr-meetup-${Math.abs(hash).toString(36)}`;
+}
+
+function parseCsvRows(input: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < input.length; index++) {
+    const char = input[index];
+    if (char === '"') {
+      if (quoted && input[index + 1] === '"') {
+        value += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === "," && !quoted) {
+      row.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && input[index + 1] === "\n") index++;
+      row.push(value);
+      if (row.some((cell) => cell.trim())) rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += char;
+    }
+  }
+  row.push(value);
+  if (row.some((cell) => cell.trim())) rows.push(row);
+  return rows;
+}
+
+function sourceFromUrl(rawUrl: string, name?: string): CuratedSource | null {
+  const target = detectProviderImportTarget(rawUrl);
+  if (!target) return null;
+  if (target.provider === "eventbrite" || target.kind === "event") return null;
+  const kind =
+    target.provider === "meetup" ? "group" : target.kind === "profile" ? "profile" : "calendar";
+  const normalized = normalizeSourceUrl(target.normalizedUrl);
+  const fallbackName =
+    new URL(normalized).pathname.split("/").filter(Boolean).at(-1) ??
+    (target.provider === "meetup" ? "Meetup group" : "Luma source");
+  return {
+    name: name?.trim() || fallbackName,
+    url: normalized,
+    kind,
+    provider: target.provider,
+  };
 }
 
 export function parseBulkSources(input: string): CuratedSource[] {
   const sources: CuratedSource[] = [];
   const seen = new Set<string>();
+
+  const csvRows = parseCsvRows(input);
+  const header = csvRows[0]?.map((cell) => cell.trim().toLowerCase()) ?? [];
+  const nameColumn = header.findIndex((cell) =>
+    /^(name|title|group|group name|calendar name|ds2-m18)$/.test(cell),
+  );
+  const hasHeader =
+    nameColumn >= 0 ||
+    header.some((cell) => /^(url|link|href|flex href|calendar url|group url)$/.test(cell));
+  if (csvRows.length > 1 && csvRows.some((row) => row.length > 1)) {
+    for (const row of csvRows.slice(hasHeader ? 1 : 0)) {
+      const urlColumn = row.findIndex((cell) =>
+        /^https?:\/\/(?:www\.)?(?:lu\.ma|luma\.com|meetup\.com)\//i.test(cell.trim()),
+      );
+      const rawUrl = row[urlColumn];
+      if (!rawUrl) continue;
+      const inferredName = hasHeader
+        ? nameColumn >= 0
+          ? row[nameColumn]
+          : undefined
+        : row.find((cell, index) => index !== urlColumn && cell.trim());
+      const source = sourceFromUrl(rawUrl.trim(), inferredName);
+      if (!source || seen.has(source.url)) continue;
+      seen.add(source.url);
+      sources.push(source);
+    }
+    if (sources.length > 0) return sources;
+  }
+
   for (const rawLine of input.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("```") || /^[-| :]+$/.test(line)) continue;
-    const url = line.match(/https?:\/\/(?:www\.)?(?:lu\.ma|luma\.com)\/[^\s|]+/i)?.[0];
+    const url = line.match(
+      /https?:\/\/(?:www\.)?(?:lu\.ma|luma\.com|meetup\.com)\/[^\s|",]+/i,
+    )?.[0];
     if (!url) continue;
     const cleanUrl = url.replace(/[),.;]+$/, "");
-    if (seen.has(cleanUrl)) continue;
-    seen.add(cleanUrl);
     const before = line.slice(0, line.indexOf(url)).replace(/^[|\s*\d.]+|[|\s—–-]+$/g, "");
-    const kind = /\/(?:user|u|profile)\//i.test(cleanUrl) ? "profile" : "calendar";
-    sources.push({
-      name: before || new URL(cleanUrl).pathname.replace(/^\/+|\/+$/g, "") || "Luma source",
-      url: cleanUrl,
-      kind,
-    });
+    const source = sourceFromUrl(cleanUrl, before);
+    if (!source || seen.has(source.url)) continue;
+    seen.add(source.url);
+    sources.push(source);
   }
   return sources;
 }

@@ -15,11 +15,11 @@ export const listSyncSources = createServerFn({ method: "GET" })
 export const importBulkSources = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((value: unknown) =>
-    z.object({ text: z.string().trim().min(1).max(100_000) }).parse(value),
+    z.object({ text: z.string().trim().min(1).max(1_000_000) }).parse(value),
   )
   .handler(async ({ data, context }) => {
     const sources = parseBulkSources(data.text);
-    if (sources.length === 0) throw new Error("No valid Luma URLs found");
+    if (sources.length === 0) throw new Error("No valid Luma or Meetup group URLs found");
     const { upsertCuratedSources } = await import("./calendar-sync.server");
     return { imported: await upsertCuratedSources(context.userId, sources), sources };
   });

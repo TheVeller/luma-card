@@ -6,7 +6,11 @@ import {
   providerForUrl,
   providerSourceId,
 } from "../event-providers";
-import { fetchPublicProviderEvent, fetchPublicProviderSnapshot } from "../event-providers.server";
+import {
+  fetchPublicMeetupGroupSnapshot,
+  fetchPublicProviderEvent,
+  fetchPublicProviderSnapshot,
+} from "../event-providers.server";
 
 const originalFetch = globalThis.fetch;
 
@@ -29,6 +33,12 @@ describe("event providers", () => {
     expect(providerSourceId("meetup", "https://www.meetup.com/coders/")).toBe(
       "meetup:meetup.com/coders",
     );
+    expect(
+      providerSourceId(
+        "meetup",
+        "https://www.meetup.com/ProductTank-Lima?recSource=chapter-search",
+      ),
+    ).toBe("meetup:meetup.com/producttank-lima");
   });
 
   test("detects provider-specific collection types for the unified importer", () => {
@@ -106,7 +116,7 @@ describe("event providers", () => {
           location: { address: { addressLocality: "Lima" } },
         })}</script>`,
         { headers: { "content-type": "text/html" } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const event = await fetchPublicProviderEvent(
       "eventbrite",
@@ -130,7 +140,7 @@ describe("event providers", () => {
           url: "https://www.eventbrite.com/e/old-launch-tickets-123456789",
         })}</script>`,
         { headers: { "content-type": "text/html" } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const snapshot = await fetchPublicProviderSnapshot(
       "eventbrite",
@@ -142,5 +152,90 @@ describe("event providers", () => {
     expect(snapshot.events).toEqual([]);
     expect(snapshot.readableCount).toBe(1);
     expect(snapshot.complete).toBe(true);
+  });
+
+  test("paginates public Meetup history and upcoming events without Firecrawl", async () => {
+    const node = (id: string, status: "ACTIVE" | "PAST") => ({
+      id,
+      title: `Meetup ${id}`,
+      eventUrl: `https://www.meetup.com/coders/events/${id}/`,
+      description: `Description ${id}`,
+      dateTime: status === "ACTIVE" ? "2026-09-01T18:00:00-05:00" : "2025-09-01T18:00:00-05:00",
+      endTime: status === "ACTIVE" ? "2026-09-01T20:00:00-05:00" : "2025-09-01T20:00:00-05:00",
+      status,
+      eventHosts: [{ memberId: "host-1", name: "Host" }],
+      featuredEventPhoto: {
+        id: `photo-${id}`,
+        baseUrl: "https://secure-content.meetupstatic.com/images/classic-events/",
+        highResUrl: `https://example.com/${id}.jpg`,
+      },
+      venue: { name: "Venue", city: "Lima", state: "Lima", country: "pe" },
+      group: { id: "group-1", name: "Coders", urlname: "coders" },
+    });
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as {
+        variables: {
+          after: string | null;
+          afterDateTime: string | null;
+          beforeDateTime: string | null;
+        };
+      };
+      const upcoming = Boolean(request.variables.afterDateTime);
+      const secondPastPage = request.variables.after === "past-cursor";
+      const events = upcoming
+        ? {
+            totalCount: 1,
+            pageInfo: { endCursor: null, hasNextPage: false },
+            edges: [{ node: node("upcoming-1", "ACTIVE") }],
+          }
+        : secondPastPage
+          ? {
+              totalCount: 2,
+              pageInfo: { endCursor: null, hasNextPage: false },
+              edges: [{ node: node("past-2", "PAST") }],
+            }
+          : {
+              totalCount: 2,
+              pageInfo: { endCursor: "past-cursor", hasNextPage: true },
+              edges: [{ node: node("past-1", "PAST") }],
+            };
+      return new Response(
+        JSON.stringify({
+          data: {
+            groupByUrlname: {
+              id: "group-1",
+              name: "Coders",
+              description: "A public group",
+              keyGroupPhoto: { highResUrl: "https://example.com/group.jpg" },
+              events,
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const snapshot = await fetchPublicMeetupGroupSnapshot(
+      "https://www.meetup.com/Coders?tracking=1",
+      2000,
+      { kind: "full" },
+    );
+
+    expect(snapshot).toMatchObject({
+      name: "Coders",
+      complete: true,
+      discoveredCount: 3,
+      readableCount: 3,
+      sourceMethod: "provider_public_graphql",
+    });
+    expect(snapshot.events.map((event) => event.externalId).sort()).toEqual([
+      "past-1",
+      "past-2",
+      "upcoming-1",
+    ]);
+    expect(snapshot.events[0]?.event).toMatchObject({
+      coverUrl: "https://example.com/upcoming-1.jpg",
+      city: "Lima",
+    });
   });
 });

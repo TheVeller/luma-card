@@ -393,12 +393,14 @@ function SettingsPage() {
         </div>
 
         <label className="mt-6 block font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Bulk import · Name — URL, raw URLs, or Markdown table
+          Bulk import · Luma or Meetup groups · text, Markdown, or CSV
         </label>
         <textarea
           value={bulkText}
           onChange={(event) => setBulkText(event.target.value)}
-          placeholder={"Hack0 Community — https://luma.com/hack0\nhttps://luma.com/user/theveller"}
+          placeholder={
+            "Hack0 Community — https://luma.com/hack0\nAWS User Group Peru — https://www.meetup.com/awsperu"
+          }
           className="mt-2 min-h-28 w-full resize-y rounded-md border border-hairline bg-background p-3 font-mono text-xs focus:border-accent focus:outline-none"
         />
         <div className="mt-2 flex items-center gap-3">

@@ -10,7 +10,13 @@ export type ImportResult = {
   kind: "calendar" | "event" | "profile";
   provider: "luma" | "eventbrite" | "meetup";
   detectedType?: "calendar" | "event" | "profile" | "organizer" | "group";
-  sourceMethod?: "luma_public_api" | "provider_api" | "public_jsonld" | "firecrawl" | "hybrid";
+  sourceMethod?:
+    | "luma_public_api"
+    | "provider_api"
+    | "provider_public_graphql"
+    | "public_jsonld"
+    | "firecrawl"
+    | "hybrid";
   status?: "imported" | "queued" | "partial";
   discovered?: number;
   warnings?: string[];

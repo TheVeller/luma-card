@@ -19,7 +19,12 @@ export type ProviderSnapshot = {
   readableCount?: number;
   truncated?: boolean;
   warnings?: string[];
-  sourceMethod?: "provider_api" | "public_jsonld" | "firecrawl" | "hybrid";
+  sourceMethod?:
+    | "provider_api"
+    | "provider_public_graphql"
+    | "public_jsonld"
+    | "firecrawl"
+    | "hybrid";
 };
 
 export type ProviderSyncScope = { kind: "full" } | { kind: "maintenance"; after: string };
@@ -184,6 +189,272 @@ function meetupProviderEvent(event: MeetupEventNode): ProviderEvent {
       groupId: event.group?.id ?? null,
       groupUrlname: event.group?.urlname ?? null,
     },
+  };
+}
+
+const MEETUP_PUBLIC_GRAPHQL = "https://www.meetup.com/gql2";
+const MEETUP_PUBLIC_PAGE_SIZE = 50;
+const MEETUP_PUBLIC_MAX_PAGES = 100;
+
+type MeetupPublicEventNode = MeetupEventNode & {
+  endTime?: string;
+  status?: string;
+  venue?: {
+    name?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  } | null;
+};
+
+type MeetupPublicPage = {
+  data?: {
+    groupByUrlname?: {
+      id: string;
+      name: string;
+      description?: string;
+      keyGroupPhoto?: { id?: string; baseUrl?: string; highResUrl?: string };
+      events?: {
+        totalCount: number;
+        pageInfo?: { endCursor?: string; hasNextPage?: boolean };
+        edges?: Array<{ node: MeetupPublicEventNode }>;
+      };
+    } | null;
+  };
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>;
+};
+
+function meetupPublicPhoto(
+  raw?: { id?: string; baseUrl?: string; highResUrl?: string } | null,
+): string | null {
+  return raw?.highResUrl ?? meetupPhoto(raw);
+}
+
+function meetupPublicProviderEvent(event: MeetupPublicEventNode): ProviderEvent | null {
+  if (
+    event.status === "CANCELLED" ||
+    !event.id ||
+    !event.title ||
+    !event.eventUrl ||
+    !event.dateTime
+  ) {
+    return null;
+  }
+  const city = [event.venue?.city, event.venue?.state]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join(", ");
+  return {
+    event: {
+      id: event.id,
+      name: event.title,
+      coverUrl: meetupPublicPhoto(event.featuredEventPhoto),
+      url: event.eventUrl,
+      startAt: event.dateTime,
+      endAt: event.endTime,
+      city: city || undefined,
+      description: event.description,
+    },
+    externalId: event.id,
+    hostName: event.eventHosts?.[0]?.name ?? null,
+    payload: {
+      source: "meetup-public-graphql",
+      status: event.status ?? null,
+      groupId: event.group?.id ?? null,
+      groupUrlname: event.group?.urlname ?? null,
+      venue: event.venue ?? null,
+    },
+  };
+}
+
+function retryDelayMs(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get("retry-after");
+  const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
+  if (Number.isFinite(seconds)) return Math.min(30_000, Math.max(0, seconds * 1000));
+  return Math.min(5_000, 500 * 2 ** attempt);
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchMeetupPublicGraphql(
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<MeetupPublicPage> {
+  let lastError = "Meetup public request failed";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(MEETUP_PUBLIC_GRAPHQL, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "user-agent": "Mozilla/5.0 (compatible; LumaCard/1.0; +https://luma-card.lovable.app)",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+    const body = (await response.json().catch(() => null)) as MeetupPublicPage | null;
+    const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATE_LIMITED");
+    if (response.ok && body?.data && !body.errors?.length) return body;
+    lastError = body?.errors?.[0]?.message ?? `Meetup public request failed (${response.status})`;
+    if (attempt === 2 || (!rateLimited && response.status !== 429 && response.status < 500)) {
+      break;
+    }
+    await wait(retryDelayMs(response, attempt));
+  }
+  throw new Error(lastError);
+}
+
+function meetupPublicEventsQuery(sort: "ASC" | "DESC"): string {
+  return `
+  query PublicGroupEvents(
+    $urlname: String!
+    $after: String
+    $afterDateTime: DateTime
+    $beforeDateTime: DateTime
+  ) {
+    groupByUrlname(urlname: $urlname) {
+      id
+      name
+      description
+      keyGroupPhoto { id baseUrl highResUrl }
+      events(
+        filter: {
+          status: [ACTIVE, PAST]
+          afterDateTime: $afterDateTime
+          beforeDateTime: $beforeDateTime
+        }
+        sort: ${sort}
+        first: ${MEETUP_PUBLIC_PAGE_SIZE}
+        after: $after
+      ) {
+        totalCount
+        pageInfo { endCursor hasNextPage }
+        edges {
+          node {
+            id
+            title
+            eventUrl
+            description
+            dateTime
+            endTime
+            status
+            eventHosts { memberId name }
+            featuredEventPhoto { id baseUrl highResUrl }
+            venue { name city state country }
+            group { id name urlname }
+          }
+        }
+      }
+    }
+  }
+`;
+}
+
+type MeetupPublicCollection = {
+  events: ProviderEvent[];
+  totalCount: number;
+  exhausted: boolean;
+  name: string;
+  description: string | null;
+  photo: string | null;
+};
+
+async function fetchMeetupPublicCollection(
+  urlname: string,
+  boundary: { afterDateTime?: string; beforeDateTime?: string; sort: "ASC" | "DESC" },
+  limit: number | null,
+): Promise<MeetupPublicCollection> {
+  const events: ProviderEvent[] = [];
+  let cursor: string | null = null;
+  let totalCount = 0;
+  let name = urlname;
+  let description: string | null = null;
+  let photo: string | null = null;
+  let exhausted = false;
+
+  for (let page = 0; page < MEETUP_PUBLIC_MAX_PAGES; page++) {
+    const body = await fetchMeetupPublicGraphql(meetupPublicEventsQuery(boundary.sort), {
+      urlname,
+      after: cursor,
+      afterDateTime: boundary.afterDateTime ?? null,
+      beforeDateTime: boundary.beforeDateTime ?? null,
+    });
+    const group = body.data?.groupByUrlname;
+    if (!group) throw new Error("Meetup group was not found or is not publicly accessible");
+    name = group.name;
+    description = group.description ?? null;
+    photo = meetupPublicPhoto(group.keyGroupPhoto);
+    const connection = group.events;
+    if (!connection) throw new Error("Meetup did not return the group event collection");
+    totalCount = connection.totalCount;
+    events.push(
+      ...(connection.edges ?? []).flatMap(({ node }) => meetupPublicProviderEvent(node) ?? []),
+    );
+    if (limit !== null && events.length >= limit) break;
+    if (!connection.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) {
+      exhausted = true;
+      break;
+    }
+    cursor = connection.pageInfo.endCursor;
+  }
+
+  return {
+    events: limit === null ? events : events.slice(0, limit),
+    totalCount,
+    exhausted: exhausted && events.length === totalCount,
+    name,
+    description,
+    photo,
+  };
+}
+
+export async function fetchPublicMeetupGroupSnapshot(
+  sourceUrl: string,
+  limit: number | null,
+  scope: ProviderSyncScope,
+): Promise<ProviderSnapshot> {
+  const urlname = new URL(sourceUrl).pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+  if (!urlname) throw new Error("Meetup group URL is required");
+  const now = new Date().toISOString();
+  const collections =
+    scope.kind === "full"
+      ? await Promise.all([
+          fetchMeetupPublicCollection(urlname, { afterDateTime: now, sort: "ASC" }, limit),
+          fetchMeetupPublicCollection(urlname, { beforeDateTime: now, sort: "DESC" }, limit),
+        ])
+      : [
+          await fetchMeetupPublicCollection(
+            urlname,
+            { afterDateTime: scope.after, sort: "ASC" },
+            limit,
+          ),
+        ];
+  const unique = [
+    ...new Map(
+      collections
+        .flatMap((collection) => collection.events)
+        .map((event) => [event.externalId, event]),
+    ).values(),
+  ];
+  const discoveredCount = collections.reduce((sum, collection) => sum + collection.totalCount, 0);
+  const truncated = limit !== null && discoveredCount > limit;
+  const complete = collections.every((collection) => collection.exhausted) && !truncated;
+  const primary = collections[0];
+  return {
+    name: primary?.name ?? urlname,
+    events: limit === null ? unique : unique.slice(0, limit),
+    avatarUrl: primary?.photo ?? null,
+    coverUrl: primary?.photo ?? null,
+    description: primary?.description ?? null,
+    complete,
+    discoveredCount,
+    readableCount: unique.length,
+    truncated,
+    warnings: [
+      ...(!complete ? ["Meetup pagination did not reconcile with the reported total"] : []),
+      ...(truncated ? [`Discovery reached the ${limit}-event limit`] : []),
+    ],
+    sourceMethod: "provider_public_graphql",
   };
 }
 
@@ -466,6 +737,19 @@ export async function fetchPublicProviderSnapshot(
   options: { skipUrls?: string[]; after?: string } = {},
 ): Promise<ProviderSnapshot> {
   const eventId = providerEventId(provider, sourceUrl);
+  let meetupPublicError: Error | null = null;
+  if (provider === "meetup" && !eventId) {
+    try {
+      return await fetchPublicMeetupGroupSnapshot(
+        sourceUrl,
+        limit,
+        options.after ? { kind: "maintenance", after: options.after } : { kind: "full" },
+      );
+    } catch (error) {
+      meetupPublicError = error instanceof Error ? error : new Error(String(error));
+      console.warn("[meetup] public GraphQL failed; trying Firecrawl", meetupPublicError.message);
+    }
+  }
   const { firecrawlDiscoverProviderEvents, firecrawlScrapeSource, hasFirecrawl } =
     await import("./firecrawl.server");
   const urls = eventId
@@ -475,7 +759,9 @@ export async function fetchPublicProviderSnapshot(
       : [];
   if (urls.length === 0) {
     throw new Error(
-      `No public ${provider} events were found. Connect an organizer token for reliable sync.`,
+      meetupPublicError
+        ? `Meetup public sync failed (${meetupPublicError.message}) and Firecrawl found no events.`
+        : `No public ${provider} events were found. Connect an organizer token for reliable sync.`,
     );
   }
   const skipUrls = new Set(options.skipUrls ?? []);
@@ -506,7 +792,10 @@ export async function fetchPublicProviderSnapshot(
   }
   const branding = hasFirecrawl() ? await firecrawlScrapeSource(sourceUrl) : null;
   const unreadableCount = urlsToRead.length - readableCount;
-  const truncated = !eventId && urls.length >= limit;
+  const discoveryLimitReached = !eventId && urls.length >= limit;
+  const fallbackCannotCertifyHistory = meetupPublicError !== null;
+  const meetupPublicFailureMessage = meetupPublicError?.message;
+  const truncated = discoveryLimitReached || fallbackCannotCertifyHistory;
   const usedJsonLd = events.some(({ payload }) =>
     String(payload.source ?? "").endsWith("-public-jsonld"),
   );
@@ -522,13 +811,18 @@ export async function fetchPublicProviderSnapshot(
     avatarUrl: branding?.avatarUrl ?? null,
     coverUrl: branding?.coverUrl ?? events[0]?.event.coverUrl ?? null,
     description: branding?.description ?? null,
-    complete: unreadableCount === 0 && !truncated,
+    complete: unreadableCount === 0 && !truncated && !fallbackCannotCertifyHistory,
     discoveredCount: urls.length,
     readableCount,
     truncated,
     warnings: [
       ...(unreadableCount > 0 ? [`${unreadableCount} discovered events could not be read`] : []),
-      ...(truncated ? [`Discovery reached the ${limit}-event limit`] : []),
+      ...(discoveryLimitReached ? [`Discovery reached the ${limit}-event limit`] : []),
+      ...(fallbackCannotCertifyHistory
+        ? [
+            `Meetup public pagination failed (${meetupPublicFailureMessage}); Firecrawl fallback cannot certify complete history`,
+          ]
+        : []),
     ],
     sourceMethod:
       usedJsonLd && usedFirecrawl

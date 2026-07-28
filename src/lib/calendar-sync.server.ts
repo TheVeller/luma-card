@@ -128,15 +128,34 @@ async function ensureCuratedSourceRow(
 ): Promise<SyncSourceRow> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { lumaCalendarIdFromValues } = await import("./calendar-identity");
+  const { providerSourceId } = await import("./event-providers");
   const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
     await import("./calendar-identity.server");
   const calendarId = sourceCalendarId(source);
   const calendarUrl = normalizeSourceUrl(source.url);
-  const identity = lumaCalendarIdFromValues({ calendarId, url: calendarUrl });
-  const existingId =
+  const identity =
+    source.provider === "luma" ? lumaCalendarIdFromValues({ calendarId, url: calendarUrl }) : null;
+  const meetupProviderId =
+    source.provider === "meetup" ? providerSourceId("meetup", calendarUrl) : null;
+  const providerId = meetupProviderId ?? identity;
+  let existingId =
     (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
     (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
     (await resolveCanonicalCalendarRowId(userId, calendarUrl));
+  if (!existingId && source.provider === "meetup") {
+    const { data: providerMatch } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .select("id")
+      .eq("user_id", userId)
+      .eq("provider", "meetup")
+      .eq("provider_source_id", meetupProviderId!)
+      .is("merged_into_id", null)
+      .maybeSingle();
+    existingId = (providerMatch as { id?: string } | null)?.id ?? null;
+  }
+  const sourceKind = source.kind === "group" ? "calendar" : source.kind;
+  const syncAllEvents =
+    source.provider === "meetup" || /luma\.com\/cursorcommunity(?:[/?#]|$)/i.test(source.url);
   const values = {
     user_id: userId,
     ...(existingId
@@ -146,10 +165,13 @@ async function ensureCuratedSourceRow(
           calendar_name: source.name,
           calendar_url: calendarUrl,
           source: "scrape",
-          source_kind: source.kind,
+          source_kind: sourceKind,
         }),
-    event_limit: source.kind === "profile" ? 500 : 80,
-    sync_all_events: /luma\.com\/cursorcommunity(?:[/?#]|$)/i.test(source.url),
+    provider: source.provider,
+    provider_source_id: providerId,
+    ownership: "external",
+    event_limit: syncAllEvents ? 2000 : source.kind === "profile" ? 500 : 80,
+    sync_all_events: syncAllEvents,
     sync_enabled: true,
     ...(existingId
       ? {}
@@ -1006,7 +1028,9 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
     const status = "partial" in result && result.partial ? "partial" : "completed";
     const suggestion = suggestedGroup(source, result.description);
     const now = new Date();
-    const next = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const next = new Date(
+      now.getTime() + (status === "partial" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000),
+    ).toISOString();
     await supabaseAdmin
       .from("user_luma_calendars" as never)
       .update({
@@ -1072,6 +1096,7 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const inaccessible = /not publicly accessible/i.test(message);
+    const transient = /rate|429|5\d\d|temporar|timeout|fetch failed/i.test(message);
     await supabaseAdmin
       .from("user_luma_calendars" as never)
       .update({
@@ -1079,7 +1104,9 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
         sync_error: message,
         last_sync_attempted_at: attemptedAt,
         last_sync_scope: scope.kind,
-        next_sync_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        next_sync_at: new Date(
+          Date.now() + (transient ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000),
+        ).toISOString(),
       } as never)
       .eq("id", source.id);
     await supabaseAdmin

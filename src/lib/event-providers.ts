@@ -43,6 +43,10 @@ export function providerSourceId(provider: SupportedProvider, raw: string): stri
   const url = new URL(raw);
   url.search = "";
   url.hash = "";
+  if (provider === "meetup") {
+    const slug = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+    if (slug) return `meetup:meetup.com/${slug}`;
+  }
   return `${provider}:${url.hostname.replace(/^www\./, "").toLowerCase()}${url.pathname.replace(/\/+$/, "")}`;
 }
 
@@ -76,7 +80,13 @@ export function detectProviderImportTarget(raw: string): ProviderImportTarget | 
   }
 
   url.search = "";
-  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (provider === "meetup" && !eventId) {
+    const slug = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+    url.hostname = "www.meetup.com";
+    url.pathname = slug ? `/${slug}` : "/";
+  } else {
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  }
   return {
     provider,
     kind,
