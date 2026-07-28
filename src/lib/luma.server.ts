@@ -141,10 +141,14 @@ export type LumaEventSyncScope = { kind: "full" } | { kind: "maintenance"; after
 export async function fetchAllEvents(
   apiKey: string,
   scope: LumaEventSyncScope = { kind: "full" },
-): Promise<LumaEvent[]> {
+): Promise<{ events: LumaEvent[]; complete: boolean; pages: number }> {
   const out: LumaEvent[] = [];
   let cursor: string | undefined;
-  for (let i = 0; i < 200; i++) {
+  let complete = false;
+  let pages = 0;
+  const MAX_PAGES = 400;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    pages = i + 1;
     const params = new URLSearchParams({
       pagination_limit: "100",
       sort_column: "start_at",
@@ -164,10 +168,17 @@ export async function fetchAllEvents(
       const event = "event" in entry ? entry.event : entry;
       out.push(normalizeEvent(event));
     }
-    if (!data.has_more || !data.next_cursor) break;
+    if (!data.has_more || !data.next_cursor) {
+      complete = true;
+      break;
+    }
     cursor = data.next_cursor;
   }
-  return [...new Map(out.map((event) => [event.api_id, event])).values()];
+  return {
+    events: [...new Map(out.map((event) => [event.api_id, event])).values()],
+    complete,
+    pages,
+  };
 }
 
 export async function fetchEvent(apiKey: string, eventId: string): Promise<LumaEvent> {
