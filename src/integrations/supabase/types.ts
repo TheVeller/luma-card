@@ -158,6 +158,138 @@ export type Database = {
           },
         ]
       }
+      canonical_events: {
+        Row: {
+          canonical_key: string
+          city: string | null
+          cover_url: string | null
+          created_at: string
+          description: string | null
+          end_at: string | null
+          host_name: string | null
+          id: string
+          identity_fingerprint: string | null
+          luma_event_id: string | null
+          name: string
+          payload: Json
+          start_at: string | null
+          suggested_tags: string[]
+          tags: string[]
+          updated_at: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          canonical_key: string
+          city?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          end_at?: string | null
+          host_name?: string | null
+          id?: string
+          identity_fingerprint?: string | null
+          luma_event_id?: string | null
+          name: string
+          payload?: Json
+          start_at?: string | null
+          suggested_tags?: string[]
+          tags?: string[]
+          updated_at?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          canonical_key?: string
+          city?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          end_at?: string | null
+          host_name?: string | null
+          id?: string
+          identity_fingerprint?: string | null
+          luma_event_id?: string | null
+          name?: string
+          payload?: Json
+          start_at?: string | null
+          suggested_tags?: string[]
+          tags?: string[]
+          updated_at?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      event_sources: {
+        Row: {
+          calendar_name: string | null
+          calendar_public_id: string | null
+          calendar_row_id: string | null
+          canonical_event_id: string
+          created_at: string
+          external_event_id: string | null
+          host_name: string | null
+          id: string
+          last_synced_at: string
+          payload: Json
+          source_key: string
+          source_type: string
+          source_url: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          calendar_name?: string | null
+          calendar_public_id?: string | null
+          calendar_row_id?: string | null
+          canonical_event_id: string
+          created_at?: string
+          external_event_id?: string | null
+          host_name?: string | null
+          id?: string
+          last_synced_at?: string
+          payload?: Json
+          source_key: string
+          source_type: string
+          source_url: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          calendar_name?: string | null
+          calendar_public_id?: string | null
+          calendar_row_id?: string | null
+          canonical_event_id?: string
+          created_at?: string
+          external_event_id?: string | null
+          host_name?: string | null
+          id?: string
+          last_synced_at?: string
+          payload?: Json
+          source_key?: string
+          source_type?: string
+          source_url?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_sources_calendar_row_id_fkey"
+            columns: ["calendar_row_id"]
+            isOneToOne: false
+            referencedRelation: "user_luma_calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_sources_canonical_event_id_fkey"
+            columns: ["canonical_event_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_style_presets: {
         Row: {
           created_at: string
@@ -553,7 +685,18 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      calendar_canonicalization_report: {
+        Row: {
+          active_calendars: number | null
+          aliases_created: number | null
+          events_moved: number | null
+          merged_calendars: number | null
+          sources_moved: number | null
+          unresolved_calendars: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       add_calendar_alias: {
@@ -572,6 +715,22 @@ export type Database = {
           source_metadata: Json
         }
         Returns: string
+      }
+      cleanup_merged_calendar_rows: {
+        Args: { p_user_id: string }
+        Returns: number
+      }
+      finalize_api_calendar_sync: {
+        Args: {
+          p_calendar_row_id: string
+          p_run_started_at: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_event_library_stats: {
+        Args: { p_at?: string; p_user_id: string }
+        Returns: Json
       }
       merge_calendar_rows: {
         Args: {
