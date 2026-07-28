@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
 import { canonicalizeEvents, type SourceEventInput } from "./canonical-events";
 import { summarizeEventCounts } from "./event-time";
 
@@ -38,12 +40,17 @@ export function invalidateEventLibraryStatsCache(userId: string): void {
   statsCache.delete(userId);
 }
 
-async function readPersistedStats(userId: string): Promise<EventLibraryStats | null> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await supabaseAdmin.rpc(
-    "get_event_library_stats" as never,
-    { p_user_id: userId } as never,
-  );
+type UserSupabaseClient = SupabaseClient<Database>;
+
+async function readPersistedStats(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<EventLibraryStats | null> {
+  const client =
+    userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+  const { data, error } = userClient
+    ? await client.rpc("get_my_event_library_stats" as never)
+    : await client.rpc("get_event_library_stats" as never, { p_user_id: userId } as never);
   if (error) {
     if (/schema cache|does not exist/i.test(error.message)) return null;
     throw new Error(error.message);
@@ -72,10 +79,12 @@ async function readPersistedStats(userId: string): Promise<EventLibraryStats | n
 async function statsNeedLiveFallback(
   userId: string,
   persisted: EventLibraryStats | null,
+  userClient?: UserSupabaseClient,
 ): Promise<boolean> {
   if (!persisted) return true;
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await supabaseAdmin
+  const client =
+    userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+  const { data, error } = await client
     .from("user_luma_calendars" as never)
     .select("id,source_kind,imported_count,sync_status,last_synced_at,source_metadata")
     .eq("user_id", userId)
@@ -109,7 +118,78 @@ async function statsNeedLiveFallback(
   );
 }
 
-async function readLiveStats(userId: string): Promise<EventLibraryStats> {
+type PersistedTimedSource = {
+  calendar_row_id: string | null;
+  canonical_event_id: string;
+  canonical_events:
+    | { id: string; start_at: string | null; end_at: string | null }
+    | Array<{ id: string; start_at: string | null; end_at: string | null }>;
+};
+
+export function summarizePersistedEventStats(
+  calendarRowIds: string[],
+  rows: PersistedTimedSource[],
+  now = Date.now(),
+): EventLibraryStats {
+  const globalEvents = new Map<string, { startAt: string; endAt: string | null }>();
+  const eventsByCalendar = new Map(
+    calendarRowIds.map((calendarRowId) => [
+      calendarRowId,
+      new Map<string, { startAt: string; endAt: string | null }>(),
+    ]),
+  );
+  for (const row of rows) {
+    const event = Array.isArray(row.canonical_events)
+      ? row.canonical_events[0]
+      : row.canonical_events;
+    if (!event) continue;
+    const timed = { startAt: event.start_at ?? "", endAt: event.end_at };
+    globalEvents.set(event.id || row.canonical_event_id, timed);
+    if (row.calendar_row_id) {
+      eventsByCalendar.get(row.calendar_row_id)?.set(event.id || row.canonical_event_id, timed);
+    }
+  }
+  return {
+    generatedAt: new Date(now).toISOString(),
+    ...summarizeEventCounts([...globalEvents.values()], now),
+    calendars: [...eventsByCalendar].map(([calendarRowId, events]) => ({
+      calendarRowId,
+      ...summarizeEventCounts([...events.values()], now),
+    })),
+  };
+}
+
+async function readAuthenticatedLiveStats(
+  userId: string,
+  client: UserSupabaseClient,
+): Promise<EventLibraryStats> {
+  const { data: calendars, error: calendarError } = await client
+    .from("user_luma_calendars" as never)
+    .select("id")
+    .eq("user_id", userId)
+    .is("merged_into_id", null);
+  if (calendarError) throw new Error(calendarError.message);
+  const calendarRowIds = ((calendars as Array<{ id: string }> | null) ?? []).map(
+    (calendar) => calendar.id,
+  );
+  if (calendarRowIds.length === 0) return emptyStats();
+  const { data, error } = await client
+    .from("event_sources" as never)
+    .select("calendar_row_id,canonical_event_id,canonical_events!inner(id,start_at,end_at)")
+    .eq("user_id", userId)
+    .in("calendar_row_id", calendarRowIds);
+  if (error) throw new Error(error.message);
+  return summarizePersistedEventStats(
+    calendarRowIds,
+    (data as unknown as PersistedTimedSource[] | null) ?? [],
+  );
+}
+
+async function readLiveStats(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<EventLibraryStats> {
+  if (userClient) return readAuthenticatedLiveStats(userId, userClient);
   const { aggregateCanonicalEventsForUser } = await import("./events-aggregate.server");
   const { sourceRows } = await aggregateCanonicalEventsForUser(userId, {
     calendarId: "__all__",
@@ -140,11 +220,16 @@ export function summarizeSourceEventStats(
   };
 }
 
-async function loadEventLibraryStats(userId: string): Promise<EventLibraryStats> {
-  const persisted = await readPersistedStats(userId);
-  if (!(await statsNeedLiveFallback(userId, persisted))) return persisted ?? emptyStats();
+async function loadEventLibraryStats(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<EventLibraryStats> {
+  const persisted = await readPersistedStats(userId, userClient);
+  if (!(await statsNeedLiveFallback(userId, persisted, userClient))) {
+    return persisted ?? emptyStats();
+  }
   try {
-    return await readLiveStats(userId);
+    return await readLiveStats(userId, userClient);
   } catch (error) {
     if (persisted) {
       console.warn("[event-stats] live fallback failed; using persisted counts", error);
@@ -154,11 +239,14 @@ async function loadEventLibraryStats(userId: string): Promise<EventLibraryStats>
   }
 }
 
-export async function readEventLibraryStats(userId: string): Promise<EventLibraryStats> {
+export async function readEventLibraryStats(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<EventLibraryStats> {
   const now = Date.now();
   const cached = statsCache.get(userId);
   if (cached && cached.expiresAt > now) return cached.value;
-  const value = loadEventLibraryStats(userId).catch((error) => {
+  const value = loadEventLibraryStats(userId, userClient).catch((error) => {
     statsCache.delete(userId);
     throw error;
   });
@@ -168,4 +256,4 @@ export async function readEventLibraryStats(userId: string): Promise<EventLibrar
 
 export const getEventLibraryStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => readEventLibraryStats(context.userId));
+  .handler(async ({ context }) => readEventLibraryStats(context.userId, context.supabase));

@@ -236,7 +236,7 @@ export const listCalendars = createServerFn({ method: "GET" })
       const groups = await readCalendarGroups(context.userId);
       const { readCalendarAliases } = await import("./calendar-identity.server");
       const { readEventLibraryStats } = await import("./event-library-stats.functions");
-      const eventStats = await readEventLibraryStats(context.userId);
+      const eventStats = await readEventLibraryStats(context.userId, context.supabase);
       const eventStatsByCalendar = new Map(
         eventStats.calendars.map((stats) => [stats.calendarRowId, stats]),
       );

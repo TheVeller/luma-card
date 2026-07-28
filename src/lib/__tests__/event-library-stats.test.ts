@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { summarizeSourceEventStats } from "../event-library-stats.functions";
+import {
+  summarizePersistedEventStats,
+  summarizeSourceEventStats,
+} from "../event-library-stats.functions";
 import type { SourceEventInput } from "../canonical-events";
 
 const NOW = Date.parse("2026-07-28T12:00:00Z");
@@ -66,5 +69,49 @@ describe("event library stats", () => {
     );
     expect(stats).toMatchObject({ total: 3, upcoming: 1, past: 1, unknown: 1 });
     expect(stats.upcoming + stats.past + stats.unknown).toBe(stats.total);
+  });
+
+  test("summarizes RLS-readable persisted rows and includes empty calendars", () => {
+    const stats = summarizePersistedEventStats(
+      ["row-one", "row-empty"],
+      [
+        {
+          calendar_row_id: "row-one",
+          canonical_event_id: "canonical-shared",
+          canonical_events: {
+            id: "canonical-shared",
+            start_at: "2026-07-29T12:00:00Z",
+            end_at: null,
+          },
+        },
+        {
+          calendar_row_id: "row-one",
+          canonical_event_id: "canonical-shared",
+          canonical_events: {
+            id: "canonical-shared",
+            start_at: "2026-07-29T12:00:00Z",
+            end_at: null,
+          },
+        },
+      ],
+      NOW,
+    );
+    expect(stats).toMatchObject({ total: 1, upcoming: 1 });
+    expect(stats.calendars).toEqual([
+      {
+        calendarRowId: "row-one",
+        total: 1,
+        upcoming: 1,
+        past: 0,
+        unknown: 0,
+      },
+      {
+        calendarRowId: "row-empty",
+        total: 0,
+        upcoming: 0,
+        past: 0,
+        unknown: 0,
+      },
+    ]);
   });
 });
