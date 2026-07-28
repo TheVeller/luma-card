@@ -1,70 +1,132 @@
 
-## 1. Gallery: show full badge, not a square crop
+## Estado verificado (lecturas de esta sesión)
 
-Badges render at 1080×1600 (27:40) but the gallery grids force `aspect-square` + `object-cover`, so ~30% of each badge (name/QR area) is cut off.
+- `supabase_migrations.schema_migrations` **no** contiene `20260728210000_repair_owner_calendar_library` → la migración no está aplicada.
+- `public.scraped_events` conserva la constraint global `scraped_events_user_id_event_key_key` (bloqueando aggregators); el índice nuevo `scraped_events_user_calendar_event_key` sí existe (creado por una corrida parcial anterior).
+- `public.event_sync_jobs` tiene `sync_scope` pero **no** `updated_at` — la migración actual escribe `updated_at = now()` en la línea 173 y romperá.
+- El owner (`ivelasquezfr@gmail.com`) tiene 67 calendarios activos, con múltiples duplicados API+pública además de los 5 nombrados.
+- `event_sync_jobs` carece de índice único parcial sobre `(source_id) WHERE status IN ('queued','running')`, por lo que el `ON CONFLICT DO NOTHING` de la migración es un no-op y podría insertar jobs duplicados si se re-ejecuta.
+- El worker (`src/lib/calendar-sync.server.ts`) marca `historicalComplete = scope.kind==='full' && snapshot.complete`; no valida `total === upcoming + past + unknown` ni distingue truncamiento por paginación cortada.
 
-- `src/components/EventBadgeGallery.tsx` and `src/routes/_authenticated/gallery.tsx`:
-  - Grid tiles → `aspect-[27/40]` with `object-contain` on a `bg-surface-2` backdrop, so every badge fits fully.
-  - Slightly reduce column count on `lg` (5 → 4) to compensate for taller tiles.
-  - Modal preview: keep `object-contain`, cap by height (`max-h-[85vh]`) instead of width so tall badges don't overflow.
+## Riesgos del SQL actual
 
-## 2. Save & reuse style presets per event
+1. **Referencia a columna inexistente** (`event_sync_jobs.updated_at`) → aborta la migración entera.
+2. **`ON CONFLICT DO NOTHING`** sin índice de soporte → no impide duplicar jobs si se corre más de una vez.
+3. **`register_luma_calendar_identity` puede fusionar filas** y devolver un `v_cursor_id` distinto; los updates posteriores usan el nuevo id (correcto) pero cualquier alias añadido antes al id viejo se pierde si no confiamos en `merge_calendar_rows` (sí lo migra, ok — mantener).
+4. **Alcance de consolidación** limitado a 5 nombres exactos + Ignacio. Los otros ~55 duplicados de los 67 quedan intactos. Confirmar con el owner si esta migración solo debe tocar los pares nombrados (recomendado) y dejar el resto a un pase posterior guiado.
+5. **`sync_all_events=true, event_limit=2000`** en Cursor Community exige que el fetcher agote paginación en `future` y `past` (2 y 18 páginas). Hoy el worker respeta el flag pero la señal `snapshot.complete` viene del provider — hay que garantizar que solo sea `true` cuando ambas colas se agoten y `total == upcoming+past+unknown`.
+6. **Sin transacción explícita**: el DO block corre en la transacción de la migración de Supabase (ok), pero la operación es costosa; documentar tiempo esperado.
 
-Every render should snapshot the `StyleSpec` used, so returning to an event surfaces prior generations as one-click presets.
+## Plan
 
-- New table `event_style_presets` (migration):
-  - `id`, `user_id` (fk auth.users), `event_id text`, `label text`, `style_spec jsonb`, `created_at`.
-  - RLS: owner can select/insert/delete their rows. Grants for `authenticated` + `service_role`.
-  - Unique on `(user_id, event_id, hash(style_spec))` to avoid duplicates when re-rendering with the same theme (implemented via a small `spec_hash` text column).
-- New server fns in `src/lib/event-style-presets.functions.ts`:
-  - `listEventPresets({ eventId })` → recent-first.
-  - `saveEventPreset({ eventId, styleSpec, label? })` idempotent via `spec_hash`.
-  - `deleteEventPreset({ id })`.
-- `src/routes/_authenticated/e.$eventId.tsx`:
-  - On successful `generate()` (after `renderBadge`), call `saveEventPreset` with the current spec.
-  - New "Previous styles for this event" strip above the shared Templates strip, showing swatch+font tiles that call `setSpec(preset.styleSpec)` on click. Delete-on-hover ✕.
-  - Initial `useEffect`: if presets exist for the event, apply the most recent one instead of running `runAnalyze` automatically (user can still hit ↻ Re-detect). Otherwise run analyze as today.
+### 1. Nueva migración de reparación (idempotente, reemplaza la anterior)
 
-## 3. AI fonts actually render on the canvas
+Archivo: `supabase/migrations/20260728220000_repair_owner_calendar_library_v2.sql`.
 
-Symptom: analyzer picks e.g. "IBM Plex Mono" / "Playfair Display" but the badge keeps rendering in the system fallback. Root causes:
+Contenido:
 
-- `loadGoogleFontPair` only awaits two specific `document.fonts.load(...)` sizes; canvas uses weights (400/700/900) and sizes (14–104px) that aren't preloaded, so `ctx.font` falls back on first draw.
-- Some AI/Firecrawl-picked families aren't on Google Fonts (e.g. `Helvetica Neue`, `SF Pro`); we already alias, but the final `spec.fonts.*` isn't validated before rendering.
+- **Blindaje del esquema `event_sync_jobs`**:
+  ```sql
+  ALTER TABLE public.event_sync_jobs
+    ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  CREATE UNIQUE INDEX IF NOT EXISTS event_sync_jobs_active_source_idx
+    ON public.event_sync_jobs (source_id)
+    WHERE status IN ('queued','running');
+  ```
+- **Constraint global de `scraped_events`**:
+  ```sql
+  ALTER TABLE public.scraped_events
+    DROP CONSTRAINT IF EXISTS scraped_events_user_id_event_key_key;
+  -- índice por-calendario ya existe; se asegura idempotencia
+  CREATE UNIQUE INDEX IF NOT EXISTS scraped_events_user_calendar_event_key
+    ON public.scraped_events (user_id, calendar_id, event_key);
+  ```
+- **DO block owner-scoped**, idempotente:
+  - Resuelve `v_user_id` por email; si no existe → `RETURN` con `NOTICE`.
+  - Registra identidad canónica de Cursor Community, marca `sync_all_events=true`, `event_limit=2000`, `historical_sync_completed_at=NULL`, `next_sync_at=now()`, `sync_status='queued'`. Añade aliases URL + luma_id.
+  - Para cada par nombrado (`cursor lima, peru`, `cursor arequipa, peru`, `flit festival`, `hack0 community`, `notion arequipa`): elige ganadora API, fusiona TODAS las perdedoras públicas vía `merge_calendar_rows(..., 'owner_api_duplicate_repair')`.
+  - Fusiona `Ignacio Velasquez` (calendar 0 eventos) hacia `Ignacio Velasquez profile` (8 eventos).
+  - Upgrade a `sync_scope='full'` de jobs ya `queued` de los 6 calendarios objetivo (sin `updated_at` — ahora existe).
+  - Inserta jobs `full` faltantes con `ON CONFLICT (source_id) WHERE status IN ('queued','running') DO NOTHING` (soportado por el nuevo índice único parcial).
+  - `PERFORM public.cleanup_merged_calendar_rows(v_user_id);`
+- **No** toca calendarios fuera de la lista explícita.
 
-Changes in `src/lib/google-fonts.ts` + `src/lib/badge-render.ts`:
+### 2. Cambio de código para completion segura del worker
 
-- Validate family against an allow-list of loadable Google families (already used in `style-analyze`). If not on the list and no alias applies, fall back to the default pair and mark `fonts.source = 'default'`.
-- Expand `loadGoogleFontPair` to preload every weight×representative-size the renderer uses (`400/700/900` heading, `400/500/700` body, at 16/22/40/90 px) and use `document.fonts.check(...)` after `await document.fonts.ready` to confirm each combo, retrying once, then downgrading to fallback when still unavailable.
-- Await `loadGoogleFontPair` inside `renderBadge` (defensive), not only in `generate()`, so the chat/preset flows that re-render also get correct fonts.
-- Quote families with spaces uniformly and reject empty strings.
+En `src/lib/calendar-sync.server.ts` (solo en las ramas Luma API y públicas donde se calcula `historicalComplete`):
 
-## 4. English-only home page
+- Requerir para `historicalComplete = true` las tres condiciones simultáneas:
+  1. `scope.kind === 'full'`
+  2. `snapshot.complete === true` **y** `snapshot.truncated !== true`
+  3. `snapshot.totals && snapshot.totals.total === snapshot.totals.upcoming + snapshot.totals.past + snapshot.totals.unknown`
+- Si falla la comprobación, marcar el job como `partial`, dejar `historical_sync_completed_at` sin tocar y programar `next_sync_at = now() + 1 min` para reintento.
+- Añadir tipo `SnapshotTotals` opcional al retorno del provider (Luma API/pública) y populate desde el paginador; cuando falte, degradar a `historicalComplete=false` (conservador).
 
-`src/routes/index.tsx` still has Spanish copy ("Cada usuario trae su propia Luma API key…", "Pega tu Luma API key…", etc.). Translate the hero paragraph and the three step cards to English, matching the tone of the rest of the app. No layout changes.
+### 3. Ejecución segura
 
-Also sweep `src/routes/phase-2.tsx` for any remaining Spanish (quick pass; keep meaning).
+1. Aplicar migración vía la herramienta de migraciones de Lovable Cloud (una sola tanda).
+2. Verificar en el mismo turno con `supabase--linter`.
+3. Ejecutar `syncOneSource({ scope: 'full' })` para Cursor Community y observar `event_sync_jobs.status` hasta `completed`.
+4. Repetir para los otros 5 calendarios API.
 
-## 5. Event link + copy button under titles
+### 4. Rollback
 
-Everywhere we surface an event title, add a small row underneath with the Luma URL as a hyperlink plus a copy icon button.
+- La migración es aditiva salvo el DROP de la constraint global. Rollback controlado:
+  ```sql
+  -- si algo sale mal antes de fusionar, restaurar constraint global
+  ALTER TABLE public.scraped_events
+    ADD CONSTRAINT scraped_events_user_id_event_key_key UNIQUE (user_id, event_key);
+  ```
+  Solo viable si no hay filas duplicadas — validar con `SELECT user_id,event_key,count(*) FROM public.scraped_events GROUP BY 1,2 HAVING count(*)>1 LIMIT 1;` antes de intentarlo.
+- `merge_calendar_rows` deja auditoría en `calendar_merge_audit`; para revertir una fusión hay que restaurar manualmente desde ese log (documentado, no automatizado).
 
-- `src/routes/_authenticated/e.$eventId.tsx`: below `<h1>{event.name}</h1>` add:
-  - `<a href={event.url} target="_blank" rel="noreferrer">{prettyUrl}</a>` (truncated) + a `⧉` copy button that writes `event.url` to clipboard with a 1s "Copied" state.
-- `src/routes/_authenticated/events.tsx` card: keep the card link, but add a small copy button on hover in the corner that copies the event URL without navigating.
-- `src/components/EventBadgeGallery.tsx` and `src/routes/_authenticated/gallery.tsx` modals: show event URL + copy under the event name.
+### 5. Comprobaciones finales
 
-Copy helper lives in `src/lib/utils.ts` (`copyToClipboard(text)` with `navigator.clipboard.writeText` + fallback + toast-less local state).
+Consultas de aceptación (owner):
 
-## Technical notes
+```sql
+-- 1. Constraint global eliminada
+SELECT conname FROM pg_constraint
+WHERE conrelid='public.scraped_events'::regclass
+  AND conname='scraped_events_user_id_event_key_key'; -- 0 filas
 
-- Migration structure follows the mandatory `CREATE TABLE → GRANT → ENABLE RLS → CREATE POLICY` order. No `anon` grant on `event_style_presets` (all policies scoped to `auth.uid()`).
-- `spec_hash` = stable JSON of `{style, palette, fonts.heading, fonts.body}` hashed with `SubtleCrypto.digest('SHA-1')` client-side before insert to keep the migration free of pg extensions.
-- Auto-applied presets should not overwrite user changes: the preset auto-apply runs only on first mount for an event, guarded by a `hasHydratedPreset` ref.
-- Font validation list is exported from `google-fonts.ts` and imported by both the loader and `style-analyze.functions.ts` to guarantee the AI never returns a non-loadable family.
-- Gallery images already come from public storage; `object-contain` needs no CORS changes.
+-- 2. Índice por-calendario presente
+SELECT indexname FROM pg_indexes
+WHERE tablename='scraped_events' AND indexname='scraped_events_user_calendar_event_key';
 
-## Out of scope
+-- 3. Cursor Community configurado full
+SELECT id,curated_name,sync_all_events,event_limit,sync_status,historical_sync_completed_at
+FROM public.user_luma_calendars
+WHERE luma_calendar_id='cal-61Cv6COs4g9GKw7' AND merged_into_id IS NULL;
 
-- No changes to badge layout math, chat, Firecrawl, or Luma ingestion.
-- No new share targets.
+-- 4. Duplicados nombrados resueltos
+SELECT lower(coalesce(curated_name,remote_name,calendar_name,'')) name, count(*)
+FROM public.user_luma_calendars
+WHERE user_id=$owner AND merged_into_id IS NULL
+  AND lower(coalesce(curated_name,remote_name,calendar_name,'')) = ANY(ARRAY[
+    'cursor lima, peru','cursor arequipa, peru','flit festival',
+    'hack0 community','notion arequipa','ignacio velasquez','ignacio velasquez profile'
+  ])
+GROUP BY 1; -- cada uno debe tener count=1
+
+-- 5. Cursor Community después del full sync
+SELECT count(*) total,
+       count(*) FILTER (WHERE start_at > now()) upcoming,
+       count(*) FILTER (WHERE start_at <= now()) past
+FROM public.canonical_events e
+JOIN public.event_sources s ON s.canonical_event_id=e.id
+WHERE s.calendar_row_id = (SELECT id FROM public.user_luma_calendars
+                           WHERE luma_calendar_id='cal-61Cv6COs4g9GKw7' AND merged_into_id IS NULL);
+-- esperado: 927 total, 81 upcoming, 846 past (±ventana de tiempo)
+
+-- 6. Sin jobs duplicados activos
+SELECT source_id,count(*) FROM public.event_sync_jobs
+WHERE status IN ('queued','running') GROUP BY 1 HAVING count(*)>1; -- 0 filas
+```
+
+Verificación UI: recargar `/settings`, confirmar que Cursor Community aparece en `running`→`completed`, y que los 6 calendarios objetivo aparecen una sola vez con logo/orden/default preservados.
+
+## Fuera de alcance (proponer en un plan siguiente)
+
+- Consolidación de los ~55 duplicados restantes del owner (necesitamos su mapeo explícito).
+- Cron de mantenimiento (`upcoming + ventana reciente de past`): ya cubierto por `resolveSyncScope`; sólo hace falta comprobar el schedule después de que el full sync termine.
