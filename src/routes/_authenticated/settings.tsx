@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { getLumaConfig } from "@/lib/user-luma-key.functions";
 import { importFromUrl } from "@/lib/luma-scrape.functions";
 import {
@@ -9,6 +10,7 @@ import {
   listCalendars,
   removeCalendar,
   setDefaultCalendar,
+  type UserCalendarDTO,
 } from "@/lib/user-luma-calendars.functions";
 import { listApiTokens, createApiToken, revokeApiToken } from "@/lib/api-tokens.functions";
 import {
@@ -18,6 +20,13 @@ import {
   syncAllSources,
   syncOneSource,
 } from "@/lib/calendar-sync.functions";
+import {
+  acceptCalendarGroupSuggestion,
+  createCalendarGroup,
+  deleteCalendarGroup,
+  listCalendarGroups,
+  saveCalendarOrganization,
+} from "@/lib/calendar-groups.functions";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -118,6 +127,21 @@ function SettingsPage() {
       qc.invalidateQueries({ queryKey: ["luma-calendars"] });
     },
   });
+  useEffect(() => {
+    if (!syncSources?.some((source) => source.sync_status === "queued")) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      await runQueue();
+      if (cancelled) return;
+      await refetchSyncSources();
+      qc.invalidateQueries({ queryKey: ["luma-calendars"] });
+      qc.invalidateQueries({ queryKey: ["luma-events"] });
+    }, 6000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [qc, refetchSyncSources, runQueue, syncSources]);
   const bulkMut = useMutation({
     mutationFn: () => runBulkImport({ data: { text: bulkText } }),
     onSuccess: () => {
@@ -335,58 +359,13 @@ function SettingsPage() {
             No calendars yet. Add your first Luma API key below.
           </p>
         ) : (
-          <ul className="mt-4 space-y-2">
-            {cals!.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
-              >
-                {c.avatarUrl ? (
-                  <img
-                    src={c.avatarUrl}
-                    alt=""
-                    className="h-10 w-10 rounded-lg border border-hairline object-cover"
-                  />
-                ) : (
-                  <div className="h-10 w-10 rounded-lg bg-surface-2" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-display text-sm font-semibold">{c.name}</span>
-                    {c.isDefault && (
-                      <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
-                        default
-                      </span>
-                    )}
-                  </div>
-                  {c.url && (
-                    <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                      {new URL(c.url).hostname}
-                      {new URL(c.url).pathname}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-1">
-                  {!c.isDefault && (
-                    <button
-                      onClick={() => onSetDefault(c.id)}
-                      disabled={busy}
-                      className="rounded-full border border-hairline px-3 py-1 text-[11px] font-semibold hover:bg-surface disabled:opacity-40"
-                    >
-                      Set default
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onRemove(c.id, c.name)}
-                    disabled={busy}
-                    className="rounded-full border border-destructive/40 px-3 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <CalendarOrganizer
+            calendars={cals!}
+            busy={busy}
+            onSetDefault={onSetDefault}
+            onRemove={onRemove}
+            onChanged={refetch}
+          />
         )}
       </div>
 
@@ -592,6 +571,257 @@ function SettingsPage() {
             Params: calendar, from, to, limit, cursor. Full integration guide: docs/api.md
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarOrganizer({
+  calendars,
+  busy,
+  onSetDefault,
+  onRemove,
+  onChanged,
+}: {
+  calendars: UserCalendarDTO[];
+  busy: boolean;
+  onSetDefault: (id: string) => Promise<void>;
+  onRemove: (id: string, name: string) => Promise<void>;
+  onChanged: () => Promise<unknown>;
+}) {
+  const qc = useQueryClient();
+  const fetchGroups = useServerFn(listCalendarGroups);
+  const createGroup = useServerFn(createCalendarGroup);
+  const deleteGroup = useServerFn(deleteCalendarGroup);
+  const saveOrganization = useServerFn(saveCalendarOrganization);
+  const acceptSuggestion = useServerFn(acceptCalendarGroupSuggestion);
+  const { data: groups = [], refetch: refetchGroups } = useQuery({
+    queryKey: ["calendar-groups"],
+    queryFn: () => fetchGroups(),
+  });
+  const [groupName, setGroupName] = useState("");
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function refresh() {
+    await Promise.all([onChanged(), refetchGroups()]);
+    qc.invalidateQueries({ queryKey: ["luma-calendars"] });
+  }
+
+  async function addGroup() {
+    if (!groupName.trim()) return;
+    setSaving(true);
+    try {
+      await createGroup({ data: { name: groupName.trim() } });
+      setGroupName("");
+      await refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function persist(next: UserCalendarDTO[]) {
+    setSaving(true);
+    try {
+      await saveOrganization({
+        data: {
+          groupIds: groups.map((group) => group.id),
+          calendars: next.map((calendar) => ({
+            id: calendar.id,
+            groupId: calendar.groupId,
+            order: next
+              .filter((item) => item.groupId === calendar.groupId)
+              .findIndex((item) => item.id === calendar.id),
+          })),
+        },
+      });
+      await refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function moveCalendar(calendarId: string, groupId: string | null, beforeId?: string) {
+    const moving = calendars.find((calendar) => calendar.id === calendarId);
+    if (!moving) return;
+    const rest = calendars.filter((calendar) => calendar.id !== calendarId);
+    const moved = { ...moving, groupId };
+    if (!beforeId) {
+      let lastInGroup = -1;
+      for (let index = rest.length - 1; index >= 0; index--) {
+        if (rest[index].groupId === groupId) {
+          lastInGroup = index;
+          break;
+        }
+      }
+      rest.splice(lastInGroup + 1, 0, moved);
+    } else {
+      const target = rest.findIndex((calendar) => calendar.id === beforeId);
+      rest.splice(target < 0 ? rest.length : target, 0, moved);
+    }
+    await persist(rest);
+  }
+
+  const buckets = [
+    ...groups.map((group) => ({
+      id: group.id as string | null,
+      name: group.name,
+      calendars: calendars.filter((calendar) => calendar.groupId === group.id),
+    })),
+    {
+      id: null,
+      name: "Ungrouped",
+      calendars: calendars.filter((calendar) => !calendar.groupId),
+    },
+  ];
+
+  return (
+    <div className="mt-4">
+      <div className="flex gap-2">
+        <input
+          value={groupName}
+          onChange={(event) => setGroupName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") addGroup();
+          }}
+          placeholder="New group"
+          className="min-w-0 flex-1 rounded-md border border-hairline bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"
+        />
+        <button
+          onClick={addGroup}
+          disabled={saving || !groupName.trim()}
+          className="inline-flex size-9 items-center justify-center rounded-md border border-hairline disabled:opacity-40"
+          title="Create group"
+        >
+          <Plus className="size-4" />
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-5">
+        {buckets.map((bucket) => (
+          <section
+            key={bucket.id ?? "ungrouped"}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggedId) moveCalendar(draggedId, bucket.id);
+              setDraggedId(null);
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-hairline pb-2">
+              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                {bucket.name} · {bucket.calendars.length}
+              </div>
+              {bucket.id && (
+                <button
+                  onClick={async () => {
+                    await deleteGroup({ data: { id: bucket.id! } });
+                    await refresh();
+                  }}
+                  className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-destructive"
+                  title={`Delete ${bucket.name}`}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="divide-y divide-hairline">
+              {bucket.calendars.map((calendar) => (
+                <div
+                  key={calendar.id}
+                  draggable
+                  onDragStart={() => setDraggedId(calendar.id)}
+                  onDragEnd={() => setDraggedId(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.stopPropagation();
+                    if (draggedId && draggedId !== calendar.id) {
+                      moveCalendar(draggedId, bucket.id, calendar.id);
+                    }
+                    setDraggedId(null);
+                  }}
+                  className="grid grid-cols-[auto_40px_minmax(0,1fr)] items-center gap-2 py-3 sm:grid-cols-[auto_40px_minmax(0,1fr)_auto]"
+                >
+                  <GripVertical
+                    className="size-4 cursor-grab text-muted-foreground"
+                    aria-label={`Drag ${calendar.name}`}
+                  />
+                  {calendar.avatarUrl ? (
+                    <img
+                      src={calendar.avatarUrl}
+                      alt=""
+                      className="size-10 rounded-md border border-hairline object-cover"
+                    />
+                  ) : (
+                    <div className="grid size-10 place-items-center rounded-md bg-surface-2 text-xs font-semibold">
+                      {(calendar.name[0] ?? "?").toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold">{calendar.name}</span>
+                      {calendar.isDefault && (
+                        <span className="font-mono text-[9px] uppercase text-accent">default</span>
+                      )}
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      {calendar.eventCount > 0
+                        ? `${calendar.eventCount} events`
+                        : "No published events"}{" "}
+                      · {calendar.syncStatus}
+                    </div>
+                    {calendar.suggestedGroupName && !calendar.groupId && (
+                      <button
+                        onClick={async () => {
+                          await acceptSuggestion({ data: { calendarId: calendar.id } });
+                          await refresh();
+                        }}
+                        className="mt-1 text-[11px] font-medium text-accent hover:underline"
+                        title={calendar.suggestedGroupReason ?? undefined}
+                      >
+                        Move to {calendar.suggestedGroupName}
+                      </button>
+                    )}
+                  </div>
+                  <div className="col-span-3 flex items-center justify-end gap-1 sm:col-span-1">
+                    <select
+                      value={calendar.groupId ?? ""}
+                      onChange={(event) => moveCalendar(calendar.id, event.target.value || null)}
+                      className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
+                      aria-label={`Group for ${calendar.name}`}
+                    >
+                      <option value="">Ungrouped</option>
+                      {groups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                    {!calendar.isDefault && (
+                      <button
+                        onClick={() => onSetDefault(calendar.id)}
+                        disabled={busy || saving}
+                        className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
+                      >
+                        Default
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onRemove(calendar.id, calendar.name)}
+                      disabled={busy || saving}
+                      className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-40"
+                      title={`Remove ${calendar.name}`}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {bucket.calendars.length === 0 && (
+                <div className="py-4 text-xs text-muted-foreground">Drop calendars here.</div>
+              )}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );

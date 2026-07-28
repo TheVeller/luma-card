@@ -29,6 +29,7 @@ export function CalendarSwitcher() {
   }, []);
 
   const active = pickActive(cals, activeCalendarId);
+  const grouped = groupCalendars(cals ?? []);
 
   function pick(id: string | null) {
     setActiveCalendarId(id);
@@ -75,42 +76,6 @@ export function CalendarSwitcher() {
             Calendars
           </div>
           <ul className="max-h-72 overflow-y-auto py-1">
-            {(cals ?? []).map((c) => (
-              <li key={c.id}>
-                <button
-                  onClick={() => pick(c.calendarId)}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2 ${
-                    activeCalendarId === c.calendarId || (!activeCalendarId && c.isDefault)
-                      ? "bg-surface-2"
-                      : ""
-                  }`}
-                >
-                  {c.avatarUrl ? (
-                    <img
-                      src={c.avatarUrl}
-                      alt=""
-                      className="h-7 w-7 rounded-md border border-hairline object-cover"
-                    />
-                  ) : (
-                    <div className="h-7 w-7 rounded-md bg-surface-2" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
-                  {c.source === "scrape" && (
-                    <span
-                      title="Imported by link (scraped)"
-                      className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      link
-                    </span>
-                  )}
-                  {c.isDefault && (
-                    <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      default
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
             {(cals?.length ?? 0) > 1 && (
               <li>
                 <button
@@ -126,6 +91,50 @@ export function CalendarSwitcher() {
                 </button>
               </li>
             )}
+            {grouped.map((group) => (
+              <li key={group.id}>
+                <div className="px-3 pb-1 pt-2 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {group.name}
+                </div>
+                <ul>
+                  {group.calendars.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => pick(c.calendarId)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2 ${
+                          activeCalendarId === c.calendarId || (!activeCalendarId && c.isDefault)
+                            ? "bg-surface-2"
+                            : ""
+                        }`}
+                      >
+                        {c.avatarUrl ? (
+                          <img
+                            src={c.avatarUrl}
+                            alt=""
+                            className="h-7 w-7 rounded-md border border-hairline object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-7 w-7 place-items-center rounded-md bg-surface-2 text-[10px] font-semibold">
+                            {(c.name[0] ?? "?").toUpperCase()}
+                          </div>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {c.name}
+                        </span>
+                        {c.eventCount === 0 && (
+                          <span className="font-mono text-[9px] text-muted-foreground">empty</span>
+                        )}
+                        {c.isDefault && (
+                          <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            default
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
           </ul>
           <div className="border-t border-hairline">
             <Link
@@ -151,6 +160,30 @@ export function CalendarSwitcher() {
       )}
     </div>
   );
+}
+
+function groupCalendars(cals: UserCalendarDTO[]) {
+  const groups = new Map<
+    string,
+    { id: string; name: string; order: number; calendars: UserCalendarDTO[] }
+  >();
+  for (const calendar of cals) {
+    const id = calendar.groupId ?? "__ungrouped__";
+    const group = groups.get(id) ?? {
+      id,
+      name: calendar.groupName ?? "Ungrouped",
+      order: calendar.groupOrder ?? Number.MAX_SAFE_INTEGER,
+      calendars: [],
+    };
+    group.calendars.push(calendar);
+    groups.set(id, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+    .map((group) => ({
+      ...group,
+      calendars: group.calendars.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)),
+    }));
 }
 
 function pickActive(
