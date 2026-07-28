@@ -334,6 +334,7 @@ export type Database = {
           source_id: string
           started_at: string | null
           status: string
+          sync_scope: string
           trigger: string
           user_id: string
         }
@@ -350,6 +351,7 @@ export type Database = {
           source_id: string
           started_at?: string | null
           status?: string
+          sync_scope?: string
           trigger: string
           user_id: string
         }
@@ -366,6 +368,7 @@ export type Database = {
           source_id?: string
           started_at?: string | null
           status?: string
+          sync_scope?: string
           trigger?: string
           user_id?: string
         }
