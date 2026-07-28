@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { CalendarDays, Grid3X3, List } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 import { downloadEventsDataset } from "@/lib/export-events";
@@ -54,6 +55,7 @@ function proxied(url: string | null): string {
 }
 
 type SortMode = "upcoming" | "latest" | "az";
+type ViewMode = "gallery" | "list" | "calendar";
 
 const SORT_MODES: { key: SortMode; label: string }[] = [
   { key: "upcoming", label: "Upcoming first" },
@@ -71,6 +73,13 @@ const SORT_LABEL: Record<SortMode, string> = Object.fromEntries(
  * "Meetup 10" instead of after it.
  */
 const NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+const VIEW_STORAGE_KEY = "luma-card.events.view";
+
+const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Grid3X3 }[] = [
+  { key: "gallery", label: "Gallery", Icon: Grid3X3 },
+  { key: "list", label: "List", Icon: List },
+  { key: "calendar", label: "Calendar", Icon: CalendarDays },
+];
 
 function eventTime(ev: EventDTO): number | null {
   const time = Date.parse(ev.startAt);
@@ -111,6 +120,22 @@ function compareByUpcoming(a: EventDTO, b: EventDTO, now: number): number {
   return bTime - aTime || compareEventName(a, b);
 }
 
+function formatMonthTitle(date: Date) {
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function formatDayLabel(date: Date) {
+  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+}
+
+function eventKey(ev: EventDTO) {
+  return `${ev.calendarId ?? "d"}:${ev.id}`;
+}
+
+function sourceLabel(ev: EventDTO) {
+  return ev.calendarName ?? ev.calendarId ?? "Default calendar";
+}
+
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const { activeCalendarId } = useActiveCalendar();
@@ -121,8 +146,21 @@ function EventsPage() {
 
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
   const [sortMode, setSortMode] = useState<SortMode>("upcoming");
+  const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    if (saved === "gallery" || saved === "list" || saved === "calendar") {
+      setViewMode(saved);
+    }
+  }, []);
+
+  function setView(next: ViewMode) {
+    setViewMode(next);
+    window.localStorage.setItem(VIEW_STORAGE_KEY, next);
+  }
 
   const errorMessage = error ? ((error as Error).message ?? "") : "";
   const isMissingKey = errorMessage.includes("NO_LUMA_KEY");
@@ -263,7 +301,7 @@ function EventsPage() {
       </div>
 
       {data && data.length > 0 && (
-        <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
             {(["all", "upcoming", "past"] as const).map((f) => (
               <button
@@ -277,6 +315,24 @@ function EventsPage() {
                 }
               >
                 {f}
+              </button>
+            ))}
+          </div>
+          <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
+            {VIEW_MODES.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                onClick={() => setView(key)}
+                className={
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-3 transition " +
+                  (viewMode === key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+                title={`${label} view`}
+              >
+                <Icon className="size-3.5" aria-hidden />
+                <span>{label}</span>
               </button>
             ))}
           </div>
@@ -345,52 +401,192 @@ function EventsPage() {
         <p className="mt-10 text-sm text-muted-foreground">No events on this calendar yet.</p>
       )}
 
-      {sorted.length > 0 && (
-        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {sorted.map((ev) => (
-            <Link
-              key={`${ev.calendarId ?? "d"}:${ev.id}`}
-              to="/e/$eventId"
-              params={{ eventId: ev.id }}
-              className="group overflow-hidden rounded-2xl border border-hairline bg-surface/70 transition hover:-translate-y-0.5 hover:border-white/20"
-            >
-              <div className="relative aspect-square w-full overflow-hidden bg-surface-2">
-                {ev.coverUrl ? (
-                  <img
-                    src={proxied(ev.coverUrl)}
-                    alt={ev.name}
-                    className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
-                    NO COVER
-                  </div>
-                )}
-                <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-3 text-[11px] font-medium text-white/90">
-                  <span>{formatDate(ev.startAt)}</span>
-                  {ev.city && (
-                    <span className="rounded-full bg-black/40 px-2 py-0.5">{ev.city}</span>
-                  )}
-                </div>
-                {activeCalendarId === "__all__" && ev.calendarName && (
-                  <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
-                    {ev.calendarName}
-                  </div>
-                )}
-              </div>
-              <div className="p-4">
-                <h3 className="line-clamp-2 font-display text-lg font-semibold leading-tight">
-                  {ev.name}
-                </h3>
-                <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent">
-                  Generate badge <span aria-hidden>→</span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+      {sorted.length > 0 && viewMode === "gallery" && (
+        <GalleryView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
       )}
+      {sorted.length > 0 && viewMode === "list" && (
+        <ListView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
+      )}
+      {sorted.length > 0 && viewMode === "calendar" && <CalendarView events={sorted} />}
+    </div>
+  );
+}
+
+function EventImage({ ev, className }: { ev: EventDTO; className: string }) {
+  return ev.coverUrl ? (
+    <img src={proxied(ev.coverUrl)} alt={ev.name} className={className} />
+  ) : (
+    <div className="flex h-full w-full items-center justify-center bg-surface-2 font-mono text-xs text-muted-foreground">
+      NO COVER
+    </div>
+  );
+}
+
+function GalleryView({
+  events,
+  showCalendarName,
+}: {
+  events: EventDTO[];
+  showCalendarName: boolean;
+}) {
+  return (
+    <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {events.map((ev) => (
+        <Link
+          key={eventKey(ev)}
+          to="/e/$eventId"
+          params={{ eventId: ev.id }}
+          className="group overflow-hidden rounded-2xl border border-hairline bg-surface/70 transition hover:-translate-y-0.5 hover:border-white/20"
+        >
+          <div className="relative aspect-square w-full overflow-hidden bg-surface-2">
+            <EventImage
+              ev={ev}
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+            />
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 p-3 text-[11px] font-medium text-white/90">
+              <span>{formatDate(ev.startAt)}</span>
+              {ev.city && <span className="rounded-full bg-black/40 px-2 py-0.5">{ev.city}</span>}
+            </div>
+            {showCalendarName && ev.calendarName && (
+              <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+                {ev.calendarName}
+              </div>
+            )}
+          </div>
+          <div className="p-4">
+            <h3 className="line-clamp-2 font-display text-lg font-semibold leading-tight">
+              {ev.name}
+            </h3>
+            <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent">
+              Generate badge <span aria-hidden>→</span>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function ListView({ events, showCalendarName }: { events: EventDTO[]; showCalendarName: boolean }) {
+  return (
+    <div className="mt-8 overflow-hidden rounded-2xl border border-hairline bg-surface/50">
+      {events.map((ev) => (
+        <Link
+          key={eventKey(ev)}
+          to="/e/$eventId"
+          params={{ eventId: ev.id }}
+          className="grid grid-cols-[88px_minmax(0,1fr)] gap-4 border-b border-hairline p-3 transition last:border-b-0 hover:bg-surface sm:grid-cols-[112px_minmax(0,1fr)_auto] sm:items-center"
+        >
+          <div className="h-20 overflow-hidden rounded-xl bg-surface-2 sm:h-24">
+            <EventImage ev={ev} className="h-full w-full object-cover" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <span>{formatDate(ev.startAt)}</span>
+              {ev.city && <span>{ev.city}</span>}
+              {showCalendarName && <span>{sourceLabel(ev)}</span>}
+            </div>
+            <h3 className="mt-1 line-clamp-2 font-display text-lg font-semibold leading-tight">
+              {ev.name}
+            </h3>
+            {ev.description && (
+              <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                {ev.description}
+              </p>
+            )}
+          </div>
+          <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:block sm:text-right">
+            <span className="rounded-full border border-hairline px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {ev.id.startsWith("scr-") ? "Scrape" : "API"}
+            </span>
+            <div className="text-xs font-medium text-accent sm:mt-3">
+              Generate badge <span aria-hidden>→</span>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function CalendarView({ events }: { events: EventDTO[] }) {
+  const firstVisible = events.find((ev) => eventTime(ev) !== null);
+  const baseDate = firstVisible ? new Date(firstVisible.startAt) : new Date();
+  const monthStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+
+  const eventsByDay = new Map<string, EventDTO[]>();
+  for (const ev of events) {
+    const time = eventTime(ev);
+    if (time === null) continue;
+    const date = new Date(time);
+    if (date.getMonth() !== baseDate.getMonth() || date.getFullYear() !== baseDate.getFullYear()) {
+      continue;
+    }
+    const key = date.toISOString().slice(0, 10);
+    const bucket = eventsByDay.get(key) ?? [];
+    bucket.push(ev);
+    eventsByDay.set(key, bucket);
+  }
+
+  return (
+    <div className="mt-8 rounded-2xl border border-hairline bg-surface/50 p-4">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="font-display text-xl font-semibold">{formatMonthTitle(baseDate)}</h2>
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          {eventsByDay.size} active days
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-7">
+        {days.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const dayEvents = eventsByDay.get(key) ?? [];
+          const inMonth = day.getMonth() === baseDate.getMonth();
+          return (
+            <div
+              key={key}
+              className={
+                "min-h-32 rounded-xl border border-hairline bg-background/45 p-2 " +
+                (inMonth ? "" : "opacity-35")
+              }
+            >
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                {formatDayLabel(day)}
+              </div>
+              <div className="mt-2 space-y-1.5">
+                {dayEvents.slice(0, 3).map((ev) => (
+                  <Link
+                    key={eventKey(ev)}
+                    to="/e/$eventId"
+                    params={{ eventId: ev.id }}
+                    className="block rounded-lg border border-hairline bg-surface px-2 py-1.5 transition hover:border-white/20"
+                  >
+                    <div className="line-clamp-2 text-xs font-semibold leading-tight">
+                      {ev.name}
+                    </div>
+                    <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                      {sourceLabel(ev)}
+                    </div>
+                  </Link>
+                ))}
+                {dayEvents.length > 3 && (
+                  <div className="px-2 pt-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                    +{dayEvents.length - 3} more
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
