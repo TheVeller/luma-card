@@ -1069,7 +1069,7 @@ function CalendarOrganizer({
                       </button>
                     )}
                   </div>
-                  <div className="col-span-3 flex items-center justify-end gap-1 sm:col-span-1">
+                  <div className="col-span-3 flex flex-wrap items-center justify-end gap-1 sm:col-span-1">
                     <button
                       onClick={() => onSync(calendar.id, "auto")}
                       disabled={busy || saving || syncing || calendar.syncStatus === "running"}
