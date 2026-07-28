@@ -27,6 +27,8 @@ export const syncEventLibrary = createServerFn({ method: "POST" })
         console.error("[syncEventLibrary] source failed", e);
       }
     }
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
 
     return { scanned: sourceRows.length, synced, failed };
   });

@@ -320,6 +320,8 @@ export const removeCalendar = createServerFn({ method: "POST" })
           .eq("id", rest[0].id);
       }
     }
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
     return { ok: true };
   });
 

@@ -756,6 +756,8 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
   if (cleanupError && !/schema cache|does not exist/i.test(cleanupError.message)) {
     console.warn("[calendar-sync] merged calendar cleanup failed", cleanupError.message);
   }
+  const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+  invalidateEventLibraryStatsCache(job.user_id);
   return true;
 }
 

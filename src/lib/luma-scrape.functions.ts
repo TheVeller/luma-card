@@ -255,6 +255,9 @@ export const importFromUrl = createServerFn({ method: "POST" })
           if (metadataError) throw new Error(metadataError.message);
           const { enqueueSource } = await import("./calendar-sync.server");
           await enqueueSource(context.userId, calendarRowId, "manual");
+          const { invalidateEventLibraryStatsCache } =
+            await import("./event-library-stats.functions");
+          invalidateEventLibraryStatsCache(context.userId);
 
           return {
             kind: "calendar",
@@ -341,6 +344,8 @@ export const importFromUrl = createServerFn({ method: "POST" })
       }
       if (imported.length === 0)
         throw new Error("Profile events were found, but none could be read.");
+      const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+      invalidateEventLibraryStatsCache(context.userId);
       return {
         kind: "profile",
         calendarRowId,
@@ -401,6 +406,8 @@ export const importFromUrl = createServerFn({ method: "POST" })
       hostName: ev.hostName,
       payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
     });
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
 
     return {
       kind: "event",
