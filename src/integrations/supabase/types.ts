@@ -317,8 +317,6 @@ export type Database = {
           imported_count: number
           is_default: boolean
           last_synced_at: string | null
-          luma_calendar_id: string | null
-          merged_into_id: string | null
           metadata_version: number
           next_sync_at: string | null
           organization_manual: boolean
@@ -354,8 +352,6 @@ export type Database = {
           imported_count?: number
           is_default?: boolean
           last_synced_at?: string | null
-          luma_calendar_id?: string | null
-          merged_into_id?: string | null
           metadata_version?: number
           next_sync_at?: string | null
           organization_manual?: boolean
@@ -391,8 +387,6 @@ export type Database = {
           imported_count?: number
           is_default?: boolean
           last_synced_at?: string | null
-          luma_calendar_id?: string | null
-          merged_into_id?: string | null
           metadata_version?: number
           next_sync_at?: string | null
           organization_manual?: boolean
