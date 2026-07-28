@@ -129,8 +129,8 @@ export const importFromUrl = createServerFn({ method: "POST" })
               continue;
             }
             imported.push(ev.apiId);
-            const { upsertCanonicalEventSource } = await import("./canonical-events.server");
-            await upsertCanonicalEventSource(context.userId, {
+            const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
+            await tryUpsertCanonicalEventSource(context.userId, {
               event: {
                 id: ev.apiId,
                 name: ev.name,
@@ -177,11 +177,10 @@ export const importFromUrl = createServerFn({ method: "POST" })
       const urls = await firecrawlDiscoverLumaEvents(data.url, data.limit);
       if (urls.length === 0) throw new Error("No public Luma events found on that profile.");
 
-      const imported: string[] = [];
-      const { upsertCanonicalEventSource } = await import("./canonical-events.server");
-      for (const url of urls) {
+      const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
+      const importProfileEvent = async (url: string): Promise<string | null> => {
         const ev = await firecrawlScrapeEvent(url);
-        if (!ev) continue;
+        if (!ev) return null;
         const eventKey = hashKey(url);
         const eventDto = {
           id: eventKey,
@@ -215,9 +214,9 @@ export const importFromUrl = createServerFn({ method: "POST" })
         );
         if (upErr) {
           console.error("profile scraped_events upsert failed", upErr);
-          continue;
+          return null;
         }
-        await upsertCanonicalEventSource(context.userId, {
+        await tryUpsertCanonicalEventSource(context.userId, {
           event: eventDto,
           sourceType: "profile_scrape",
           calendarRowId,
@@ -228,7 +227,16 @@ export const importFromUrl = createServerFn({ method: "POST" })
           hostName: ev.hostName,
           payload: { profileUrl: data.url },
         });
-        imported.push(eventKey);
+        return eventKey;
+      };
+
+      const imported: string[] = [];
+      const concurrency = 5;
+      for (let offset = 0; offset < urls.length; offset += concurrency) {
+        const batch = await Promise.all(
+          urls.slice(offset, offset + concurrency).map(importProfileEvent),
+        );
+        imported.push(...batch.filter((eventKey): eventKey is string => eventKey !== null));
       }
       if (imported.length === 0)
         throw new Error("Profile events were found, but none could be read.");
@@ -272,8 +280,8 @@ export const importFromUrl = createServerFn({ method: "POST" })
       { onConflict: "user_id,event_key" },
     );
     if (upErr) throw new Error(upErr.message);
-    const { upsertCanonicalEventSource } = await import("./canonical-events.server");
-    await upsertCanonicalEventSource(context.userId, {
+    const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
+    await tryUpsertCanonicalEventSource(context.userId, {
       event: {
         id: eventKey,
         name: ev.name,

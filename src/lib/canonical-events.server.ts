@@ -63,3 +63,32 @@ export async function upsertCanonicalEventSource(
   if (sourceError) throw new Error(sourceError.message);
   return { canonicalEventId };
 }
+
+function isMissingCanonicalSchema(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /canonical_events.*schema cache/i.test(message) ||
+    /event_sources.*schema cache/i.test(message) ||
+    /relation ["']?public\.(canonical_events|event_sources)["']? does not exist/i.test(message)
+  );
+}
+
+/**
+ * Keep imports usable while the canonical-event migration is being deployed.
+ * Other database failures remain fatal so permission and data issues are visible.
+ */
+export async function tryUpsertCanonicalEventSource(
+  userId: string,
+  input: SourceEventInput,
+): Promise<boolean> {
+  try {
+    await upsertCanonicalEventSource(userId, input);
+    return true;
+  } catch (error) {
+    if (!isMissingCanonicalSchema(error)) throw error;
+    console.warn(
+      "[canonical-events] canonical tables are not installed; source persistence skipped",
+    );
+    return false;
+  }
+}

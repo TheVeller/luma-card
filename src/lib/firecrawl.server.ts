@@ -200,15 +200,15 @@ export async function firecrawlDiscoverLumaEvents(
   limit: number,
 ): Promise<string[]> {
   const base = new URL(calendarUrl);
-  const host = base.host; // e.g. lu.ma
   const calendarSeg = base.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  const lumaHosts = new Set(["lu.ma", "luma.com", "www.luma.com"]);
 
   // Luma event slugs: single path segment, alphanumeric-ish, not the calendar
   // itself and not a known non-event route.
   const isEventUrl = (u: string): boolean => {
     try {
       const p = new URL(u);
-      if (p.host !== host) return false;
+      if (!lumaHosts.has(p.host.toLowerCase())) return false;
       const seg = p.pathname.replace(/^\/+|\/+$/g, "");
       if (!seg || seg.includes("/")) return false;
       const low = seg.toLowerCase();
@@ -220,7 +220,17 @@ export async function firecrawlDiscoverLumaEvents(
     }
   };
 
-  const dedupe = (urls: string[]) => Array.from(new Set(urls)).slice(0, limit);
+  const discovered: string[] = [];
+  const addDiscovered = (urls: string[]) => {
+    for (const url of urls) {
+      if (!isEventUrl(url)) continue;
+      const parsed = new URL(url);
+      const canonicalUrl = `https://luma.com${parsed.pathname.replace(/\/+$/, "")}`;
+      if (discovered.includes(canonicalUrl)) continue;
+      discovered.push(canonicalUrl);
+      if (discovered.length >= limit) break;
+    }
+  };
 
   // 1) /map — fast sitemap + crawl discovery. v2 returns `links` as objects.
   try {
@@ -229,24 +239,31 @@ export async function firecrawlDiscoverLumaEvents(
       limit,
       includeSubdomains: false,
     });
-    const found = linkUrls(res.links).filter(isEventUrl);
-    if (found.length > 0) return dedupe(found);
+    addDiscovered(linkUrls(res.links));
   } catch (e) {
     console.error("[firecrawl] map failed:", (e as Error).message);
   }
+  if (discovered.length >= limit) return discovered;
 
-  // 2) Fallback: scrape the JS-rendered calendar page and harvest its links.
-  //    lu.ma is a SPA, so its events are frequently absent from the sitemap /map sees.
+  // 2) Scrape the JS-rendered page after repeated scrolls. Luma profile pages
+  // load hosted events incrementally, so the initial DOM often contains only one.
   try {
+    const actions = Array.from({ length: 20 }, () => [
+      { type: "scroll", direction: "down" },
+      { type: "wait", milliseconds: 500 },
+    ]).flat();
     const res = await fcCall<ScrapeResponse>("/scrape", {
       url: calendarUrl,
       formats: ["links"],
       onlyMainContent: false,
-      waitFor: 2500,
+      waitFor: 1500,
+      maxAge: 0,
+      timeout: 120000,
+      actions,
     });
-    return dedupe(linkUrls(pickBody(res).links).filter(isEventUrl));
+    addDiscovered(linkUrls(pickBody(res).links));
   } catch (e) {
     console.error("[firecrawl] scrape-links fallback failed:", (e as Error).message);
-    return [];
   }
+  return discovered;
 }
