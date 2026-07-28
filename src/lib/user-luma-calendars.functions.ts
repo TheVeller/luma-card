@@ -14,6 +14,19 @@ export type UserCalendarDTO = {
   url: string | null;
   isDefault: boolean;
   source: "api" | "scrape";
+  coverUrl: string | null;
+  description: string | null;
+  color: string | null;
+  eventCount: number;
+  syncStatus: string;
+  groupId: string | null;
+  groupName: string | null;
+  groupOrder: number | null;
+  order: number;
+  suggestedGroupName: string | null;
+  suggestedGroupReason: string | null;
+  nextEventAt: string | null;
+  organizationManual: boolean;
 };
 
 export type Row = {
@@ -36,9 +49,27 @@ export type Row = {
   imported_count?: number | null;
   last_synced_at?: string | null;
   next_sync_at?: string | null;
+  calendar_cover_url?: string | null;
+  calendar_description?: string | null;
+  calendar_tint_color?: string | null;
+  metadata_version?: number | null;
+  group_id?: string | null;
+  sort_order?: number | null;
+  suggested_group_name?: string | null;
+  suggested_group_reason?: string | null;
+  source_metadata?: Record<string, unknown> | null;
+  organization_manual?: boolean | null;
 };
 
-function toDTO(r: Row): UserCalendarDTO {
+export type CalendarGroupRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+};
+
+function toDTO(r: Row, groups = new Map<string, CalendarGroupRow>()): UserCalendarDTO {
+  const group = r.group_id ? groups.get(r.group_id) : null;
   return {
     id: r.id,
     calendarId: r.calendar_id,
@@ -48,6 +79,20 @@ function toDTO(r: Row): UserCalendarDTO {
     url: r.calendar_url,
     isDefault: r.is_default,
     source: (r.source ?? "api") as "api" | "scrape",
+    coverUrl: r.calendar_cover_url ?? null,
+    description: r.calendar_description ?? null,
+    color: r.calendar_tint_color ?? null,
+    eventCount: r.imported_count ?? 0,
+    syncStatus: r.sync_status ?? "idle",
+    groupId: r.group_id ?? null,
+    groupName: group?.name ?? null,
+    groupOrder: group?.sort_order ?? null,
+    order: r.sort_order ?? 0,
+    suggestedGroupName: r.suggested_group_name ?? null,
+    suggestedGroupReason: r.suggested_group_reason ?? null,
+    nextEventAt:
+      typeof r.source_metadata?.nextEventAt === "string" ? r.source_metadata.nextEventAt : null,
+    organizationManual: r.organization_manual ?? false,
   };
 }
 
@@ -56,12 +101,25 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual",
     )
     .eq("user_id", userId)
     .order("is_default", { ascending: false })
+    .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   return (data as Row[] | null) ?? [];
+}
+
+export async function readCalendarGroups(userId: string): Promise<CalendarGroupRow[]> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("calendar_groups" as never)
+    .select("id,user_id,name,sort_order")
+    .eq("user_id", userId)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data as CalendarGroupRow[] | null) ?? [];
 }
 
 async function resolveKeyFromRow(row: Row): Promise<string | null> {
@@ -108,7 +166,20 @@ export const listCalendars = createServerFn({ method: "GET" })
       const { ensureOwnerCuratedCatalog } = await import("./calendar-sync.server");
       await ensureOwnerCuratedCatalog(context.userId);
       const rows = await readUserCalendars(context.userId);
-      return rows.map(toDTO);
+      const groups = await readCalendarGroups(context.userId);
+      const groupMap = new Map(groups.map((group) => [group.id, group]));
+      return rows
+        .map((row) => toDTO(row, groupMap))
+        .sort(
+          (a, b) =>
+            (a.groupOrder ?? Number.MAX_SAFE_INTEGER) - (b.groupOrder ?? Number.MAX_SAFE_INTEGER) ||
+            (a.organizationManual || b.organizationManual
+              ? a.order - b.order
+              : Number(b.eventCount > 0) - Number(a.eventCount > 0) ||
+                (a.nextEventAt ? Date.parse(a.nextEventAt) : Number.MAX_SAFE_INTEGER) -
+                  (b.nextEventAt ? Date.parse(b.nextEventAt) : Number.MAX_SAFE_INTEGER)) ||
+            a.name.localeCompare(b.name),
+        );
     } catch (e) {
       // The calendar switcher sits in the header of every authenticated page,
       // so an environment with no server credentials must not take the whole

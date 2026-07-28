@@ -18,7 +18,7 @@ export default defineConfig({
       },
     },
     scheduledTasks: {
-      "*/5 * * * *": ["calendar:sync"],
+      "* * * * *": ["calendar:sync"],
     },
   } as unknown as { preset?: string },
   tanstackStart: {

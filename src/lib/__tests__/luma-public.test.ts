@@ -9,16 +9,38 @@ afterEach(() => {
 
 describe("public Luma calendars", () => {
   test("resolves the public calendar id and display name", async () => {
-    globalThis.fetch = (async () =>
-      new Response(
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      if (String(input).includes("/calendar/get?")) {
+        return Response.json({
+          calendar: {
+            api_id: "cal-abc123",
+            name: "Hack0",
+            slug: "hack0",
+            avatar_url: "https://images.lumacdn.com/hack0.png",
+            cover_image_url: "https://images.lumacdn.com/hack0-cover.png",
+            description_short: "Builders in Lima",
+            tint_color: "#ff6600",
+            timezone: "America/Lima",
+          },
+        });
+      }
+      return new Response(
         '<meta property="og:title" content="Hack0 · Luma"><script>{"api_id":"cal-abc123"}</script>',
-      )) as unknown as typeof fetch;
+      );
+    }) as unknown as typeof fetch;
 
     expect(await resolveLumaCalendar("https://lu.ma/hack0?utm_source=test")).toEqual({
       apiId: "cal-abc123",
       name: "Hack0",
       slug: "hack0",
       url: "https://luma.com/hack0",
+      avatarUrl: "https://images.lumacdn.com/hack0.png",
+      coverUrl: "https://images.lumacdn.com/hack0-cover.png",
+      description: "Builders in Lima",
+      tintColor: "#ff6600",
+      timezone: "America/Lima",
+      personalUserId: null,
+      personalUsername: null,
     });
   });
 

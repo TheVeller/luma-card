@@ -24,7 +24,7 @@ ALTER TABLE public.user_luma_calendars
   ADD CONSTRAINT user_luma_calendars_sync_status_check
   CHECK (sync_status IN ('idle', 'queued', 'running', 'completed', 'partial', 'failed', 'inaccessible'));
 
-CREATE TABLE public.event_sync_jobs (
+CREATE TABLE IF NOT EXISTS public.event_sync_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   source_id uuid NOT NULL REFERENCES public.user_luma_calendars(id) ON DELETE CASCADE,
@@ -43,31 +43,39 @@ CREATE TABLE public.event_sync_jobs (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX event_sync_jobs_one_active_source_idx
+ALTER TABLE public.event_sync_jobs
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_sync_jobs_one_active_source_idx
   ON public.event_sync_jobs (source_id)
   WHERE status IN ('queued', 'running');
-CREATE INDEX event_sync_jobs_queue_idx
+CREATE INDEX IF NOT EXISTS event_sync_jobs_queue_idx
   ON public.event_sync_jobs (status, scheduled_at, created_at);
-CREATE INDEX event_sync_jobs_user_batch_idx
+CREATE INDEX IF NOT EXISTS event_sync_jobs_user_batch_idx
   ON public.event_sync_jobs (user_id, batch_id, created_at);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_sync_jobs TO authenticated;
 GRANT ALL ON public.event_sync_jobs TO service_role;
 ALTER TABLE public.event_sync_jobs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users read own sync jobs" ON public.event_sync_jobs;
 CREATE POLICY "Users read own sync jobs"
   ON public.event_sync_jobs FOR SELECT TO authenticated
   USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users insert own sync jobs" ON public.event_sync_jobs;
 CREATE POLICY "Users insert own sync jobs"
   ON public.event_sync_jobs FOR INSERT TO authenticated
   WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users update own sync jobs" ON public.event_sync_jobs;
 CREATE POLICY "Users update own sync jobs"
   ON public.event_sync_jobs FOR UPDATE TO authenticated
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users delete own sync jobs" ON public.event_sync_jobs;
 CREATE POLICY "Users delete own sync jobs"
   ON public.event_sync_jobs FOR DELETE TO authenticated
   USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS update_event_sync_jobs_updated_at ON public.event_sync_jobs;
 CREATE TRIGGER update_event_sync_jobs_updated_at
   BEFORE UPDATE ON public.event_sync_jobs
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

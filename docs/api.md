@@ -85,6 +85,13 @@ Response:
 
 ```json
 {
+  "groups": [
+    {
+      "id": "b53ea106-79d1-45fe-98b7-50de70ef9d22",
+      "name": "Startups & Venture",
+      "order": 0
+    }
+  ],
   "calendars": [
     {
       "id": "cal-abc123",
@@ -94,8 +101,21 @@ Response:
       "kind": "calendar",
       "isDefault": true,
       "url": "https://lu.ma/founder-dinners",
+      "avatarUrl": "https://images.lumacdn.com/calendars/founders.png",
+      "coverUrl": "https://images.lumacdn.com/calendar-cover-images/founders.jpg",
+      "description": "Founder events and community dinners.",
+      "color": "#ff6600",
+      "eventCount": 42,
+      "hasEvents": true,
+      "order": 0,
+      "group": {
+        "id": "b53ea106-79d1-45fe-98b7-50de70ef9d22",
+        "name": "Startups & Venture",
+        "order": 0
+      },
       "curatedName": "Founder Dinners",
       "remoteName": "Founder Dinners",
+      "suggestedGroup": null,
       "sync": {
         "status": "completed",
         "error": null,
@@ -119,23 +139,32 @@ Response:
 
 Calendar fields:
 
-| Field         | Type                                          | Notes                                                                            |
-| ------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
-| `id`          | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
-| `name`        | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
-| `slug`        | `string \| null`                              | Luma slug when available.                                                        |
-| `source`      | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
-| `kind`        | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type.                                                         |
-| `isDefault`   | `boolean`                                     | User's default calendar in this app.                                             |
-| `url`         | `string \| null`                              | Calendar URL when known.                                                         |
-| `curatedName` | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
-| `remoteName`  | `string \| null`                              | Latest name reported by Luma.                                                    |
-| `sync`        | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
+| Field            | Type                                          | Notes                                                                            |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `id`             | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
+| `name`           | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
+| `slug`           | `string \| null`                              | Luma slug when available.                                                        |
+| `source`         | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
+| `kind`           | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type.                                                         |
+| `isDefault`      | `boolean`                                     | User's default calendar in this app.                                             |
+| `url`            | `string \| null`                              | Calendar URL when known.                                                         |
+| `avatarUrl`      | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                           |
+| `coverUrl`       | `string \| null`                              | Calendar cover or social image.                                                  |
+| `description`    | `string \| null`                              | Latest public description.                                                       |
+| `color`          | `string \| null`                              | Luma tint color when available.                                                  |
+| `eventCount`     | `number`                                      | Number of imported events currently stored.                                      |
+| `hasEvents`      | `boolean`                                     | Convenience flag derived from `eventCount`.                                      |
+| `group`          | `object \| null`                              | User-defined group and its display order.                                        |
+| `order`          | `number`                                      | Calendar order inside its group.                                                 |
+| `curatedName`    | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
+| `remoteName`     | `string \| null`                              | Latest name reported by Luma.                                                    |
+| `suggestedGroup` | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                             |
+| `sync`           | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
-`failed`, or `inaccessible`. A `partial` profile found fewer public event URLs
-than Luma's hosted count. An `inaccessible` calendar remains in the collection
-with zero events and can be retried later.
+`failed`, or `inaccessible`. A `partial` source used a fallback but could not
+confirm every event. Calendars confirmed to have no published events remain in
+the collection with `hasEvents: false`.
 
 ### `GET /api/v1/events`
 
@@ -336,6 +365,12 @@ agent/client that already speaks MCP and can complete the Supabase OAuth flow.
 ```ts
 type CalendarSource = "api" | "scrape";
 
+type CalendarGroupDTO = {
+  id: string;
+  name: string;
+  order: number;
+};
+
 type CalendarDTO = {
   id: string;
   name: string | null;
@@ -343,6 +378,14 @@ type CalendarDTO = {
   source: CalendarSource;
   isDefault: boolean;
   url: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  description: string | null;
+  color: string | null;
+  eventCount: number;
+  hasEvents: boolean;
+  group: CalendarGroupDTO | null;
+  order: number;
 };
 
 type EventCalendarDTO = {
@@ -387,6 +430,7 @@ type EventDTO = {
 };
 
 type CalendarsResponse = {
+  groups: CalendarGroupDTO[];
   calendars: CalendarDTO[];
 };
 

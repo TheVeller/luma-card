@@ -94,6 +94,48 @@ export async function firecrawlBranding(url: string): Promise<FirecrawlBranding 
   }
 }
 
+export async function firecrawlScrapeSource(url: string): Promise<{
+  name: string | null;
+  description: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  branding: FirecrawlBranding | null;
+}> {
+  try {
+    const res = await fcCall<ScrapeResponse>("/scrape", {
+      url,
+      formats: ["branding", "markdown"],
+      onlyMainContent: false,
+      waitFor: 1000,
+    });
+    const body = pickBody(res);
+    const metadata = body.metadata ?? {};
+    const branding = body.branding ?? null;
+    const logo =
+      branding?.logo ??
+      branding?.images?.logo ??
+      branding?.images?.favicon ??
+      (metadata.favicon as string | undefined) ??
+      null;
+    const cover =
+      (metadata["og:image"] as string | undefined) ??
+      (metadata.ogImage as string | undefined) ??
+      branding?.images?.ogImage ??
+      null;
+    return {
+      name:
+        (metadata.title as string | undefined)?.replace(/\s*[·|]\s*Luma\s*$/i, "").trim() ?? null,
+      description: (metadata.description as string | undefined) ?? null,
+      avatarUrl: logo,
+      coverUrl: cover,
+      branding,
+    };
+  } catch (error) {
+    console.error("[firecrawl] source metadata failed:", (error as Error).message);
+    return { name: null, description: null, avatarUrl: null, coverUrl: null, branding: null };
+  }
+}
+
 /** Scrape a Luma event page and extract structured event data. */
 export async function firecrawlScrapeEvent(url: string): Promise<{
   name: string;

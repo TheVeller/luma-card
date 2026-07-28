@@ -13,6 +13,13 @@ export type ResolvedCalendar = {
   name: string;
   slug: string;
   url: string; // canonical luma.com/<slug>
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  description: string | null;
+  tintColor: string | null;
+  timezone: string | null;
+  personalUserId: string | null;
+  personalUsername: string | null;
 };
 
 export type PublicLumaEvent = {
@@ -23,6 +30,8 @@ export type PublicLumaEvent = {
   startAt: string | null;
   endAt: string | null;
   city: string | null;
+  hostIds: string[];
+  hostNames: string[];
   url: string; // https://luma.com/<slug>
 };
 
@@ -40,7 +49,25 @@ async function getCalendarById(apiId: string): Promise<ResolvedCalendar | null> 
   });
   if (!res.ok) return null;
   const json = (await res.json()) as {
-    calendar?: { api_id?: string; name?: string; slug?: string | null };
+    calendar?: {
+      api_id?: string;
+      name?: string;
+      slug?: string | null;
+      avatar_url?: string | null;
+      cover_image_url?: string | null;
+      social_image_url?: string | null;
+      description_short?: string | null;
+      tint_color?: string | null;
+      timezone?: string | null;
+      personal_user_api_id?: string | null;
+      personal_user?: {
+        api_id?: string;
+        name?: string;
+        avatar_url?: string | null;
+        timezone?: string | null;
+        username?: string | null;
+      } | null;
+    };
   };
   const calendar = json.calendar;
   if (calendar?.api_id !== apiId) return null;
@@ -50,6 +77,13 @@ async function getCalendarById(apiId: string): Promise<ResolvedCalendar | null> 
     name: calendar.name?.trim() || apiId,
     slug,
     url: `${LUMA_ORIGIN}/${slug}`,
+    avatarUrl: calendar.personal_user?.avatar_url ?? calendar.avatar_url ?? null,
+    coverUrl: calendar.cover_image_url ?? calendar.social_image_url ?? null,
+    description: calendar.description_short ?? null,
+    tintColor: calendar.tint_color ?? null,
+    timezone: calendar.personal_user?.timezone ?? calendar.timezone ?? null,
+    personalUserId: calendar.personal_user?.api_id ?? calendar.personal_user_api_id ?? null,
+    personalUsername: calendar.personal_user?.username ?? null,
   };
 }
 
@@ -76,15 +110,21 @@ export async function resolveLumaCalendar(input: string): Promise<ResolvedCalend
   const apiId = (html.match(/"api_id"\s*:\s*"(cal-[A-Za-z0-9]+)"/) || [])[1];
   if (!apiId) return null;
 
-  const name = (
-    (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || [])[1] ||
-    (html.match(/<title>([^<]+)<\/title>/i) || [])[1] ||
-    slug
-  )
-    .replace(/\s*[·|]\s*Luma\s*$/i, "")
-    .trim();
-
-  return { apiId, name: name || slug, slug, url };
+  const resolved = await getCalendarById(apiId);
+  if (resolved) return resolved;
+  return {
+    apiId,
+    name: slug,
+    slug,
+    url,
+    avatarUrl: null,
+    coverUrl: null,
+    description: null,
+    tintColor: null,
+    timezone: null,
+    personalUserId: null,
+    personalUsername: null,
+  };
 }
 
 type RawEvent = {
@@ -98,7 +138,13 @@ type RawEvent = {
   geo_address_info?: { city_state?: string | null } | null;
 };
 
-function toPublicEvent(ev: RawEvent): PublicLumaEvent {
+type RawEntry = {
+  event?: RawEvent;
+  hosts?: Array<{ api_id?: string; name?: string }>;
+};
+
+function toPublicEvent(entry: RawEntry): PublicLumaEvent {
+  const ev = entry.event!;
   const slug = ev.url ?? ev.api_id;
   return {
     apiId: ev.api_id,
@@ -108,6 +154,8 @@ function toPublicEvent(ev: RawEvent): PublicLumaEvent {
     startAt: ev.start_at ?? null,
     endAt: ev.end_at ?? null,
     city: ev.geo_address_info?.city_state ?? null,
+    hostIds: (entry.hosts ?? []).flatMap((host) => (host.api_id ? [host.api_id] : [])),
+    hostNames: (entry.hosts ?? []).flatMap((host) => (host.name ? [host.name] : [])),
     url: `${LUMA_ORIGIN}/${slug}`,
   };
 }
@@ -116,7 +164,7 @@ async function fetchPage(
   calApiId: string,
   period: "future" | "past",
   cursor?: string,
-): Promise<{ entries: Array<{ event?: RawEvent }>; hasMore: boolean; nextCursor?: string }> {
+): Promise<{ entries: RawEntry[]; hasMore: boolean; nextCursor?: string }> {
   const qs = new URLSearchParams({
     calendar_api_id: calApiId,
     period,
@@ -130,7 +178,7 @@ async function fetchPage(
     throw new Error(`Luma calendar events request failed (${res.status})`);
   }
   const json = (await res.json()) as {
-    entries?: Array<{ event?: RawEvent }>;
+    entries?: RawEntry[];
     has_more?: boolean;
     next_cursor?: string;
   };
@@ -163,7 +211,7 @@ export async function fetchPublicCalendarEvents(
         }
         if (seen.has(ev.api_id)) continue;
         seen.add(ev.api_id);
-        out.push(toPublicEvent(ev));
+        out.push(toPublicEvent(e));
       }
       if (out.length >= limit) return out.slice(0, limit);
       if (!hasMore || !nextCursor) break;

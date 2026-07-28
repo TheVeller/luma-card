@@ -27,11 +27,11 @@ export const importBulkSources = createServerFn({ method: "POST" })
 export const syncAllSources = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { ensureOwnerCuratedCatalog, enqueueAllSources, processNextSyncJob } =
+    const { ensureOwnerCuratedCatalog, enqueueAllSources, processSyncQueueForUser } =
       await import("./calendar-sync.server");
     await ensureOwnerCuratedCatalog(context.userId);
     const result = await enqueueAllSources(context.userId, "manual");
-    await processNextSyncJob(context.userId);
+    await processSyncQueueForUser(context.userId, 4);
     return result;
   });
 
@@ -39,20 +39,15 @@ export const syncOneSource = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((value: unknown) => z.object({ sourceId: z.string().uuid() }).parse(value))
   .handler(async ({ data, context }) => {
-    const { enqueueSource, processNextSyncJob } = await import("./calendar-sync.server");
+    const { enqueueSource, processSyncQueueForUser } = await import("./calendar-sync.server");
     await enqueueSource(context.userId, data.sourceId, "manual");
-    await processNextSyncJob(context.userId);
+    await processSyncQueueForUser(context.userId, 1);
     return { ok: true };
   });
 
 export const processSyncQueue = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { processNextSyncJob } = await import("./calendar-sync.server");
-    let processed = 0;
-    for (let i = 0; i < 2; i++) {
-      if (!(await processNextSyncJob(context.userId))) break;
-      processed++;
-    }
-    return { processed };
+    const { processSyncQueueForUser } = await import("./calendar-sync.server");
+    return processSyncQueueForUser(context.userId, 4);
   });
