@@ -145,14 +145,17 @@ event with every source where it appeared.
 
 Query parameters:
 
-| Param      | Type                   | Default     | Notes                                                                                                     |
-| ---------- | ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| `calendar` | `string`               | `all`       | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`.                                     |
-| `mode`     | `canonical \| sources` | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
-| `from`     | ISO date string        | none        | Inclusive lower bound on `startAt`.                                                                       |
-| `to`       | ISO date string        | none        | Inclusive upper bound on `startAt`.                                                                       |
-| `limit`    | integer `1..200`       | `100`       | Page size.                                                                                                |
-| `cursor`   | opaque string          | none        | `page.nextCursor` from the previous response.                                                             |
+| Param      | Type                                  | Default     | Notes                                                                                                     |
+| ---------- | ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| `calendar` | `string`                              | `all`       | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`.                                     |
+| `mode`     | `canonical \| sources`                | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
+| `status`   | `all \| upcoming \| ongoing \| past`  | `all`       | `upcoming` includes events currently in progress; use `ongoing` to return only those events.              |
+| `sort`     | `upcoming \| start_asc \| start_desc` | `upcoming`  | `upcoming` orders ongoing events first, future events nearest-first, then past events newest-first.       |
+| `at`       | ISO date string                       | server time | Reference instant for status/order. Reuse the first response's `generatedAt` on later pages.              |
+| `from`     | ISO date string                       | none        | Inclusive lower bound on `startAt`.                                                                       |
+| `to`       | ISO date string                       | none        | Inclusive upper bound on `startAt`.                                                                       |
+| `limit`    | integer `1..200`                      | `100`       | Page size.                                                                                                |
+| `cursor`   | opaque string                         | none        | `page.nextCursor` from the previous response.                                                             |
 
 Example:
 
@@ -173,6 +176,8 @@ Response:
       "url": "https://lu.ma/ai-builders-night",
       "startAt": "2026-07-31T23:00:00.000Z",
       "endAt": "2026-08-01T02:00:00.000Z",
+      "temporalStatus": "upcoming",
+      "durationMinutes": 180,
       "city": "Lima, Peru",
       "description": "A meetup for builders.",
       "externalIds": {
@@ -191,7 +196,17 @@ Response:
           "lastSyncedAt": "2026-07-28T14:00:00.000Z"
         }
       ],
+      "sourceCount": 1,
+      "sourceCalendars": [
+        {
+          "calendarId": "cal-abc123",
+          "name": "Founder Dinners",
+          "slug": "founder-dinners",
+          "source": "api"
+        }
+      ],
       "tags": [],
+      "suggestedTags": [],
       "calendar": {
         "calendarId": "cal-abc123",
         "name": "Founder Dinners",
@@ -206,26 +221,40 @@ Response:
     "total": 88,
     "nextCursor": "MjU"
   },
-  "mode": "canonical"
+  "mode": "canonical",
+  "filters": {
+    "calendar": "all",
+    "status": "all",
+    "at": null,
+    "from": null,
+    "to": null
+  },
+  "sort": "upcoming",
+  "generatedAt": "2026-07-28T14:00:00.000Z"
 }
 ```
 
 Event fields:
 
-| Field         | Type             | Notes                                                                            |
-| ------------- | ---------------- | -------------------------------------------------------------------------------- |
-| `id`          | `string`         | Luma event id, or `scr-*` for imported public events.                            |
-| `name`        | `string`         | Event name.                                                                      |
-| `coverUrl`    | `string \| null` | Cover image URL when available.                                                  |
-| `url`         | `string`         | Public event URL.                                                                |
-| `startAt`     | `string`         | ISO date string.                                                                 |
-| `endAt`       | `string \| null` | ISO date string when known.                                                      |
-| `city`        | `string \| null` | Human-readable city/location when available.                                     |
-| `description` | `string \| null` | Markdown/text description when available.                                        |
-| `externalIds` | `object \| null` | Canonical mode only: known Luma/scraped ids.                                     |
-| `sources`     | `array \| null`  | Canonical mode only: calendars/imports/profile sources where the event appeared. |
-| `tags`        | `string[]`       | Approved tags. Empty until tagging is configured.                                |
-| `calendar`    | `object \| null` | Source calendar metadata.                                                        |
+| Field             | Type                                     | Notes                                                                            |
+| ----------------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| `id`              | `string`                                 | Luma event id, or `scr-*` for imported public events.                            |
+| `name`            | `string`                                 | Event name.                                                                      |
+| `coverUrl`        | `string \| null`                         | Cover image URL when available.                                                  |
+| `url`             | `string`                                 | Public event URL.                                                                |
+| `startAt`         | `string`                                 | ISO date string.                                                                 |
+| `endAt`           | `string \| null`                         | ISO date string when known.                                                      |
+| `temporalStatus`  | `upcoming \| ongoing \| past \| unknown` | Status calculated against the response's `generatedAt` instant.                  |
+| `durationMinutes` | `number \| null`                         | Event duration when both timestamps form a valid interval.                       |
+| `city`            | `string \| null`                         | Human-readable city/location when available.                                     |
+| `description`     | `string \| null`                         | Markdown/text description when available.                                        |
+| `externalIds`     | `object \| null`                         | Canonical mode only: known Luma/scraped ids.                                     |
+| `sources`         | `array \| null`                          | Canonical mode only: calendars/imports/profile sources where the event appeared. |
+| `sourceCount`     | `number`                                 | Number of distinct source sightings merged into this event.                      |
+| `sourceCalendars` | `array`                                  | Every known calendar containing the event, without duplicates.                   |
+| `tags`            | `string[]`                               | Approved tags. Empty until tagging is configured.                                |
+| `suggestedTags`   | `string[]`                               | Suggested but not yet approved tags.                                             |
+| `calendar`        | `object \| null`                         | Source calendar metadata.                                                        |
 
 Use `mode=sources` when your integration needs one row per calendar/source
 instead of deduplicated canonical events.
@@ -248,36 +277,19 @@ do {
 
 Treat cursors as opaque. Do not decode or construct them in your app.
 
-## Sorting Dates In Your App
+## Dates And Ordering
 
-The events endpoint returns a stable server order, but most apps should sort
-for their UI explicitly.
+All timestamps are ISO 8601 instants. The server calculates `temporalStatus`
+using both `startAt` and `endAt` against `generatedAt`, so an event that already
+started but has not ended is `ongoing`, not `past`.
 
-Recommended "upcoming first" ordering:
+Use `status=upcoming&sort=upcoming` for a discovery feed. This includes ongoing
+events first, followed by future events from nearest to farthest. Use
+`status=past&sort=start_desc` for history.
 
-```ts
-function eventTime(event: EventDTO): number | null {
-  const time = Date.parse(event.startAt);
-  return Number.isFinite(time) ? time : null;
-}
-
-function sortUpcomingFirst(events: EventDTO[], now = Date.now()): EventDTO[] {
-  return [...events].sort((a, b) => {
-    const at = eventTime(a);
-    const bt = eventTime(b);
-    const au = at !== null && at >= now;
-    const bu = bt !== null && bt >= now;
-
-    if (au !== bu) return au ? -1 : 1;
-    if (at === null && bt === null) return a.name.localeCompare(b.name);
-    if (at === null) return 1;
-    if (bt === null) return -1;
-    return au ? at - bt : bt - at;
-  });
-}
-```
-
-This puts future events first by nearest date, then past events by most recent.
+For multipage reads, send the first page's `generatedAt` back as `at` on every
+later request. This freezes temporal classification and ordering while the
+consumer traverses the collection.
 
 ## Errors
 
@@ -358,6 +370,8 @@ type EventDTO = {
   url: string;
   startAt: string;
   endAt: string | null;
+  temporalStatus: "upcoming" | "ongoing" | "past" | "unknown";
+  durationMinutes: number | null;
   city: string | null;
   description: string | null;
   externalIds: {
@@ -365,7 +379,10 @@ type EventDTO = {
     scrapedEventKeys: string[];
   } | null;
   sources: EventSourceDTO[] | null;
+  sourceCount: number;
+  sourceCalendars: EventCalendarDTO[];
   tags: string[];
+  suggestedTags: string[];
   calendar: EventCalendarDTO | null;
 };
 
@@ -382,5 +399,14 @@ type EventsResponse = {
     nextCursor: string | null;
   };
   mode: "canonical" | "sources";
+  filters: {
+    calendar: string;
+    status: "all" | "upcoming" | "ongoing" | "past";
+    at: string | null;
+    from: string | null;
+    to: string | null;
+  };
+  sort: "upcoming" | "start_asc" | "start_desc";
+  generatedAt: string;
 };
 ```

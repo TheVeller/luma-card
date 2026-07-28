@@ -7,6 +7,12 @@ import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 import { downloadEventsDataset } from "@/lib/export-events";
 import { syncEventLibrary } from "@/lib/event-sync.functions";
+import {
+  compareEventsStartDesc,
+  compareEventsUpcomingFirst,
+  eventTemporalStatus,
+  parseEventTime,
+} from "@/lib/event-time";
 
 export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
@@ -83,42 +89,11 @@ const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Grid3X3 }[] = [
 ];
 
 function eventTime(ev: EventDTO): number | null {
-  const time = Date.parse(ev.startAt);
-  return Number.isFinite(time) ? time : null;
+  return parseEventTime(ev.startAt);
 }
 
 function compareEventName(a: EventDTO, b: EventDTO): number {
   return NAME_COLLATOR.compare(a.name, b.name) || a.id.localeCompare(b.id);
-}
-
-function compareByTimeAsc(a: EventDTO, b: EventDTO): number {
-  const aTime = eventTime(a);
-  const bTime = eventTime(b);
-  if (aTime === null && bTime === null) return compareEventName(a, b);
-  if (aTime === null) return 1;
-  if (bTime === null) return -1;
-  return aTime - bTime || compareEventName(a, b);
-}
-
-function compareByTimeDesc(a: EventDTO, b: EventDTO): number {
-  const aTime = eventTime(a);
-  const bTime = eventTime(b);
-  if (aTime === null && bTime === null) return compareEventName(a, b);
-  if (aTime === null) return 1;
-  if (bTime === null) return -1;
-  return bTime - aTime || compareEventName(a, b);
-}
-
-function compareByUpcoming(a: EventDTO, b: EventDTO, now: number): number {
-  const aTime = eventTime(a);
-  const bTime = eventTime(b);
-  const aUpcoming = aTime !== null && aTime >= now;
-  const bUpcoming = bTime !== null && bTime >= now;
-
-  if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
-  if (aTime === null || bTime === null) return compareByTimeAsc(a, b);
-  if (aUpcoming) return aTime - bTime || compareEventName(a, b);
-  return bTime - aTime || compareEventName(a, b);
 }
 
 function formatMonthTitle(date: Date) {
@@ -158,12 +133,23 @@ function EventsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [exportMenu, setExportMenu] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
     if (saved === "gallery" || saved === "list" || saved === "calendar") {
       setViewMode(saved);
     }
+  }, []);
+
+  useEffect(() => {
+    const refreshNow = () => setNow(Date.now());
+    window.addEventListener("focus", refreshNow);
+    const timer = window.setInterval(refreshNow, 60_000);
+    return () => {
+      window.removeEventListener("focus", refreshNow);
+      window.clearInterval(timer);
+    };
   }, []);
 
   function setView(next: ViewMode) {
@@ -182,24 +168,21 @@ function EventsPage() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    const now = Date.now();
     return data.filter((ev: EventDTO) => {
-      const t = eventTime(ev);
-      if (t === null) return filter === "all";
-      if (filter === "upcoming") return t >= now;
-      if (filter === "past") return t < now;
+      const status = eventTemporalStatus(ev, now);
+      if (filter === "upcoming") return status === "upcoming" || status === "ongoing";
+      if (filter === "past") return status === "past";
       return true;
     });
-  }, [data, filter]);
+  }, [data, filter, now]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
-    const now = Date.now();
-    if (sortMode === "upcoming") arr.sort((a, b) => compareByUpcoming(a, b, now));
-    else if (sortMode === "latest") arr.sort(compareByTimeDesc);
+    if (sortMode === "upcoming") arr.sort((a, b) => compareEventsUpcomingFirst(a, b, now));
+    else if (sortMode === "latest") arr.sort(compareEventsStartDesc);
     else arr.sort(compareEventName);
     return arr;
-  }, [filtered, sortMode]);
+  }, [filtered, sortMode, now]);
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;

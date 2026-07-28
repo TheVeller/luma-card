@@ -15,6 +15,7 @@ import {
   type CanonicalEventDTO,
   type SourceEventInput,
 } from "./canonical-events";
+import { compareEventsUpcomingFirst } from "./event-time";
 
 export type EventDTO = {
   id: string;
@@ -28,22 +29,6 @@ export type EventDTO = {
   calendarId?: string;
   calendarName?: string;
 };
-
-function eventTime(ev: EventDTO): number | null {
-  const time = Date.parse(ev.startAt);
-  return Number.isFinite(time) ? time : null;
-}
-
-function compareEventsByStart(a: EventDTO, b: EventDTO): number {
-  const aTime = eventTime(a);
-  const bTime = eventTime(b);
-  if (aTime === null && bTime === null) {
-    return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-  }
-  if (aTime === null) return 1;
-  if (bTime === null) return -1;
-  return aTime - bTime || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-}
 
 export function toDTO(e: LumaEvent, calendarId?: string, calendarName?: string): EventDTO {
   return {
@@ -157,8 +142,8 @@ export async function aggregateEventsForUser(
     merged.push(event);
   }
 
-  // Deterministic order (ascending by start) so offset pagination is stable.
-  merged.sort(compareEventsByStart);
+  const now = Date.now();
+  merged.sort((a, b) => compareEventsUpcomingFirst(a, b, now));
 
   return { events: merged, calendars: rows.map(metaFor) };
 }
@@ -173,6 +158,7 @@ export async function aggregateCanonicalEventsForUser(
 }> {
   const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
   const events = canonicalizeEvents(inputs);
-  events.sort(compareEventsByStart);
+  const now = Date.now();
+  events.sort((a, b) => compareEventsUpcomingFirst(a, b, now));
   return { events, calendars: rows.map(metaFor), sourceRows: inputs };
 }

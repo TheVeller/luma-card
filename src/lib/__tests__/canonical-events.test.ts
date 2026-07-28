@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalizeEvents, canonicalKeyFor } from "../canonical-events";
+import { canonicalizeEvents, canonicalKeyFor, normalizeCanonicalUrl } from "../canonical-events";
 
 describe("canonical events", () => {
   test("uses a Luma event id as the strongest canonical key", () => {
@@ -82,5 +82,65 @@ describe("canonical events", () => {
     expect(result).toHaveLength(1);
     expect(result[0].externalIds.lumaEventId).toBe("evt-real");
     expect(result[0].sources).toHaveLength(2);
+  });
+
+  test("normalizes lu.ma and luma.com as the same public event URL", () => {
+    expect(normalizeCanonicalUrl("https://lu.ma/shared-event?utm_source=calendar")).toBe(
+      "https://luma.com/shared-event",
+    );
+  });
+
+  test("merges calendar sightings with the same name and start instant", () => {
+    const base = {
+      name: "AI Builders Night",
+      coverUrl: null,
+      startAt: "2026-08-01T19:00:00-05:00",
+    };
+    const result = canonicalizeEvents([
+      {
+        sourceType: "calendar_scrape",
+        calendarId: "cal-one",
+        externalEventId: "scr-one",
+        event: { ...base, id: "scr-one", url: "https://luma.com/builders-night" },
+      },
+      {
+        sourceType: "calendar_scrape",
+        calendarId: "cal-two",
+        externalEventId: "scr-two",
+        event: {
+          ...base,
+          id: "scr-two",
+          url: "https://events.example.com/ai-builders",
+          startAt: "2026-08-02T00:00:00Z",
+        },
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].sources).toHaveLength(2);
+  });
+
+  test("does not merge recurring events at different times", () => {
+    const common = {
+      name: "Weekly Meetup",
+      coverUrl: null,
+      url: "https://events.example.com/weekly",
+    };
+    const result = canonicalizeEvents([
+      {
+        sourceType: "calendar_scrape",
+        event: { ...common, id: "one", startAt: "2026-08-01T12:00:00Z" },
+      },
+      {
+        sourceType: "calendar_scrape",
+        event: {
+          ...common,
+          id: "two",
+          url: "https://events.example.com/weekly-2",
+          startAt: "2026-08-08T12:00:00Z",
+        },
+      },
+    ]);
+    expect(result).toHaveLength(2);
   });
 });

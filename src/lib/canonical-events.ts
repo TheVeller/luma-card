@@ -54,6 +54,7 @@ export function normalizeCanonicalUrl(raw: string | null | undefined): string | 
     url.hash = "";
     url.search = "";
     url.hostname = url.hostname.replace(/^www\./, "").toLowerCase();
+    if (url.hostname === "lu.ma") url.hostname = "luma.com";
     url.pathname = url.pathname.replace(/\/+$/, "");
     return url.toString();
   } catch {
@@ -65,6 +66,20 @@ export function stableEventHash(value: string): string {
   let h = 5381;
   for (let i = 0; i < value.length; i++) h = ((h << 5) + h + value.charCodeAt(i)) | 0;
   return Math.abs(h).toString(36);
+}
+
+export function eventIdentityFingerprint(input: SourceEventInput): string {
+  const normalizedName = input.event.name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const start = Date.parse(input.event.startAt);
+  const normalizedStart = Number.isFinite(start)
+    ? new Date(Math.floor(start / 60_000) * 60_000).toISOString()
+    : input.event.startAt.trim();
+  return stableEventHash(`${normalizedName}|${normalizedStart}`);
 }
 
 export function canonicalKeyFor(input: SourceEventInput): string {
@@ -116,14 +131,21 @@ export function canonicalizeEvents(inputs: SourceEventInput[]): CanonicalEventDT
   for (const input of inputs) {
     const key = canonicalKeyFor(input);
     const normalizedUrl = normalizeCanonicalUrl(input.sourceUrl ?? input.event.url);
-    const aliases = [key, ...(normalizedUrl ? [`url:${normalizedUrl}`] : [])];
+    const aliases = [
+      key,
+      ...(normalizedUrl ? [`url:${normalizedUrl}`] : []),
+      `fingerprint:${eventIdentityFingerprint(input)}`,
+    ];
     const event = input.event;
     const source = sourceDTO(input);
     const existing = aliases.map((alias) => byKey.get(alias)).find(Boolean);
     if (!existing) {
       const created: CanonicalEventDTO = {
         ...event,
-        id: stableEventHash(key),
+        id:
+          (/^evt-/i.test(input.externalEventId ?? event.id)
+            ? (input.externalEventId ?? event.id)
+            : event.id) || stableEventHash(key),
         externalIds: {
           lumaEventId: /^evt-/i.test(input.externalEventId ?? event.id)
             ? (input.externalEventId ?? event.id)

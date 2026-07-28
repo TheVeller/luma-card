@@ -1,5 +1,6 @@
 import {
   canonicalKeyFor,
+  eventIdentityFingerprint,
   normalizeCanonicalUrl,
   sourceDTO,
   type SourceEventInput,
@@ -13,6 +14,7 @@ export async function upsertCanonicalEventSource(
 ): Promise<{ canonicalEventId: string }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const canonicalKey = canonicalKeyFor(input);
+  const identityFingerprint = eventIdentityFingerprint(input);
   const source = sourceDTO(input);
   const event = input.event;
   const normalizedUrl = normalizeCanonicalUrl(event.url) ?? event.url;
@@ -29,6 +31,7 @@ export async function upsertCanonicalEventSource(
     description: event.description ?? null,
     host_name: input.hostName ?? null,
     updated_at: new Date().toISOString(),
+    identity_fingerprint: identityFingerprint,
   };
 
   const { data: matchingUrl, error: matchingUrlError } = await supabaseAdmin
@@ -39,11 +42,22 @@ export async function upsertCanonicalEventSource(
     .maybeSingle();
   if (matchingUrlError) throw new Error(matchingUrlError.message);
 
-  const canonicalQuery = matchingUrl
+  const { data: matchingFingerprint, error: matchingFingerprintError } = matchingUrl
+    ? { data: null, error: null }
+    : await supabaseAdmin
+        .from("canonical_events" as never)
+        .select("id")
+        .eq("user_id", userId)
+        .eq("identity_fingerprint", identityFingerprint)
+        .maybeSingle();
+  if (matchingFingerprintError) throw new Error(matchingFingerprintError.message);
+  const matchingCanonical = matchingUrl ?? matchingFingerprint;
+
+  const canonicalQuery = matchingCanonical
     ? supabaseAdmin
         .from("canonical_events" as never)
         .update(canonicalValues as never)
-        .eq("id", (matchingUrl as { id: string }).id)
+        .eq("id", (matchingCanonical as { id: string }).id)
     : supabaseAdmin.from("canonical_events" as never).upsert(
         {
           ...canonicalValues,
@@ -82,6 +96,7 @@ function isMissingCanonicalSchema(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
     /canonical_events.*schema cache/i.test(message) ||
+    /identity_fingerprint.*schema cache/i.test(message) ||
     /event_sources.*schema cache/i.test(message) ||
     /relation ["']?public\.(canonical_events|event_sources)["']? does not exist/i.test(message)
   );

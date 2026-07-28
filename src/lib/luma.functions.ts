@@ -8,7 +8,7 @@ import { fetchAllEvents, fetchEvent } from "./luma.server";
 import { resolveUserLumaKey } from "./user-luma-key.functions";
 import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
 import { readScrapedEventsForCalendar, readScrapedEventById } from "./luma-scrape.functions";
-import { aggregateEventsForUser, toDTO, type EventDTO } from "./events-aggregate.server";
+import { aggregateCanonicalEventsForUser, toDTO, type EventDTO } from "./events-aggregate.server";
 
 // Re-exported for callers that import the DTO shape from this module.
 export type { EventDTO };
@@ -32,7 +32,7 @@ export const listEvents = createServerFn({ method: "GET" })
     // Shared with the external /api/v1/events route via aggregateEventsForUser.
     if (calendarId === "__all__") {
       if (allRows.length === 0) throw new NoLumaKeyError();
-      const { events } = await aggregateEventsForUser(context.userId, {
+      const { events } = await aggregateCanonicalEventsForUser(context.userId, {
         calendarId: "__all__",
       });
       return events;
