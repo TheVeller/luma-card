@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchPublicCalendarEvents, resolveLumaCalendar } from "../luma-public.server";
+import {
+  fetchPublicCalendarEventSnapshot,
+  fetchPublicCalendarEvents,
+  resolveLumaCalendar,
+} from "../luma-public.server";
 
 const originalFetch = globalThis.fetch;
 
@@ -149,6 +153,48 @@ describe("public Luma calendars", () => {
     const events = await fetchPublicCalendarEvents("cal-aggregator", null);
     expect(events.map((event) => event.apiId)).toEqual(["evt-future", "evt-past"]);
     expect(periods).toEqual(["future", "past"]);
+  });
+
+  test("does not truncate aggregator calendars after 100 pages", async () => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      const period = url.searchParams.get("period") as "future" | "past";
+      const cursor = url.searchParams.get("pagination_cursor");
+      const page = cursor ? Number(cursor.replace("page-", "")) : 0;
+      const lastPage = period === "future" ? 104 : 1;
+      return Response.json({
+        entries: [
+          {
+            event: {
+              api_id: `evt-${period}-${page}`,
+              name: `${period} ${page}`,
+              url: `${period}-${page}`,
+            },
+          },
+        ],
+        has_more: page < lastPage,
+        next_cursor: page < lastPage ? `page-${page + 1}` : undefined,
+      });
+    }) as typeof fetch;
+
+    const snapshot = await fetchPublicCalendarEventSnapshot("cal-aggregator", null);
+
+    expect(snapshot.events).toHaveLength(107);
+    expect(snapshot.pages).toEqual({ future: 105, past: 2 });
+    expect(snapshot.entries).toEqual({ future: 105, past: 2 });
+  });
+
+  test("rejects a truncated feed instead of marking it complete", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({
+        entries: [],
+        has_more: true,
+        next_cursor: "stuck",
+      })) as unknown as typeof fetch;
+
+    expect(fetchPublicCalendarEventSnapshot("cal-aggregator", null)).rejects.toThrow(
+      "repeated pagination cursor",
+    );
   });
 
   test("maintenance keeps upcoming and only the recent slice of past events", async () => {

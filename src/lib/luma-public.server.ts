@@ -37,6 +37,12 @@ export type PublicLumaEvent = {
   url: string; // https://luma.com/<slug>
 };
 
+export type PublicCalendarEventSnapshot = {
+  events: PublicLumaEvent[];
+  pages: { future: number; past: number };
+  entries: { future: number; past: number };
+};
+
 function normalize(input: string): { slug: string; url: string } {
   const u = new URL(input.trim());
   const manage = u.pathname.match(/^\/calendar\/manage\/(cal-[A-Za-z0-9]+)\/?$/i);
@@ -203,13 +209,32 @@ export async function fetchPublicCalendarEvents(
   limit: number | null,
   scope: { kind: "full" } | { kind: "maintenance"; after: string } = { kind: "full" },
 ): Promise<PublicLumaEvent[]> {
+  return (await fetchPublicCalendarEventSnapshot(calApiId, limit, scope)).events;
+}
+
+/** Fetch a complete, auditable snapshot of a public calendar.
+ *
+ * A feed is only considered complete after Luma returns `has_more=false`.
+ * Repeated or missing cursors are treated as upstream failures instead of
+ * silently accepting a truncated calendar.
+ */
+export async function fetchPublicCalendarEventSnapshot(
+  calApiId: string,
+  limit: number | null,
+  scope: { kind: "full" } | { kind: "maintenance"; after: string } = { kind: "full" },
+): Promise<PublicCalendarEventSnapshot> {
   const out: PublicLumaEvent[] = [];
   const seen = new Set<string>();
+  const pages = { future: 0, past: 0 };
+  const entriesSeen = { future: 0, past: 0 };
 
   for (const period of ["future", "past"] as const) {
     let cursor: string | undefined;
-    for (let page = 0; page < 100; page++) {
+    const cursors = new Set<string>();
+    while (true) {
       const { entries, hasMore, nextCursor } = await fetchPage(calApiId, period, cursor);
+      pages[period]++;
+      entriesSeen[period] += entries.length;
       for (const e of entries) {
         const ev = e.event;
         if (!ev?.api_id) continue;
@@ -225,7 +250,13 @@ export async function fetchPublicCalendarEvents(
         seen.add(ev.api_id);
         out.push(toPublicEvent(e));
       }
-      if (limit !== null && out.length >= limit) return out.slice(0, limit);
+      if (limit !== null && out.length >= limit) {
+        return {
+          events: out.slice(0, limit),
+          pages,
+          entries: entriesSeen,
+        };
+      }
       if (
         period === "past" &&
         scope.kind === "maintenance" &&
@@ -236,9 +267,20 @@ export async function fetchPublicCalendarEvents(
       ) {
         break;
       }
-      if (!hasMore || !nextCursor) break;
+      if (!hasMore) break;
+      if (!nextCursor) {
+        throw new Error(`Luma ${period} feed is incomplete: missing pagination cursor`);
+      }
+      if (cursors.has(nextCursor)) {
+        throw new Error(`Luma ${period} feed is incomplete: repeated pagination cursor`);
+      }
+      cursors.add(nextCursor);
       cursor = nextCursor;
     }
   }
-  return limit === null ? out : out.slice(0, limit);
+  return {
+    events: limit === null ? out : out.slice(0, limit),
+    pages,
+    entries: entriesSeen,
+  };
 }

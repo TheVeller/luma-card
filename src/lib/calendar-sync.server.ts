@@ -5,6 +5,7 @@ import {
   sourceCalendarId,
   type CuratedSource,
 } from "./owner-curated-catalog";
+import { summarizeEventCounts } from "./event-time";
 
 export type SyncSourceRow = {
   id: string;
@@ -280,14 +281,9 @@ async function upsertScrapedRows(
     calendar_id: source.id,
     updated_at: syncedAt,
   }));
-  let result = await supabaseAdmin
+  const result = await supabaseAdmin
     .from("scraped_events" as never)
     .upsert(values as never, { onConflict: "user_id,calendar_id,event_key" });
-  if (result.error?.code === "42P10") {
-    result = await supabaseAdmin
-      .from("scraped_events" as never)
-      .upsert(values as never, { onConflict: "user_id,event_key" });
-  }
   if (result.error) throw new Error(result.error.message);
 
   const { tryUpsertCanonicalEventSource } = await import("./canonical-events.server");
@@ -638,18 +634,21 @@ async function syncApiCalendar(userId: string, source: SyncSourceRow, scope: Res
 }
 
 async function syncCalendar(userId: string, source: SyncSourceRow, scope: ResolvedSyncScope) {
-  const { resolveLumaCalendar, fetchPublicCalendarEvents } = await import("./luma-public.server");
+  const { resolveLumaCalendar, fetchPublicCalendarEventSnapshot } =
+    await import("./luma-public.server");
   const calendar = await resolveLumaCalendar(source.calendar_url ?? "");
   if (!calendar) throw new Error("Calendar is not publicly accessible");
   const runStartedAt = new Date().toISOString();
-  let events: Awaited<ReturnType<typeof fetchPublicCalendarEvents>> = [];
+  let eventSnapshot: Awaited<ReturnType<typeof fetchPublicCalendarEventSnapshot>> | null = null;
+  let events: Awaited<ReturnType<typeof fetchPublicCalendarEventSnapshot>>["events"] = [];
   let publicError: string | null = null;
   try {
-    events = await fetchPublicCalendarEvents(
+    eventSnapshot = await fetchPublicCalendarEventSnapshot(
       calendar.apiId,
       scope.kind === "maintenance" || source.sync_all_events ? null : source.event_limit || 80,
       scope,
     );
+    events = eventSnapshot.events;
   } catch (error) {
     publicError = error instanceof Error ? error.message : String(error);
   }
@@ -722,6 +721,12 @@ async function syncCalendar(userId: string, source: SyncSourceRow, scope: Resolv
   if (!publicError) {
     await finalizeScopedSync(userId, source, runStartedAt, ["calendar_scrape"], scope);
   }
+  const temporalCounts = summarizeEventCounts(
+    rows.map((row) => ({
+      startAt: typeof row.start_at === "string" ? row.start_at : "",
+      endAt: typeof row.end_at === "string" ? row.end_at : null,
+    })),
+  );
   return {
     discovered: rows.length,
     imported: rows.length,
@@ -738,6 +743,16 @@ async function syncCalendar(userId: string, source: SyncSourceRow, scope: Resolv
       personalUsername: calendar.personalUsername,
       ingestion: events.length > 0 ? "luma-public-api" : "firecrawl-fallback",
       syncScope: scope.kind,
+      eventCounts: temporalCounts,
+      pagination: eventSnapshot
+        ? {
+            futurePages: eventSnapshot.pages.future,
+            pastPages: eventSnapshot.pages.past,
+            futureEntries: eventSnapshot.entries.future,
+            pastEntries: eventSnapshot.entries.past,
+            exhausted: true,
+          }
+        : null,
       emptyConfirmed: rows.length === 0,
       publicError,
       nextEventAt:
