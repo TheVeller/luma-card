@@ -66,9 +66,7 @@ async function lumaCardFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const { events } = await lumaCardFetch<EventsResponse>(
-  "/api/v1/events?calendar=all&limit=50",
-);
+const { events } = await lumaCardFetch<EventsResponse>("/api/v1/events?calendar=all&limit=50");
 ```
 
 ## REST Endpoints
@@ -93,8 +91,19 @@ Response:
       "name": "Founder Dinners",
       "slug": "founder-dinners",
       "source": "api",
+      "kind": "calendar",
       "isDefault": true,
-      "url": "https://lu.ma/founder-dinners"
+      "url": "https://lu.ma/founder-dinners",
+      "curatedName": "Founder Dinners",
+      "remoteName": "Founder Dinners",
+      "sync": {
+        "status": "completed",
+        "error": null,
+        "discovered": 42,
+        "imported": 42,
+        "lastSyncedAt": "2026-07-28T13:00:00.000Z",
+        "nextSyncAt": "2026-07-29T13:00:00.000Z"
+      }
     },
     {
       "id": "scr-xyz789",
@@ -110,14 +119,23 @@ Response:
 
 Calendar fields:
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | `string` | Pass this as `calendar` to `/api/v1/events`. |
-| `name` | `string \| null` | Display name from Luma or the imported calendar. |
-| `slug` | `string \| null` | Luma slug when available. |
-| `source` | `"api" \| "scrape"` | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
-| `isDefault` | `boolean` | User's default calendar in this app. |
-| `url` | `string \| null` | Calendar URL when known. |
+| Field         | Type                                          | Notes                                                                            |
+| ------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `id`          | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
+| `name`        | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
+| `slug`        | `string \| null`                              | Luma slug when available.                                                        |
+| `source`      | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
+| `kind`        | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type.                                                         |
+| `isDefault`   | `boolean`                                     | User's default calendar in this app.                                             |
+| `url`         | `string \| null`                              | Calendar URL when known.                                                         |
+| `curatedName` | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
+| `remoteName`  | `string \| null`                              | Latest name reported by Luma.                                                    |
+| `sync`        | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
+
+Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
+`failed`, or `inaccessible`. A `partial` profile found fewer public event URLs
+than Luma's hosted count. An `inaccessible` calendar remains in the collection
+with zero events and can be retried later.
 
 ### `GET /api/v1/events`
 
@@ -127,14 +145,14 @@ event with every source where it appeared.
 
 Query parameters:
 
-| Param | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `calendar` | `string` | `all` | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`. |
-| `mode` | `canonical \| sources` | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
-| `from` | ISO date string | none | Inclusive lower bound on `startAt`. |
-| `to` | ISO date string | none | Inclusive upper bound on `startAt`. |
-| `limit` | integer `1..200` | `100` | Page size. |
-| `cursor` | opaque string | none | `page.nextCursor` from the previous response. |
+| Param      | Type                   | Default     | Notes                                                                                                     |
+| ---------- | ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| `calendar` | `string`               | `all`       | Use `all`, omit it, or pass a calendar `id` from `/api/v1/calendars`.                                     |
+| `mode`     | `canonical \| sources` | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting. |
+| `from`     | ISO date string        | none        | Inclusive lower bound on `startAt`.                                                                       |
+| `to`       | ISO date string        | none        | Inclusive upper bound on `startAt`.                                                                       |
+| `limit`    | integer `1..200`       | `100`       | Page size.                                                                                                |
+| `cursor`   | opaque string          | none        | `page.nextCursor` from the previous response.                                                             |
 
 Example:
 
@@ -194,20 +212,20 @@ Response:
 
 Event fields:
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | `string` | Luma event id, or `scr-*` for imported public events. |
-| `name` | `string` | Event name. |
-| `coverUrl` | `string \| null` | Cover image URL when available. |
-| `url` | `string` | Public event URL. |
-| `startAt` | `string` | ISO date string. |
-| `endAt` | `string \| null` | ISO date string when known. |
-| `city` | `string \| null` | Human-readable city/location when available. |
-| `description` | `string \| null` | Markdown/text description when available. |
-| `externalIds` | `object \| null` | Canonical mode only: known Luma/scraped ids. |
-| `sources` | `array \| null` | Canonical mode only: calendars/imports/profile sources where the event appeared. |
-| `tags` | `string[]` | Approved tags. Empty until tagging is configured. |
-| `calendar` | `object \| null` | Source calendar metadata. |
+| Field         | Type             | Notes                                                                            |
+| ------------- | ---------------- | -------------------------------------------------------------------------------- |
+| `id`          | `string`         | Luma event id, or `scr-*` for imported public events.                            |
+| `name`        | `string`         | Event name.                                                                      |
+| `coverUrl`    | `string \| null` | Cover image URL when available.                                                  |
+| `url`         | `string`         | Public event URL.                                                                |
+| `startAt`     | `string`         | ISO date string.                                                                 |
+| `endAt`       | `string \| null` | ISO date string when known.                                                      |
+| `city`        | `string \| null` | Human-readable city/location when available.                                     |
+| `description` | `string \| null` | Markdown/text description when available.                                        |
+| `externalIds` | `object \| null` | Canonical mode only: known Luma/scraped ids.                                     |
+| `sources`     | `array \| null`  | Canonical mode only: calendars/imports/profile sources where the event appeared. |
+| `tags`        | `string[]`       | Approved tags. Empty until tagging is configured.                                |
+| `calendar`    | `object \| null` | Source calendar metadata.                                                        |
 
 Use `mode=sources` when your integration needs one row per calendar/source
 instead of deduplicated canonical events.
@@ -269,12 +287,12 @@ Error responses are JSON:
 { "error": "invalid_token" }
 ```
 
-| HTTP | `error` | Meaning |
-| --- | --- | --- |
-| `401` | `missing_token` | No `Authorization` header was sent. |
-| `401` | `invalid_token` | Token is malformed, unknown, or revoked. |
-| `400` | `bad_params` | Invalid query parameter, such as a bad ISO date or cursor. |
-| `500` | `server_error` | Server-side failure while reading calendars/events. |
+| HTTP  | `error`         | Meaning                                                    |
+| ----- | --------------- | ---------------------------------------------------------- |
+| `401` | `missing_token` | No `Authorization` header was sent.                        |
+| `401` | `invalid_token` | Token is malformed, unknown, or revoked.                   |
+| `400` | `bad_params`    | Invalid query parameter, such as a bad ISO date or cursor. |
+| `500` | `server_error`  | Server-side failure while reading calendars/events.        |
 
 All REST responses include permissive CORS headers and `cache-control: no-store`.
 
@@ -282,21 +300,21 @@ All REST responses include permissive CORS headers and `cache-control: no-store`
 
 The app also exposes an MCP server for OAuth-capable clients:
 
-| Route | Purpose |
-| --- | --- |
-| `/mcp` | Main MCP endpoint. |
-| `/.mcp/list-tools` | Lists available MCP tools. |
-| `/.mcp/invoke-tool/:tool` | Invokes one MCP tool. |
+| Route                                   | Purpose                            |
+| --------------------------------------- | ---------------------------------- |
+| `/mcp`                                  | Main MCP endpoint.                 |
+| `/.mcp/list-tools`                      | Lists available MCP tools.         |
+| `/.mcp/invoke-tool/:tool`               | Invokes one MCP tool.              |
 | `/.well-known/oauth-protected-resource` | OAuth protected-resource metadata. |
 
 Current tools:
 
-| Tool | Purpose |
-| --- | --- |
-| `whoami` | Verify the authenticated user id and email. |
-| `list_calendars` | List connected Luma calendars. |
-| `list_my_badges` | List generated badges, optionally by `event_id`. |
-| `list_event_style_presets` | List saved AI style presets for an event. |
+| Tool                       | Purpose                                          |
+| -------------------------- | ------------------------------------------------ |
+| `whoami`                   | Verify the authenticated user id and email.      |
+| `list_calendars`           | List connected Luma calendars.                   |
+| `list_my_badges`           | List generated badges, optionally by `event_id`. |
+| `list_event_style_presets` | List saved AI style presets for an event.        |
 
 Use the REST API for ordinary app integrations. Use MCP when the consumer is an
 agent/client that already speaks MCP and can complete the Supabase OAuth flow.

@@ -11,6 +11,13 @@ import {
   setDefaultCalendar,
 } from "@/lib/user-luma-calendars.functions";
 import { listApiTokens, createApiToken, revokeApiToken } from "@/lib/api-tokens.functions";
+import {
+  importBulkSources,
+  listSyncSources,
+  processSyncQueue,
+  syncAllSources,
+  syncOneSource,
+} from "@/lib/calendar-sync.functions";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -55,7 +62,7 @@ function SettingsPage() {
   const [importKind, setImportKind] = useState<"auto" | "calendar" | "event" | "profile">(
     "calendar",
   );
-  const [importLimit, setImportLimit] = useState(40);
+  const [importLimit, setImportLimit] = useState(80);
   const importMut = useMutation({
     mutationFn: () =>
       runImport({ data: { url: importUrl.trim(), kind: importKind, limit: importLimit } }),
@@ -80,6 +87,44 @@ function SettingsPage() {
   const [tokenErr, setTokenErr] = useState<string | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const fetchSyncSources = useServerFn(listSyncSources);
+  const runSyncAll = useServerFn(syncAllSources);
+  const runSyncOne = useServerFn(syncOneSource);
+  const runQueue = useServerFn(processSyncQueue);
+  const runBulkImport = useServerFn(importBulkSources);
+  const [bulkText, setBulkText] = useState("");
+  const {
+    data: syncSources,
+    refetch: refetchSyncSources,
+    isLoading: syncSourcesLoading,
+  } = useQuery({
+    queryKey: ["sync-sources"],
+    queryFn: () => fetchSyncSources(),
+    refetchInterval: (query) =>
+      query.state.data?.some((source) => ["queued", "running"].includes(source.sync_status))
+        ? 5000
+        : false,
+  });
+  const syncMut = useMutation({
+    mutationFn: async (sourceId?: string) => {
+      if (sourceId) return runSyncOne({ data: { sourceId } });
+      const result = await runSyncAll();
+      await runQueue();
+      return result;
+    },
+    onSuccess: () => {
+      refetchSyncSources();
+      qc.invalidateQueries({ queryKey: ["luma-events"] });
+      qc.invalidateQueries({ queryKey: ["luma-calendars"] });
+    },
+  });
+  const bulkMut = useMutation({
+    mutationFn: () => runBulkImport({ data: { text: bulkText } }),
+    onSuccess: () => {
+      setBulkText("");
+      refetchSyncSources();
+    },
+  });
   const apiOrigin = typeof window !== "undefined" ? window.location.origin : "";
 
   async function onCreateToken() {
@@ -192,6 +237,80 @@ function SettingsPage() {
         </a>
         .
       </p>
+
+      <section className="mt-8 border-y border-hairline py-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              Curated library · {syncSources?.length ?? 0} sources
+            </div>
+            <h2 className="mt-1 font-display text-xl font-semibold">Persistent sync</h2>
+          </div>
+          <button
+            onClick={() => syncMut.mutate(undefined)}
+            disabled={syncMut.isPending || syncSourcesLoading}
+            className="rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {syncMut.isPending ? "Queueing…" : "Sync all"}
+          </button>
+        </div>
+
+        <div className="mt-4 max-h-96 divide-y divide-hairline overflow-y-auto border-y border-hairline">
+          {syncSources?.map((source) => (
+            <div
+              key={source.id}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">
+                  {source.curated_name ?? source.calendar_name}
+                </div>
+                <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                  {source.source_kind} · {source.imported_count}/{source.discovered_count} events ·{" "}
+                  {source.sync_status}
+                </div>
+                {source.sync_error && (
+                  <div className="mt-1 truncate text-[11px] text-destructive">
+                    {source.sync_error}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => syncMut.mutate(source.id)}
+                disabled={syncMut.isPending || source.sync_status === "running"}
+                className="rounded-md border border-hairline px-3 py-1.5 text-[11px] font-semibold disabled:opacity-40"
+              >
+                {source.sync_status === "failed" ? "Retry" : "Sync"}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <label className="mt-6 block font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          Bulk import · Name — URL, raw URLs, or Markdown table
+        </label>
+        <textarea
+          value={bulkText}
+          onChange={(event) => setBulkText(event.target.value)}
+          placeholder={"Hack0 Community — https://luma.com/hack0\nhttps://luma.com/user/theveller"}
+          className="mt-2 min-h-28 w-full resize-y rounded-md border border-hairline bg-background p-3 font-mono text-xs focus:border-accent focus:outline-none"
+        />
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            onClick={() => bulkMut.mutate()}
+            disabled={bulkMut.isPending || !bulkText.trim()}
+            className="rounded-md border border-hairline px-4 py-2 text-xs font-semibold disabled:opacity-40"
+          >
+            {bulkMut.isPending ? "Importing…" : "Import and queue"}
+          </button>
+          {bulkMut.isSuccess && (
+            <span className="text-xs text-emerald-400">Queued {bulkMut.data.imported} sources</span>
+          )}
+          {bulkMut.isError && (
+            <span className="text-xs text-destructive">{bulkMut.error.message}</span>
+          )}
+        </div>
+      </section>
 
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/70 p-6">
         <div className="flex items-baseline justify-between">

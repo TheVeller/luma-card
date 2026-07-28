@@ -32,7 +32,7 @@ function ImportPage() {
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<"auto" | "calendar" | "event" | "profile">("auto");
-  const [limit, setLimit] = useState(40);
+  const [limit, setLimit] = useState(80);
 
   const mut = useMutation({
     mutationFn: () => run({ data: { url: url.trim(), kind, limit } }),
