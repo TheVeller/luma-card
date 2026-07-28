@@ -330,6 +330,7 @@ export type Database = {
           finished_at: string | null
           id: string
           imported_count: number | null
+          sync_scope: string
           scheduled_at: string
           source_id: string
           started_at: string | null
@@ -346,6 +347,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           imported_count?: number | null
+          sync_scope?: string
           scheduled_at?: string
           source_id: string
           started_at?: string | null
@@ -362,6 +364,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           imported_count?: number | null
+          sync_scope?: string
           scheduled_at?: string
           source_id?: string
           started_at?: string | null
@@ -521,6 +524,7 @@ export type Database = {
       user_luma_calendars: {
         Row: {
           api_key_ciphertext: string | null
+          brand_kit_id: string | null
           calendar_avatar_url: string | null
           calendar_cover_url: string | null
           calendar_description: string | null
@@ -537,12 +541,19 @@ export type Database = {
           id: string
           imported_count: number
           is_default: boolean
+          historical_sync_completed_at: string | null
+          last_sync_attempted_at: string | null
+          last_sync_scope: string | null
           last_synced_at: string | null
           luma_calendar_id: string | null
           merged_into_id: string | null
           metadata_version: number
           next_sync_at: string | null
           organization_manual: boolean
+          ownership: string
+          provider: string
+          provider_connection_id: string | null
+          provider_source_id: string | null
           remote_name: string | null
           sort_order: number
           source: string
@@ -550,6 +561,7 @@ export type Database = {
           source_metadata: Json | null
           suggested_group_name: string | null
           suggested_group_reason: string | null
+          sync_all_events: boolean
           sync_enabled: boolean
           sync_error: string | null
           sync_status: string
@@ -558,6 +570,7 @@ export type Database = {
         }
         Insert: {
           api_key_ciphertext?: string | null
+          brand_kit_id?: string | null
           calendar_avatar_url?: string | null
           calendar_cover_url?: string | null
           calendar_description?: string | null
@@ -574,12 +587,19 @@ export type Database = {
           id?: string
           imported_count?: number
           is_default?: boolean
+          historical_sync_completed_at?: string | null
+          last_sync_attempted_at?: string | null
+          last_sync_scope?: string | null
           last_synced_at?: string | null
           luma_calendar_id?: string | null
           merged_into_id?: string | null
           metadata_version?: number
           next_sync_at?: string | null
           organization_manual?: boolean
+          ownership?: string
+          provider?: string
+          provider_connection_id?: string | null
+          provider_source_id?: string | null
           remote_name?: string | null
           sort_order?: number
           source?: string
@@ -587,6 +607,7 @@ export type Database = {
           source_metadata?: Json | null
           suggested_group_name?: string | null
           suggested_group_reason?: string | null
+          sync_all_events?: boolean
           sync_enabled?: boolean
           sync_error?: string | null
           sync_status?: string
@@ -595,6 +616,7 @@ export type Database = {
         }
         Update: {
           api_key_ciphertext?: string | null
+          brand_kit_id?: string | null
           calendar_avatar_url?: string | null
           calendar_cover_url?: string | null
           calendar_description?: string | null
@@ -611,12 +633,19 @@ export type Database = {
           id?: string
           imported_count?: number
           is_default?: boolean
+          historical_sync_completed_at?: string | null
+          last_sync_attempted_at?: string | null
+          last_sync_scope?: string | null
           last_synced_at?: string | null
           luma_calendar_id?: string | null
           merged_into_id?: string | null
           metadata_version?: number
           next_sync_at?: string | null
           organization_manual?: boolean
+          ownership?: string
+          provider?: string
+          provider_connection_id?: string | null
+          provider_source_id?: string | null
           remote_name?: string | null
           sort_order?: number
           source?: string
@@ -624,6 +653,7 @@ export type Database = {
           source_metadata?: Json | null
           suggested_group_name?: string | null
           suggested_group_reason?: string | null
+          sync_all_events?: boolean
           sync_enabled?: boolean
           sync_error?: string | null
           sync_status?: string
