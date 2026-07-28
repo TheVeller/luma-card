@@ -201,6 +201,7 @@ async function fetchPage(
 export async function fetchPublicCalendarEvents(
   calApiId: string,
   limit: number | null,
+  scope: { kind: "full" } | { kind: "maintenance"; after: string } = { kind: "full" },
 ): Promise<PublicLumaEvent[]> {
   const out: PublicLumaEvent[] = [];
   const seen = new Set<string>();
@@ -212,11 +213,29 @@ export async function fetchPublicCalendarEvents(
       for (const e of entries) {
         const ev = e.event;
         if (!ev?.api_id) continue;
+        if (
+          period === "past" &&
+          scope.kind === "maintenance" &&
+          ev.start_at &&
+          Date.parse(ev.start_at) < Date.parse(scope.after)
+        ) {
+          continue;
+        }
         if (seen.has(ev.api_id)) continue;
         seen.add(ev.api_id);
         out.push(toPublicEvent(e));
       }
       if (limit !== null && out.length >= limit) return out.slice(0, limit);
+      if (
+        period === "past" &&
+        scope.kind === "maintenance" &&
+        entries.some(
+          ({ event }) =>
+            Boolean(event?.start_at) && Date.parse(event!.start_at!) < Date.parse(scope.after),
+        )
+      ) {
+        break;
+      }
       if (!hasMore || !nextCursor) break;
       cursor = nextCursor;
     }

@@ -124,6 +124,9 @@ Response:
         "discovered": 42,
         "imported": 42,
         "lastSyncedAt": "2026-07-28T13:00:00.000Z",
+        "lastAttemptedAt": "2026-07-28T13:00:00.000Z",
+        "historicalSyncCompletedAt": "2026-07-27T13:00:00.000Z",
+        "scope": "maintenance",
         "nextSyncAt": "2026-07-29T13:00:00.000Z"
       }
     },
@@ -170,7 +173,7 @@ Calendar fields:
 | `curatedName`         | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
 | `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                    |
 | `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                             |
-| `sync`                | `object`                                      | Persistent sync status, counts, error, and timestamps.                           |
+| `sync`                | `object`                                      | Status, counts, last successful/attempted timestamps, scope, and historical completion. |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
 `failed`, or `inaccessible`. A `partial` source used a fallback but could not

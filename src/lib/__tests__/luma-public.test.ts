@@ -151,6 +151,53 @@ describe("public Luma calendars", () => {
     expect(periods).toEqual(["future", "past"]);
   });
 
+  test("maintenance keeps upcoming and only the recent slice of past events", async () => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const period = new URL(String(input)).searchParams.get("period");
+      return Response.json({
+        entries:
+          period === "future"
+            ? [
+                {
+                  event: {
+                    api_id: "evt-future",
+                    name: "Future",
+                    url: "future",
+                    start_at: "2026-08-01T10:00:00Z",
+                  },
+                },
+              ]
+            : [
+                {
+                  event: {
+                    api_id: "evt-recent",
+                    name: "Recent",
+                    url: "recent",
+                    start_at: "2026-07-25T10:00:00Z",
+                  },
+                },
+                {
+                  event: {
+                    api_id: "evt-old",
+                    name: "Old",
+                    url: "old",
+                    start_at: "2026-06-01T10:00:00Z",
+                  },
+                },
+              ],
+        has_more: period === "past",
+        next_cursor: "older",
+      });
+    }) as typeof fetch;
+
+    const events = await fetchPublicCalendarEvents("cal-aggregator", null, {
+      kind: "maintenance",
+      after: "2026-07-21T00:00:00Z",
+    });
+
+    expect(events.map((event) => event.apiId)).toEqual(["evt-future", "evt-recent"]);
+  });
+
   test("surfaces upstream failures instead of reporting an empty calendar", async () => {
     globalThis.fetch = (async () =>
       new Response("unavailable", { status: 503 })) as unknown as typeof fetch;

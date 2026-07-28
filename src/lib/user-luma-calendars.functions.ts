@@ -25,6 +25,14 @@ export type UserCalendarDTO = {
   pastCount: number;
   unknownCount: number;
   syncStatus: string;
+  syncError: string | null;
+  lastSyncedAt: string | null;
+  lastSyncAttemptedAt: string | null;
+  historicalSyncCompletedAt: string | null;
+  lastSyncScope: "full" | "maintenance" | null;
+  hasApiConnection: boolean;
+  hasPublicLink: boolean;
+  apiConnectionStatus: "connected" | "needs_attention" | null;
   groupId: string | null;
   groupName: string | null;
   groupOrder: number | null;
@@ -59,6 +67,9 @@ export type Row = {
   discovered_count?: number | null;
   imported_count?: number | null;
   last_synced_at?: string | null;
+  last_sync_attempted_at?: string | null;
+  historical_sync_completed_at?: string | null;
+  last_sync_scope?: "full" | "maintenance" | null;
   next_sync_at?: string | null;
   calendar_cover_url?: string | null;
   calendar_description?: string | null;
@@ -114,6 +125,24 @@ function toDTO(
     pastCount: eventStats?.past ?? 0,
     unknownCount: eventStats?.unknown ?? 0,
     syncStatus: r.sync_status ?? "idle",
+    syncError: r.sync_error ?? null,
+    lastSyncedAt: r.last_synced_at ?? null,
+    lastSyncAttemptedAt: r.last_sync_attempted_at ?? null,
+    historicalSyncCompletedAt: r.historical_sync_completed_at ?? null,
+    lastSyncScope: r.last_sync_scope ?? null,
+    hasApiConnection:
+      (r.provider ?? "luma") === "luma"
+        ? Boolean(r.api_key_ciphertext)
+        : Boolean(r.provider_connection_id),
+    hasPublicLink: Boolean(r.calendar_url),
+    apiConnectionStatus:
+      (r.provider ?? "luma") === "luma" && r.api_key_ciphertext
+        ? r.source_metadata?.apiAuthStatus === "needs_attention"
+          ? "needs_attention"
+          : "connected"
+        : r.provider_connection_id
+          ? "connected"
+          : null,
     groupId: r.group_id ?? null,
     groupName: group?.name ?? null,
     groupOrder: group?.sort_order ?? null,
@@ -136,7 +165,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id, provider, provider_source_id, provider_connection_id, ownership, sync_all_events, brand_kit_id",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, last_sync_attempted_at, historical_sync_completed_at, last_sync_scope, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id, provider, provider_source_id, provider_connection_id, ownership, sync_all_events, brand_kit_id",
     )
     .eq("user_id", userId)
     .is("merged_into_id", null)
@@ -257,6 +286,9 @@ export const addCalendar = createServerFn({ method: "POST" })
     const isFirst = existing.length === 0;
 
     const canonicalRowId = await resolveCanonicalCalendarRowId(context.userId, cal.id);
+    const existingCanonical = canonicalRowId
+      ? existing.find((calendar) => calendar.id === canonicalRowId)
+      : null;
     const values = {
       user_id: context.userId,
       ...(canonicalRowId
@@ -273,6 +305,12 @@ export const addCalendar = createServerFn({ method: "POST" })
       provider: "luma",
       provider_source_id: cal.id,
       ownership: "connected",
+      sync_error: null,
+      source_metadata: {
+        ...(existingCanonical?.source_metadata ?? {}),
+        apiAuthStatus: "connected",
+        apiError: null,
+      },
       updated_at: new Date().toISOString(),
     };
     const query = canonicalRowId

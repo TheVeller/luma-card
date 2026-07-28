@@ -17,6 +17,8 @@ export type ProviderSnapshot = {
   complete: boolean;
 };
 
+export type ProviderSyncScope = { kind: "full" } | { kind: "maintenance"; after: string };
+
 function eventbriteEvent(raw: {
   id: string;
   name?: { text?: string };
@@ -51,6 +53,7 @@ async function eventbriteSnapshot(
   sourceUrl: string,
   token: string,
   limit: number | null,
+  scope: ProviderSyncScope,
 ): Promise<ProviderSnapshot> {
   const sourceId = providerEventId("eventbrite", sourceUrl);
   if (sourceId) {
@@ -92,10 +95,14 @@ async function eventbriteSnapshot(
   const events: ProviderEvent[] = [];
   for (let page = 1; page <= 100; page++) {
     const query = new URLSearchParams({
-      time_filter: "all",
       expand: "organizer,venue",
       page: String(page),
     });
+    if (scope.kind === "full") {
+      query.set("time_filter", "all");
+    } else {
+      query.set("start_date.range_start", scope.after);
+    }
     const response = await fetch(
       `https://www.eventbriteapi.com/v3/organizations/${organizationId}/events/?${query}`,
       { headers: { Authorization: `Bearer ${token}` } },
@@ -196,6 +203,7 @@ async function meetupSnapshot(
   sourceUrl: string,
   token: string,
   limit: number | null,
+  scope: ProviderSyncScope,
 ): Promise<ProviderSnapshot> {
   const eventId = providerEventId("meetup", sourceUrl);
   if (!eventId) {
@@ -235,8 +243,23 @@ async function meetupSnapshot(
         groupName = group.name;
         groupDescription = group.description ?? null;
         groupPhoto = meetupPhoto(group.keyGroupPhoto);
-        events.push(...(group.events?.edges ?? []).map(({ node }) => meetupProviderEvent(node)));
+        const pageEvents = (group.events?.edges ?? []).map(({ node }) => meetupProviderEvent(node));
+        events.push(
+          ...pageEvents.filter(
+            ({ event }) =>
+              scope.kind === "full" ||
+              status === "UPCOMING" ||
+              Date.parse(event.startAt) >= Date.parse(scope.after),
+          ),
+        );
         if (limit !== null && events.length >= limit) break;
+        if (
+          scope.kind === "maintenance" &&
+          status === "PAST" &&
+          pageEvents.some(({ event }) => Date.parse(event.startAt) < Date.parse(scope.after))
+        ) {
+          break;
+        }
         if (!group.events?.pageInfo?.hasNextPage || !group.events.pageInfo.endCursor) break;
         cursor = group.events.pageInfo.endCursor;
       }
@@ -283,10 +306,11 @@ export async function fetchConnectedProviderSnapshot(
   sourceUrl: string,
   token: string,
   limit: number | null,
+  scope: ProviderSyncScope = { kind: "full" },
 ): Promise<ProviderSnapshot> {
   return provider === "eventbrite"
-    ? eventbriteSnapshot(sourceUrl, token, limit)
-    : meetupSnapshot(sourceUrl, token, limit);
+    ? eventbriteSnapshot(sourceUrl, token, limit, scope)
+    : meetupSnapshot(sourceUrl, token, limit, scope);
 }
 
 export async function refreshMeetupAccessToken(refreshToken: string): Promise<{
@@ -434,6 +458,7 @@ export async function fetchPublicProviderSnapshot(
   provider: Exclude<EventProvider, "luma">,
   sourceUrl: string,
   limit: number,
+  options: { skipUrls?: string[]; after?: string } = {},
 ): Promise<ProviderSnapshot> {
   const eventId = providerEventId(provider, sourceUrl);
   const { firecrawlDiscoverProviderEvents, firecrawlScrapeSource, hasFirecrawl } =
@@ -448,10 +473,13 @@ export async function fetchPublicProviderSnapshot(
       `No public ${provider} events were found. Connect an organizer token for reliable sync.`,
     );
   }
+  const skipUrls = new Set(options.skipUrls ?? []);
+  const urlsToRead = urls.filter((url) => !skipUrls.has(url));
   const events: ProviderEvent[] = [];
-  for (let offset = 0; offset < urls.length; offset += 5) {
+  let readableCount = 0;
+  for (let offset = 0; offset < urlsToRead.length; offset += 5) {
     const batch = await Promise.all(
-      urls.slice(offset, offset + 5).map(async (url) => {
+      urlsToRead.slice(offset, offset + 5).map(async (url) => {
         try {
           return await fetchPublicProviderEvent(provider, url);
         } catch (error) {
@@ -460,9 +488,17 @@ export async function fetchPublicProviderSnapshot(
         }
       }),
     );
-    events.push(...batch.filter((event): event is ProviderEvent => event !== null));
+    const readable = batch.filter((event): event is ProviderEvent => event !== null);
+    readableCount += readable.length;
+    events.push(
+      ...readable.filter(
+        ({ event }) => !options.after || Date.parse(event.startAt) >= Date.parse(options.after),
+      ),
+    );
   }
-  if (events.length === 0) throw new Error(`No readable ${provider} events were found`);
+  if (events.length === 0 && urlsToRead.length > 0) {
+    throw new Error(`No readable ${provider} events were found`);
+  }
   const branding = hasFirecrawl() ? await firecrawlScrapeSource(sourceUrl) : null;
   return {
     name:
@@ -473,6 +509,6 @@ export async function fetchPublicProviderSnapshot(
     avatarUrl: branding?.avatarUrl ?? null,
     coverUrl: branding?.coverUrl ?? events[0]?.event.coverUrl ?? null,
     description: branding?.description ?? null,
-    complete: eventId !== null,
+    complete: readableCount + (urls.length - urlsToRead.length) === urls.length,
   };
 }

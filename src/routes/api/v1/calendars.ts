@@ -89,6 +89,9 @@ export const Route = createFileRoute("/api/v1/calendars")({
                     discovered: r.discovered_count ?? 0,
                     imported: eventCount,
                     lastSyncedAt: r.last_synced_at,
+                    lastAttemptedAt: r.last_sync_attempted_at,
+                    historicalSyncCompletedAt: r.historical_sync_completed_at,
+                    scope: r.last_sync_scope,
                     nextSyncAt: r.next_sync_at,
                   },
                 };

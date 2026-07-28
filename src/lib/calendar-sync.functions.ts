@@ -37,10 +37,17 @@ export const syncAllSources = createServerFn({ method: "POST" })
 
 export const syncOneSource = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((value: unknown) => z.object({ sourceId: z.string().uuid() }).parse(value))
+  .inputValidator((value: unknown) =>
+    z
+      .object({
+        sourceId: z.string().uuid(),
+        scope: z.enum(["auto", "full", "maintenance"]).default("auto"),
+      })
+      .parse(value),
+  )
   .handler(async ({ data, context }) => {
     const { enqueueSource, processSyncQueueForUser } = await import("./calendar-sync.server");
-    await enqueueSource(context.userId, data.sourceId, "manual");
+    await enqueueSource(context.userId, data.sourceId, "manual", undefined, data.scope);
     await processSyncQueueForUser(context.userId, 1);
     return { ok: true };
   });

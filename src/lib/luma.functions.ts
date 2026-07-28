@@ -4,10 +4,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { fetchAllEvents, fetchEvent } from "./luma.server";
+import { fetchEvent } from "./luma.server";
 import { resolveUserLumaKey } from "./user-luma-key.functions";
 import { resolveAllKeys, readUserCalendars } from "./user-luma-calendars.functions";
-import { readScrapedEventsForCalendar, readScrapedEventById } from "./luma-scrape.functions";
+import { readScrapedEventById } from "./luma-scrape.functions";
 import { aggregateCanonicalEventsForUser, toDTO, type EventDTO } from "./events-aggregate.server";
 
 // Re-exported for callers that import the DTO shape from this module.
@@ -43,24 +43,16 @@ export const listEvents = createServerFn({ method: "GET" })
       return events;
     }
 
-    // Specific calendar — could be scraped (source='scrape') or api.
+    // Specific calendars are served from the canonical cache. Scheduled sync
+    // is the only path that spends provider API calls.
     const row = calendarId
       ? allRows.find((r) => r.id === resolvedRowId)
       : (allRows.find((r) => r.is_default) ?? allRows[0]);
-    if (row?.source === "scrape") {
-      return readScrapedEventsForCalendar(
-        context.userId,
-        row.id,
-        row.calendar_id,
-        row.calendar_name ?? "Imported",
-      );
-    }
-    const key = await resolveUserLumaKey(context.userId, row?.calendar_id ?? calendarId);
-    if (!key) throw new NoLumaKeyError();
-    const events = await fetchAllEvents(key);
-    return events.map((e) =>
-      toDTO(e, row?.calendar_id ?? calendarId ?? undefined, row?.calendar_name ?? undefined),
-    );
+    if (!row) throw new NoLumaKeyError();
+    const { events } = await aggregateCanonicalEventsForUser(context.userId, {
+      calendarId: row.calendar_id,
+    });
+    return events;
   });
 
 export const getEvent = createServerFn({ method: "GET" })

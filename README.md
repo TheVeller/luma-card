@@ -42,3 +42,8 @@ pagination, error codes, and TypeScript examples.
 - **Supabase** — auth + Postgres (RLS)
 - **Cloudflare Workers** — deploy target (Nitro `cloudflare-module`)
 - Event sources: Luma public/API, Eventbrite API/public links, Meetup GraphQL/public links, and Firecrawl fallbacks
+
+Calendar ingestion performs one complete historical import, then switches to a
+daily maintenance window containing upcoming events and the previous seven days.
+Historical events remain in the canonical library; use **Full resync** in
+Settings when an explicit historical reconciliation is needed.
