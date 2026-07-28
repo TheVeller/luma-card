@@ -330,7 +330,6 @@ export type Database = {
           finished_at: string | null
           id: string
           imported_count: number | null
-          sync_scope: string
           scheduled_at: string
           source_id: string
           started_at: string | null
@@ -347,7 +346,6 @@ export type Database = {
           finished_at?: string | null
           id?: string
           imported_count?: number | null
-          sync_scope?: string
           scheduled_at?: string
           source_id: string
           started_at?: string | null
@@ -364,7 +362,6 @@ export type Database = {
           finished_at?: string | null
           id?: string
           imported_count?: number | null
-          sync_scope?: string
           scheduled_at?: string
           source_id?: string
           started_at?: string | null
@@ -538,10 +535,10 @@ export type Database = {
           discovered_count: number
           event_limit: number
           group_id: string | null
+          historical_sync_completed_at: string | null
           id: string
           imported_count: number
           is_default: boolean
-          historical_sync_completed_at: string | null
           last_sync_attempted_at: string | null
           last_sync_scope: string | null
           last_synced_at: string | null
@@ -584,10 +581,10 @@ export type Database = {
           discovered_count?: number
           event_limit?: number
           group_id?: string | null
+          historical_sync_completed_at?: string | null
           id?: string
           imported_count?: number
           is_default?: boolean
-          historical_sync_completed_at?: string | null
           last_sync_attempted_at?: string | null
           last_sync_scope?: string | null
           last_synced_at?: string | null
@@ -630,10 +627,10 @@ export type Database = {
           discovered_count?: number
           event_limit?: number
           group_id?: string | null
+          historical_sync_completed_at?: string | null
           id?: string
           imported_count?: number
           is_default?: boolean
-          historical_sync_completed_at?: string | null
           last_sync_attempted_at?: string | null
           last_sync_scope?: string | null
           last_synced_at?: string | null
