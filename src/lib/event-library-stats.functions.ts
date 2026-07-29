@@ -58,6 +58,10 @@ function emptyStats(): EventLibraryStats {
 }
 
 type LibraryRow = {
+  id?: string;
+  calendar_id?: string | null;
+  calendar_url?: string | null;
+  provider_source_id?: string | null;
   provider: string | null;
   ownership: string | null;
   merged_into_id: string | null;
@@ -66,13 +70,26 @@ type LibraryRow = {
 
 export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySummary {
   const summary = emptyLibrarySummary();
+  const activeIdentities = new Set<string>();
   for (const row of rows) {
     if (row.merged_into_id) {
       summary.mergedHidden++;
       continue;
     }
-    summary.activeCalendars++;
     const provider = row.provider ?? "luma";
+    const normalizedUrl = row.calendar_url
+      ? row.calendar_url
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\/(www\.)?/, "")
+          .replace(/[?#].*$/, "")
+          .replace(/\/+$/, "")
+      : null;
+    const identityValue = row.provider_source_id ?? normalizedUrl ?? row.calendar_id ?? row.id;
+    const identity = identityValue ? `${provider}:${identityValue}` : null;
+    if (identity && activeIdentities.has(identity)) continue;
+    if (identity) activeIdentities.add(identity);
+    summary.activeCalendars++;
     const connected = (row.ownership ?? "external") === "connected";
     if (provider === "luma") {
       if (connected) summary.lumaConnected++;
@@ -95,7 +112,7 @@ async function readCalendarLibrarySummary(
     userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
   const { data, error } = await client
     .from("user_luma_calendars" as never)
-    .select("provider,ownership,merged_into_id,sync_status")
+    .select("id,calendar_id,calendar_url,provider_source_id,provider,ownership,merged_into_id,sync_status")
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   return summarizeCalendarLibrary((data as unknown as LibraryRow[] | null) ?? []);
@@ -151,6 +168,10 @@ async function statsNeedLiveFallback(
   userClient?: UserSupabaseClient,
 ): Promise<boolean> {
   if (!persisted) return true;
+  // The authenticated Settings view must reflect the current canonical rows,
+  // not a potentially stale persisted RPC snapshot. The live query deduplicates
+  // by canonical_event_id and is scoped by RLS to the signed-in user.
+  if (userClient) return true;
   const client =
     userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
   const { data, error } = await client
