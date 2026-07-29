@@ -129,11 +129,8 @@ async function ensureCuratedSourceRow(
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { lumaCalendarIdFromValues } = await import("./calendar-identity");
   const { providerSourceId } = await import("./event-providers");
-  const {
-    resolveProviderScopedCalendarRowId,
-    registerLumaCalendarIdentity,
-    addCalendarAliases,
-  } = await import("./calendar-identity.server");
+  const { resolveProviderScopedCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
+    await import("./calendar-identity.server");
   const calendarId = sourceCalendarId(source);
   const calendarUrl = normalizeSourceUrl(source.url);
   const identity =
@@ -265,7 +262,10 @@ export async function upsertCuratedSources(
       await enqueueSource(userId, row.id, "manual");
       imported++;
     } catch (error) {
-      failed.push({ url: source.url, error: error instanceof Error ? error.message : String(error) });
+      failed.push({
+        url: source.url,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   const created = Math.max(0, (await listSyncSourcesForUser(userId)).length - before);

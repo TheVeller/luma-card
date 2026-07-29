@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeSourceUrl, parseBulkSources, parseBulkSourcesReport } from "../owner-curated-catalog";
+import {
+  normalizeSourceUrl,
+  parseBulkSources,
+  parseBulkSourcesReport,
+} from "../owner-curated-catalog";
 import { summarizeCalendarLibrary } from "../event-library-stats.functions";
 import { maintenanceAfter, resolveSyncScope } from "../calendar-sync.server";
 
@@ -119,7 +123,12 @@ describe("library summary", () => {
   test("counts providers, ownership, merged rows and errors from one list", () => {
     expect(
       summarizeCalendarLibrary([
-        { provider: "luma", ownership: "connected", merged_into_id: null, sync_status: "completed" },
+        {
+          provider: "luma",
+          ownership: "connected",
+          merged_into_id: null,
+          sync_status: "completed",
+        },
         { provider: "luma", ownership: "external", merged_into_id: null, sync_status: "failed" },
         { provider: "meetup", ownership: "external", merged_into_id: null, sync_status: "idle" },
         { provider: "luma", ownership: "connected", merged_into_id: "x", sync_status: "completed" },
