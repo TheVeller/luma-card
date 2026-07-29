@@ -126,6 +126,7 @@ async function readPersistedStats(
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const value = data as unknown as Partial<EventLibraryStats>;
   return {
+    library: emptyLibrarySummary(),
     generatedAt:
       typeof value.generatedAt === "string" ? value.generatedAt : new Date().toISOString(),
     total: Number(value.total) || 0,
@@ -218,6 +219,7 @@ export function summarizePersistedEventStats(
     }
   }
   return {
+    library: emptyLibrarySummary(),
     generatedAt: new Date(now).toISOString(),
     ...summarizeEventCounts([...globalEvents.values()], now),
     calendars: [...eventsByCalendar].map(([calendarRowId, events]) => ({
@@ -279,6 +281,7 @@ export function summarizeSourceEventStats(
     inputsByCalendar.set(input.calendarRowId, inputs);
   }
   return {
+    library: emptyLibrarySummary(),
     generatedAt: new Date(now).toISOString(),
     ...global,
     calendars: [...inputsByCalendar.entries()].map(([calendarRowId, inputs]) => ({
