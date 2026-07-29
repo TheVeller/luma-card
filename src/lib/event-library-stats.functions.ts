@@ -295,16 +295,21 @@ async function loadEventLibraryStats(
   userId: string,
   userClient?: UserSupabaseClient,
 ): Promise<EventLibraryStats> {
-  const persisted = await readPersistedStats(userId, userClient);
+  // Library counters and event counters always come from the same load, so the
+  // UI can never show two disagreeing totals.
+  const [library, persisted] = await Promise.all([
+    readCalendarLibrarySummary(userId, userClient),
+    readPersistedStats(userId, userClient),
+  ]);
   if (!(await statsNeedLiveFallback(userId, persisted, userClient))) {
-    return persisted ?? emptyStats();
+    return { ...(persisted ?? emptyStats()), library };
   }
   try {
-    return await readLiveStats(userId, userClient);
+    return { ...(await readLiveStats(userId, userClient)), library };
   } catch (error) {
     if (persisted) {
       console.warn("[event-stats] live fallback failed; using persisted counts", error);
-      return persisted;
+      return { ...persisted, library };
     }
     throw error;
   }
