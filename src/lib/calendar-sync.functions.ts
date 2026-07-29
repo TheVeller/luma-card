@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { parseBulkSources } from "./owner-curated-catalog";
+import { parseBulkSourcesReport } from "./owner-curated-catalog";
 
 export const listSyncSources = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -18,10 +18,12 @@ export const importBulkSources = createServerFn({ method: "POST" })
     z.object({ text: z.string().trim().min(1).max(1_000_000) }).parse(value),
   )
   .handler(async ({ data, context }) => {
-    const sources = parseBulkSources(data.text);
-    if (sources.length === 0) throw new Error("No valid Luma or Meetup group URLs found");
+    const report = parseBulkSourcesReport(data.text);
+    if (report.sources.length === 0)
+      throw new Error("No valid Luma or Meetup group URLs found");
     const { upsertCuratedSources } = await import("./calendar-sync.server");
-    return { imported: await upsertCuratedSources(context.userId, sources), sources };
+    const result = await upsertCuratedSources(context.userId, report.sources);
+    return { ...result, report, sources: report.sources };
   });
 
 export const syncAllSources = createServerFn({ method: "POST" })
