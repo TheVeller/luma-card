@@ -1127,12 +1127,15 @@ export async function processNextSyncJob(userId?: string, sourceId?: string): Pr
       .eq("id", job.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const inaccessible = /not publicly accessible/i.test(message);
+    const unreachable = /not publicly accessible/i.test(message);
     const transient = /rate|429|5\d\d|temporar|timeout|fetch failed/i.test(message);
+    // A source that already imported events keeps its history and is reported
+    // as partial instead of being demoted to "inaccessible".
+    const keepsHistory = (source.imported_count ?? 0) > 0;
     await supabaseAdmin
       .from("user_luma_calendars" as never)
       .update({
-        sync_status: inaccessible ? "inaccessible" : "failed",
+        sync_status: unreachable ? (keepsHistory ? "partial" : "inaccessible") : "failed",
         sync_error: message,
         last_sync_attempted_at: attemptedAt,
         last_sync_scope: scope.kind,
