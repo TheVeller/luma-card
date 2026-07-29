@@ -342,6 +342,21 @@ function SettingsPage() {
             {eventStats?.unknown} events without a known date
           </div>
         )}
+        <div className="col-span-3 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-hairline px-4 py-3 font-mono text-[10px] text-muted-foreground sm:grid-cols-3">
+          {[
+            ["Active calendars", eventStats?.library.activeCalendars ?? 0],
+            ["Luma connected", eventStats?.library.lumaConnected ?? 0],
+            ["Luma external", eventStats?.library.lumaExternal ?? 0],
+            ["Meetup groups", eventStats?.library.meetupExternal ?? 0],
+            ["Merged / hidden", eventStats?.library.mergedHidden ?? 0],
+            ["Sources with errors", eventStats?.library.erroredSources ?? 0],
+          ].map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-2">
+              <span className="uppercase tracking-[0.14em]">{label}</span>
+              <span className="tabular-nums text-foreground">{value}</span>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="mt-8 border-y border-hairline py-6">
