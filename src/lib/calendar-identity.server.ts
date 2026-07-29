@@ -26,6 +26,29 @@ export async function resolveCanonicalCalendarRowId(
   return typeof data === "string" ? data : null;
 }
 
+/**
+ * Same as resolveCanonicalCalendarRowId, but never crosses providers: a Luma
+ * identifier must never resolve to a Meetup/Eventbrite row and vice versa.
+ */
+export async function resolveProviderScopedCalendarRowId(
+  userId: string,
+  identifier: string | null | undefined,
+  provider: "luma" | "meetup" | "eventbrite",
+): Promise<string | null> {
+  const rowId = await resolveCanonicalCalendarRowId(userId, identifier);
+  if (!rowId) return null;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("user_luma_calendars" as never)
+    .select("id,provider")
+    .eq("id", rowId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const row = data as { id: string; provider: string | null } | null;
+  if (!row) return null;
+  return (row.provider ?? "luma") === provider ? row.id : null;
+}
+
 export async function registerLumaCalendarIdentity(
   userId: string,
   calendarRowId: string,

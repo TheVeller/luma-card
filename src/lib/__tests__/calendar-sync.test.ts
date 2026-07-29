@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeSourceUrl, parseBulkSources } from "../owner-curated-catalog";
+import { normalizeSourceUrl, parseBulkSources, parseBulkSourcesReport } from "../owner-curated-catalog";
+import { summarizeCalendarLibrary } from "../event-library-stats.functions";
 import { maintenanceAfter, resolveSyncScope } from "../calendar-sync.server";
 
 describe("calendar sync inputs", () => {
@@ -84,5 +85,53 @@ Line two"
       kind: "full",
     });
     expect(maintenanceAfter(now)).toBe("2026-07-21T12:00:00.000Z");
+  });
+});
+
+describe("bulk import accounting", () => {
+  test("reports rows, duplicates and invalid lines", () => {
+    const report = parseBulkSourcesReport(`
+AWS User Group Peru — https://www.meetup.com/awsperu
+Duplicate — https://www.meetup.com/AWSPERU?tracking=1
+Not a source — https://example.com/foo
+Hack0 — https://luma.com/hack0
+`);
+    expect(report.uniqueUrls).toBe(2);
+    expect(report.duplicatesIgnored).toBe(1);
+    expect(report.sources.map((s) => s.provider).sort()).toEqual(["luma", "meetup"]);
+  });
+
+  test("re-parsing the same CSV is idempotent", () => {
+    const csv = "name,url\nA,https://www.meetup.com/a\nB,https://luma.com/b\n";
+    expect(parseBulkSourcesReport(csv).sources).toEqual(parseBulkSourcesReport(csv).sources);
+  });
+
+  test("same slug on different providers stays separate", () => {
+    const sources = parseBulkSources(
+      "X — https://www.meetup.com/hack0\nY — https://luma.com/hack0",
+    );
+    expect(sources).toHaveLength(2);
+    expect(new Set(sources.map((s) => s.provider)).size).toBe(2);
+  });
+});
+
+describe("library summary", () => {
+  test("counts providers, ownership, merged rows and errors from one list", () => {
+    expect(
+      summarizeCalendarLibrary([
+        { provider: "luma", ownership: "connected", merged_into_id: null, sync_status: "completed" },
+        { provider: "luma", ownership: "external", merged_into_id: null, sync_status: "failed" },
+        { provider: "meetup", ownership: "external", merged_into_id: null, sync_status: "idle" },
+        { provider: "luma", ownership: "connected", merged_into_id: "x", sync_status: "completed" },
+      ]),
+    ).toEqual({
+      activeCalendars: 3,
+      lumaConnected: 1,
+      lumaExternal: 1,
+      meetupExternal: 1,
+      otherProviders: 0,
+      mergedHidden: 1,
+      erroredSources: 1,
+    });
   });
 });

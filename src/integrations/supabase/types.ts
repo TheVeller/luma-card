@@ -773,6 +773,17 @@ export type Database = {
         }
         Returns: Json
       }
+      finalize_scoped_calendar_sync: {
+        Args: {
+          p_after?: string
+          p_calendar_row_id: string
+          p_remove_scraped_sources?: boolean
+          p_run_started_at: string
+          p_source_types: string[]
+          p_user_id: string
+        }
+        Returns: Json
+      }
       get_event_library_stats: {
         Args: { p_at?: string; p_user_id: string }
         Returns: Json
