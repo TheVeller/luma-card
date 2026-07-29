@@ -245,17 +245,31 @@ export async function listSyncSourcesForUser(userId: string): Promise<SyncSource
   return (data as SyncSourceRow[] | null) ?? [];
 }
 
+export type CuratedImportResult = {
+  imported: number;
+  created: number;
+  existing: number;
+  failed: Array<{ url: string; error: string }>;
+};
+
 export async function upsertCuratedSources(
   userId: string,
   sources: CuratedSource[],
-): Promise<number> {
-  let count = 0;
+): Promise<CuratedImportResult> {
+  const before = (await listSyncSourcesForUser(userId)).length;
+  const failed: Array<{ url: string; error: string }> = [];
+  let imported = 0;
   for (const [index, source] of sources.entries()) {
-    const row = await ensureCuratedSourceRow(userId, source, index);
-    await enqueueSource(userId, row.id, "manual");
-    count++;
+    try {
+      const row = await ensureCuratedSourceRow(userId, source, index);
+      await enqueueSource(userId, row.id, "manual");
+      imported++;
+    } catch (error) {
+      failed.push({ url: source.url, error: error instanceof Error ? error.message : String(error) });
+    }
   }
-  return count;
+  const created = Math.max(0, (await listSyncSourcesForUser(userId)).length - before);
+  return { imported, created, existing: Math.max(0, imported - created), failed };
 }
 
 export async function enqueueSource(
