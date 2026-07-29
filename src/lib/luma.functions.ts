@@ -26,7 +26,21 @@ export const listEvents = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => ListInput.parse(d) ?? {})
   .handler(async ({ data, context }): Promise<EventDTO[]> => {
     const calendarId = data?.calendarId;
-    const allRows = await readUserCalendars(context.userId);
+    let allRows: Awaited<ReturnType<typeof readUserCalendars>>;
+    try {
+      allRows = await readUserCalendars(context.userId);
+    } catch (error) {
+      // Lovable previews can have the publishable key (auth middleware) but
+      // no server-side secret key. Event browsing is read-only in that state;
+      // return an empty library so the route can render its recoverable empty
+      // state instead of turning the whole page into a blank screen.
+      const message = error instanceof Error ? error.message : String(error);
+      if (/SUPABASE_(SECRET|SERVICE_ROLE)_KEY|Missing Supabase environment/i.test(message)) {
+        console.warn("[listEvents] Supabase server credentials are unavailable", message);
+        return [];
+      }
+      throw error;
+    }
     const { resolveCanonicalCalendarRowId } = await import("./calendar-identity.server");
     const resolvedRowId =
       calendarId && calendarId !== "__all__"
