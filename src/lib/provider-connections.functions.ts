@@ -136,8 +136,8 @@ export const connectProvider = createServerFn({ method: "POST" })
       calendar_name: data.name ?? snapshot.name,
       remote_name: snapshot.name,
       calendar_url: data.sourceUrl,
-      calendar_avatar_url: snapshot.avatarUrl,
-      calendar_cover_url: snapshot.coverUrl,
+      calendar_avatar_url: snapshot.avatarUrl ?? undefined,
+      calendar_cover_url: snapshot.coverUrl ?? undefined,
       calendar_description: snapshot.description,
       source_kind: eventOnly ? "event" : "calendar",
       provider: data.provider,
@@ -148,6 +148,11 @@ export const connectProvider = createServerFn({ method: "POST" })
       event_limit: data.syncAllEvents ? 2000 : 80,
       sync_enabled: true,
       sync_status: "idle",
+      source_metadata: {
+        imageSource: snapshot.imageSource ?? null,
+        linkPreviewImageUrl: snapshot.previewImageUrl ?? null,
+        linkPreviewLogoUrl: snapshot.logoUrl ?? null,
+      },
     };
     const { data: publicSource } = await supabaseAdmin
       .from("user_luma_calendars" as never)

@@ -21,6 +21,9 @@ export type ProviderSnapshot = {
   warnings?: string[];
   cancelledCount?: number;
   unreadableCount?: number;
+  imageSource?: "meetup" | "link_preview" | "favicon" | "event_fallback";
+  previewImageUrl?: string | null;
+  logoUrl?: string | null;
   sourceMethod?:
     | "provider_api"
     | "provider_public_graphql"
@@ -482,6 +485,38 @@ export async function fetchPublicMeetupGroupSnapshot(
   };
 }
 
+async function enrichSnapshotBranding(
+  provider: Exclude<EventProvider, "luma">,
+  sourceUrl: string,
+  snapshot: ProviderSnapshot,
+): Promise<ProviderSnapshot> {
+  // Provider branding wins. Only ask the link-preview service when the
+  // provider did not return an image; this keeps normal Meetup pagination
+  // cheap and makes the fallback deterministic.
+  if (snapshot.avatarUrl && snapshot.coverUrl) return snapshot;
+  const { firecrawlScrapeSource, hasFirecrawl } = await import("./firecrawl.server");
+  if (!hasFirecrawl()) return snapshot;
+  const branding = await firecrawlScrapeSource(sourceUrl);
+  const avatarUrl = snapshot.avatarUrl ?? branding.avatarUrl ?? branding.coverUrl ?? null;
+  const coverUrl = snapshot.coverUrl ?? branding.coverUrl ?? branding.avatarUrl ?? null;
+  if (!avatarUrl && !coverUrl) return snapshot;
+  return {
+    ...snapshot,
+    avatarUrl,
+    coverUrl,
+    logoUrl: branding.avatarUrl,
+    previewImageUrl: branding.coverUrl,
+    imageSource:
+      snapshot.avatarUrl || snapshot.coverUrl
+        ? "meetup"
+        : branding.avatarUrl
+          ? "link_preview"
+          : "favicon",
+    sourceMethod:
+      snapshot.sourceMethod === "provider_public_graphql" ? "hybrid" : snapshot.sourceMethod,
+  };
+}
+
 async function meetupGraphql<T>(
   token: string,
   query: string,
@@ -764,11 +799,12 @@ export async function fetchPublicProviderSnapshot(
   let meetupPublicError: Error | null = null;
   if (provider === "meetup" && !eventId) {
     try {
-      return await fetchPublicMeetupGroupSnapshot(
+      const snapshot = await fetchPublicMeetupGroupSnapshot(
         sourceUrl,
         limit,
         options.after ? { kind: "maintenance", after: options.after } : { kind: "full" },
       );
+      return await enrichSnapshotBranding(provider, sourceUrl, snapshot);
     } catch (error) {
       meetupPublicError = error instanceof Error ? error : new Error(String(error));
       console.warn("[meetup] public GraphQL failed; trying Firecrawl", meetupPublicError.message);
@@ -859,5 +895,12 @@ export async function fetchPublicProviderSnapshot(
           : usedJsonLd
             ? "public_jsonld"
             : "firecrawl",
+    logoUrl: branding?.avatarUrl ?? null,
+    previewImageUrl: branding?.coverUrl ?? null,
+    imageSource: branding?.avatarUrl
+      ? "link_preview"
+      : branding?.coverUrl
+        ? "link_preview"
+        : undefined,
   };
 }

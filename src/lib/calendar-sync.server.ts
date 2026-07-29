@@ -107,18 +107,37 @@ function suggestedGroup(source: SyncSourceRow, description: string | null) {
 export async function ensureOwnerCuratedCatalog(userId: string): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: user } = await supabaseAdmin.auth.admin.getUserById(userId);
-  if (user.user?.email?.toLowerCase() !== CURATED_OWNER_EMAIL) return;
-
-  for (const [index, source] of OWNER_CURATED_SOURCES.entries()) {
-    const row = await ensureCuratedSourceRow(userId, source, index);
-    if (
-      (row.metadata_version ?? 0) < CALENDAR_METADATA_VERSION ||
-      !row.calendar_avatar_url ||
-      ((row.imported_count ?? 0) === 0 && !row.source_metadata?.emptyConfirmed)
-    ) {
-      await enqueueSource(userId, row.id, "initial");
+  if (user.user?.email?.toLowerCase() === CURATED_OWNER_EMAIL) {
+    for (const [index, source] of OWNER_CURATED_SOURCES.entries()) {
+      const row = await ensureCuratedSourceRow(userId, source, index);
+      if (
+        (row.metadata_version ?? 0) < CALENDAR_METADATA_VERSION ||
+        !row.calendar_avatar_url ||
+        !row.calendar_cover_url ||
+        ((row.imported_count ?? 0) === 0 && !row.source_metadata?.emptyConfirmed)
+      ) {
+        await enqueueSource(userId, row.id, "initial");
+      }
     }
   }
+  await enqueueMeetupBrandingBackfill(userId);
+}
+
+/** Requeue only Meetup rows whose branding is incomplete. Safe to call on
+ * every settings/calendar read: the unique queue constraint makes it
+ * idempotent and the normal provider sync persists the resolved URLs. */
+export async function enqueueMeetupBrandingBackfill(userId: string): Promise<number> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("user_luma_calendars" as never)
+    .select("id")
+    .eq("user_id", userId)
+    .eq("provider", "meetup")
+    .is("merged_into_id", null)
+    .or("calendar_avatar_url.is.null,calendar_cover_url.is.null");
+  const rows = (data as Array<{ id: string }> | null) ?? [];
+  for (const row of rows) await enqueueSource(userId, row.id, "manual");
+  return rows.length;
 }
 
 async function ensureCuratedSourceRow(
@@ -519,6 +538,9 @@ async function syncConnectedProvider(
       cancelledCount: snapshot.cancelledCount ?? 0,
       unreadableCount: snapshot.unreadableCount ?? 0,
       truncated: snapshot.truncated ?? false,
+      imageSource: snapshot.imageSource ?? null,
+      linkPreviewImageUrl: snapshot.previewImageUrl ?? null,
+      linkPreviewLogoUrl: snapshot.logoUrl ?? null,
       nextEventAt:
         rows
           .map((row) => row.start_at)
@@ -557,6 +579,16 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
       after: scope.kind === "maintenance" ? scope.after : undefined,
     },
   );
+  const cachedLogo =
+    typeof source.source_metadata?.linkPreviewLogoUrl === "string"
+      ? source.source_metadata.linkPreviewLogoUrl
+      : null;
+  const cachedPreview =
+    typeof source.source_metadata?.linkPreviewImageUrl === "string"
+      ? source.source_metadata.linkPreviewImageUrl
+      : null;
+  const effectiveAvatar = snapshot.avatarUrl ?? cachedLogo ?? cachedPreview;
+  const effectiveCover = snapshot.coverUrl ?? cachedPreview ?? cachedLogo;
   const snapshotComplete = snapshot.complete && snapshot.truncated !== true;
   const rows = snapshot.events.map(({ event, externalId, hostName, payload }) => ({
     event_key: `${source.provider}-${externalId}`,
@@ -584,8 +616,8 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
     discovered: snapshot.discoveredCount ?? rows.length,
     imported: rows.length,
     remoteName: snapshot.name,
-    avatarUrl: snapshot.avatarUrl,
-    coverUrl: snapshot.coverUrl,
+    avatarUrl: effectiveAvatar,
+    coverUrl: effectiveCover,
     description: snapshot.description,
     tintColor: null,
     metadata: {
@@ -599,6 +631,9 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
       cancelledCount: snapshot.cancelledCount ?? 0,
       unreadableCount: snapshot.unreadableCount ?? 0,
       truncated: snapshot.truncated ?? false,
+      imageSource: snapshot.imageSource ?? null,
+      linkPreviewImageUrl: snapshot.previewImageUrl ?? null,
+      linkPreviewLogoUrl: snapshot.logoUrl ?? null,
       nextEventAt:
         rows
           .map((row) => row.start_at)

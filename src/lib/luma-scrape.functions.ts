@@ -249,8 +249,10 @@ export const importFromUrl = createServerFn({ method: "POST" })
         .from("user_luma_calendars" as never)
         .update({
           remote_name: snapshot.name,
-          calendar_avatar_url: snapshot.avatarUrl,
-          calendar_cover_url: snapshot.coverUrl,
+          // Never erase a previously resolved image when a provider response
+          // is temporarily missing branding.
+          calendar_avatar_url: snapshot.avatarUrl ?? undefined,
+          calendar_cover_url: snapshot.coverUrl ?? undefined,
           calendar_description: snapshot.description,
           discovered_count: snapshot.events.length,
           imported_count: imported.length,
@@ -270,6 +272,9 @@ export const importFromUrl = createServerFn({ method: "POST" })
             discoveredCount: snapshot.discoveredCount ?? snapshot.events.length,
             readableCount: snapshot.readableCount ?? snapshot.events.length,
             truncated: snapshot.truncated ?? false,
+            imageSource: snapshot.imageSource ?? null,
+            linkPreviewImageUrl: snapshot.previewImageUrl ?? null,
+            linkPreviewLogoUrl: snapshot.logoUrl ?? null,
           },
         } as never)
         .eq("id", calendarRowId)
