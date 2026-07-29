@@ -426,13 +426,36 @@ function SettingsPage() {
           >
             {bulkMut.isPending ? "Importing…" : "Import and queue"}
           </button>
-          {bulkMut.isSuccess && (
-            <span className="text-xs text-emerald-400">Queued {bulkMut.data.imported} sources</span>
-          )}
           {bulkMut.isError && (
             <span className="text-xs text-destructive">{bulkMut.error.message}</span>
           )}
         </div>
+        {bulkMut.isSuccess && (
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-hairline bg-surface/60 p-3 font-mono text-[10px] text-muted-foreground sm:grid-cols-3">
+            {[
+              ["Rows processed", bulkMut.data.report.rowsProcessed],
+              ["Unique URLs", bulkMut.data.report.uniqueUrls],
+              ["Duplicates ignored", bulkMut.data.report.duplicatesIgnored],
+              ["Invalid rows", bulkMut.data.report.invalidRows],
+              ["Sources created", bulkMut.data.created],
+              ["Already existing", bulkMut.data.existing],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between gap-2">
+                <span className="uppercase tracking-[0.14em]">{label}</span>
+                <span className="tabular-nums text-foreground">{value}</span>
+              </div>
+            ))}
+            {bulkMut.data.failed.length > 0 && (
+              <div className="col-span-full text-destructive">
+                {bulkMut.data.failed.length} sources failed:{" "}
+                {bulkMut.data.failed
+                  .slice(0, 3)
+                  .map((item) => `${item.url} (${item.error})`)
+                  .join(", ")}
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/70 p-6">
