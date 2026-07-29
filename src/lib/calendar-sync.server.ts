@@ -138,11 +138,18 @@ async function ensureCuratedSourceRow(
   const meetupProviderId =
     source.provider === "meetup" ? providerSourceId("meetup", calendarUrl) : null;
   const providerId = meetupProviderId ?? identity;
-  let existingId =
-    (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarUrl));
-  if (!existingId && source.provider === "meetup") {
+  // Provider identities must never fall through to the generic calendar
+  // resolver. A legacy Luma row can share a URL/legacy identifier shape with
+  // an imported source, and resolving it generically would silently overwrite
+  // the connected calendar while importing Meetup.
+  let existingId: string | null = null;
+  if (source.provider === "luma") {
+    existingId =
+      (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
+      (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
+      (await resolveCanonicalCalendarRowId(userId, calendarUrl));
+  }
+  if (source.provider === "meetup") {
     const { data: providerMatch } = await supabaseAdmin
       .from("user_luma_calendars" as never)
       .select("id")
@@ -152,6 +159,17 @@ async function ensureCuratedSourceRow(
       .is("merged_into_id", null)
       .maybeSingle();
     existingId = (providerMatch as { id?: string } | null)?.id ?? null;
+    if (!existingId) {
+      const { data: urlMatch } = await supabaseAdmin
+        .from("user_luma_calendars" as never)
+        .select("id")
+        .eq("user_id", userId)
+        .eq("provider", "meetup")
+        .eq("calendar_url", calendarUrl)
+        .is("merged_into_id", null)
+        .maybeSingle();
+      existingId = (urlMatch as { id?: string } | null)?.id ?? null;
+    }
   }
   const sourceKind = source.kind === "group" ? "calendar" : source.kind;
   const syncAllEvents =
@@ -361,6 +379,27 @@ async function upsertScrapedRows(
   }
 }
 
+async function countPersistedEventsForSource(
+  userId: string,
+  sourceId: string,
+): Promise<number | null> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("event_sources" as never)
+    .select("canonical_event_id")
+    .eq("user_id", userId)
+    .eq("calendar_row_id", sourceId);
+  if (error) {
+    if (/schema cache|does not exist/i.test(error.message)) return null;
+    throw new Error(error.message);
+  }
+  return new Set(
+    ((data as Array<{ canonical_event_id: string }> | null) ?? []).map(
+      (row) => row.canonical_event_id,
+    ),
+  ).size;
+}
+
 async function finalizeScopedSync(
   userId: string,
   source: SyncSourceRow,
@@ -457,7 +496,7 @@ async function syncConnectedProvider(
     await finalizeScopedSync(userId, source, runStartedAt, sourceTypes, scope);
   }
   return {
-    discovered: rows.length,
+    discovered: snapshot.discoveredCount ?? rows.length,
     imported: rows.length,
     remoteName: snapshot.name,
     avatarUrl: snapshot.avatarUrl,
@@ -473,6 +512,8 @@ async function syncConnectedProvider(
       emptyConfirmed: rows.length === 0,
       discoveredCount: snapshot.discoveredCount ?? rows.length,
       readableCount: snapshot.readableCount ?? rows.length,
+      cancelledCount: snapshot.cancelledCount ?? 0,
+      unreadableCount: snapshot.unreadableCount ?? 0,
       truncated: snapshot.truncated ?? false,
       nextEventAt:
         rows
@@ -506,7 +547,7 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
   const snapshot = await fetchPublicProviderSnapshot(
     source.provider,
     source.calendar_url ?? "",
-    source.sync_all_events ? 2000 : source.event_limit || 80,
+    source.sync_all_events ? null : source.event_limit || 80,
     {
       skipUrls,
       after: scope.kind === "maintenance" ? scope.after : undefined,
@@ -536,7 +577,7 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
     );
   }
   return {
-    discovered: rows.length,
+    discovered: snapshot.discoveredCount ?? rows.length,
     imported: rows.length,
     remoteName: snapshot.name,
     avatarUrl: snapshot.avatarUrl,
@@ -551,6 +592,8 @@ async function syncPublicProvider(userId: string, source: SyncSourceRow, scope: 
       emptyConfirmed: rows.length === 0,
       discoveredCount: snapshot.discoveredCount ?? rows.length,
       readableCount: snapshot.readableCount ?? rows.length,
+      cancelledCount: snapshot.cancelledCount ?? 0,
+      unreadableCount: snapshot.unreadableCount ?? 0,
       truncated: snapshot.truncated ?? false,
       nextEventAt:
         rows
@@ -1026,6 +1069,8 @@ export async function processNextSyncJob(userId?: string, sourceId?: string): Pr
             : source.source_kind === "profile"
               ? await syncProfile(job.user_id, source, scope)
               : await syncCalendar(job.user_id, source, scope);
+    const persistedImported =
+      (await countPersistedEventsForSource(job.user_id, source.id)) ?? result.imported;
     const status = "partial" in result && result.partial ? "partial" : "completed";
     const suggestion = suggestedGroup(source, result.description);
     const now = new Date();
@@ -1039,7 +1084,7 @@ export async function processNextSyncJob(userId?: string, sourceId?: string): Pr
         sync_status: status,
         sync_error: result.warning,
         discovered_count: result.discovered,
-        imported_count: result.imported,
+        imported_count: persistedImported,
         source_metadata: { ...(source.source_metadata ?? {}), ...result.metadata },
         calendar_avatar_url: result.avatarUrl ?? source.calendar_avatar_url,
         calendar_cover_url: result.coverUrl ?? source.calendar_cover_url,
@@ -1090,7 +1135,7 @@ export async function processNextSyncJob(userId?: string, sourceId?: string): Pr
       .update({
         status,
         discovered_count: result.discovered,
-        imported_count: result.imported,
+        imported_count: persistedImported,
         finished_at: now.toISOString(),
       } as never)
       .eq("id", job.id);

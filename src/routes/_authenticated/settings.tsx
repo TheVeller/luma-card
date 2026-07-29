@@ -300,6 +300,10 @@ function SettingsPage() {
   }
 
   const configured = (cals?.length ?? 0) > 0;
+  const lumaConnectedCount =
+    cals?.filter((calendar) => calendar.provider === "luma" && calendar.ownership === "connected")
+      .length ?? 0;
+  const meetupSourceCount = cals?.filter((calendar) => calendar.provider === "meetup").length ?? 0;
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
@@ -372,8 +376,8 @@ function SettingsPage() {
                   {source.curated_name ?? source.calendar_name}
                 </div>
                 <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                  {source.source_kind} · {source.imported_count}/{source.discovered_count} events ·{" "}
-                  {source.sync_status}
+                  {source.provider} · {source.source_kind} · {source.imported_count}/
+                  {source.discovered_count} events · {source.sync_status}
                 </div>
                 {source.sync_error && (
                   <div className="mt-1 truncate text-[11px] text-destructive">
@@ -423,7 +427,8 @@ function SettingsPage() {
       <div className="mt-8 rounded-2xl border border-hairline bg-surface/70 p-6">
         <div className="flex items-baseline justify-between">
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-            Connected calendars · {cals?.length ?? 0}
+            Calendars · {cals?.length ?? 0} ({lumaConnectedCount} Luma conectados ·{" "}
+            {meetupSourceCount} Meetup)
           </div>
           {configured && (
             <button

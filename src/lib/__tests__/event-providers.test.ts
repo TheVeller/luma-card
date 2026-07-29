@@ -238,4 +238,54 @@ describe("event providers", () => {
       city: "Lima",
     });
   });
+
+  test("does not mark complete Meetup pagination as partial because of cancelled events", async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as {
+        variables: { afterDateTime: string | null };
+      };
+      const upcoming = Boolean(request.variables.afterDateTime);
+      const node = upcoming
+        ? {
+            id: "upcoming-1",
+            title: "Upcoming",
+            eventUrl: "https://www.meetup.com/coders/events/upcoming-1/",
+            dateTime: "2026-09-01T18:00:00Z",
+            status: "ACTIVE",
+          }
+        : {
+            id: "past-cancelled",
+            title: "Cancelled",
+            eventUrl: "https://www.meetup.com/coders/events/past-cancelled/",
+            dateTime: "2025-09-01T18:00:00Z",
+            status: "CANCELLED",
+          };
+      return new Response(
+        JSON.stringify({
+          data: {
+            groupByUrlname: {
+              id: "group-1",
+              name: "Coders",
+              events: {
+                totalCount: 1,
+                pageInfo: { endCursor: null, hasNextPage: false },
+                edges: [{ node }],
+              },
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const snapshot = await fetchPublicMeetupGroupSnapshot("https://www.meetup.com/coders", null, {
+      kind: "full",
+    });
+
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.discoveredCount).toBe(2);
+    expect(snapshot.readableCount).toBe(1);
+    expect(snapshot.cancelledCount).toBe(1);
+    expect(snapshot.events).toHaveLength(1);
+  });
 });

@@ -19,6 +19,8 @@ export type ProviderSnapshot = {
   readableCount?: number;
   truncated?: boolean;
   warnings?: string[];
+  cancelledCount?: number;
+  unreadableCount?: number;
   sourceMethod?:
     | "provider_api"
     | "provider_public_graphql"
@@ -194,7 +196,9 @@ function meetupProviderEvent(event: MeetupEventNode): ProviderEvent {
 
 const MEETUP_PUBLIC_GRAPHQL = "https://www.meetup.com/gql2";
 const MEETUP_PUBLIC_PAGE_SIZE = 50;
-const MEETUP_PUBLIC_MAX_PAGES = 100;
+// Keep a safety stop for a broken cursor, but do not impose a practical
+// historical cap on large groups (50 events per page, up to 50k events).
+const MEETUP_PUBLIC_MAX_PAGES = 1000;
 
 type MeetupPublicEventNode = MeetupEventNode & {
   endTime?: string;
@@ -353,6 +357,8 @@ function meetupPublicEventsQuery(sort: "ASC" | "DESC"): string {
 type MeetupPublicCollection = {
   events: ProviderEvent[];
   totalCount: number;
+  cancelledCount: number;
+  unreadableCount: number;
   exhausted: boolean;
   name: string;
   description: string | null;
@@ -371,6 +377,8 @@ async function fetchMeetupPublicCollection(
   let description: string | null = null;
   let photo: string | null = null;
   let exhausted = false;
+  let cancelledCount = 0;
+  let unreadableCount = 0;
 
   for (let page = 0; page < MEETUP_PUBLIC_MAX_PAGES; page++) {
     const body = await fetchMeetupPublicGraphql(meetupPublicEventsQuery(boundary.sort), {
@@ -387,9 +395,15 @@ async function fetchMeetupPublicCollection(
     const connection = group.events;
     if (!connection) throw new Error("Meetup did not return the group event collection");
     totalCount = connection.totalCount;
-    events.push(
-      ...(connection.edges ?? []).flatMap(({ node }) => meetupPublicProviderEvent(node) ?? []),
-    );
+    for (const { node } of connection.edges ?? []) {
+      if (node.status === "CANCELLED") {
+        cancelledCount++;
+        continue;
+      }
+      const event = meetupPublicProviderEvent(node);
+      if (event) events.push(event);
+      else unreadableCount++;
+    }
     if (limit !== null && events.length >= limit) break;
     if (!connection.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) {
       exhausted = true;
@@ -401,7 +415,9 @@ async function fetchMeetupPublicCollection(
   return {
     events: limit === null ? events : events.slice(0, limit),
     totalCount,
-    exhausted: exhausted && events.length === totalCount,
+    cancelledCount,
+    unreadableCount,
+    exhausted,
     name,
     description,
     photo,
@@ -438,7 +454,12 @@ export async function fetchPublicMeetupGroupSnapshot(
   ];
   const discoveredCount = collections.reduce((sum, collection) => sum + collection.totalCount, 0);
   const truncated = limit !== null && discoveredCount > limit;
-  const complete = collections.every((collection) => collection.exhausted) && !truncated;
+  const unreadableCount = collections.reduce(
+    (sum, collection) => sum + collection.unreadableCount,
+    0,
+  );
+  const complete =
+    collections.every((collection) => collection.exhausted) && !truncated && unreadableCount === 0;
   const primary = collections[0];
   return {
     name: primary?.name ?? urlname,
@@ -449,9 +470,12 @@ export async function fetchPublicMeetupGroupSnapshot(
     complete,
     discoveredCount,
     readableCount: unique.length,
+    cancelledCount: collections.reduce((sum, collection) => sum + collection.cancelledCount, 0),
+    unreadableCount,
     truncated,
     warnings: [
       ...(!complete ? ["Meetup pagination did not reconcile with the reported total"] : []),
+      ...(unreadableCount > 0 ? [`${unreadableCount} Meetup events could not be read`] : []),
       ...(truncated ? [`Discovery reached the ${limit}-event limit`] : []),
     ],
     sourceMethod: "provider_public_graphql",
@@ -733,7 +757,7 @@ export async function fetchPublicProviderEvent(
 export async function fetchPublicProviderSnapshot(
   provider: Exclude<EventProvider, "luma">,
   sourceUrl: string,
-  limit: number,
+  limit: number | null,
   options: { skipUrls?: string[]; after?: string } = {},
 ): Promise<ProviderSnapshot> {
   const eventId = providerEventId(provider, sourceUrl);
@@ -752,10 +776,11 @@ export async function fetchPublicProviderSnapshot(
   }
   const { firecrawlDiscoverProviderEvents, firecrawlScrapeSource, hasFirecrawl } =
     await import("./firecrawl.server");
+  const fallbackLimit = limit ?? 2000;
   const urls = eventId
     ? [sourceUrl]
     : hasFirecrawl()
-      ? await firecrawlDiscoverProviderEvents(sourceUrl, provider, limit)
+      ? await firecrawlDiscoverProviderEvents(sourceUrl, provider, fallbackLimit)
       : [];
   if (urls.length === 0) {
     throw new Error(
@@ -792,7 +817,7 @@ export async function fetchPublicProviderSnapshot(
   }
   const branding = hasFirecrawl() ? await firecrawlScrapeSource(sourceUrl) : null;
   const unreadableCount = urlsToRead.length - readableCount;
-  const discoveryLimitReached = !eventId && urls.length >= limit;
+  const discoveryLimitReached = !eventId && urls.length >= fallbackLimit;
   const fallbackCannotCertifyHistory = meetupPublicError !== null;
   const meetupPublicFailureMessage = meetupPublicError?.message;
   const truncated = discoveryLimitReached || fallbackCannotCertifyHistory;
@@ -817,7 +842,9 @@ export async function fetchPublicProviderSnapshot(
     truncated,
     warnings: [
       ...(unreadableCount > 0 ? [`${unreadableCount} discovered events could not be read`] : []),
-      ...(discoveryLimitReached ? [`Discovery reached the ${limit}-event limit`] : []),
+      ...(discoveryLimitReached
+        ? [`Discovery reached the ${fallbackLimit}-event fallback limit`]
+        : []),
       ...(fallbackCannotCertifyHistory
         ? [
             `Meetup public pagination failed (${meetupPublicFailureMessage}); Firecrawl fallback cannot certify complete history`,

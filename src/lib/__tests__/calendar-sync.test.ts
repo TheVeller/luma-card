@@ -55,6 +55,24 @@ Line two"
     ]);
   });
 
+  test("keeps every distinct Meetup group while collapsing tracking duplicates", () => {
+    const rows = [
+      '"flex href","name"',
+      ...Array.from(
+        { length: 79 },
+        (_, index) =>
+          `"https://www.meetup.com/group-${index + 1}?recSource=search","Group ${index + 1}"`,
+      ),
+      '"https://www.meetup.com/GROUP-1?eventOrigin=search","Duplicate Group 1"',
+    ].join("\n");
+
+    const sources = parseBulkSources(rows);
+    expect(sources).toHaveLength(79);
+    expect(sources.every((source) => source.provider === "meetup" && source.kind === "group")).toBe(
+      true,
+    );
+  });
+
   test("runs one full import before switching to seven-day maintenance", () => {
     const now = Date.parse("2026-07-28T12:00:00.000Z");
     expect(resolveSyncScope(null, "auto", now)).toEqual({ kind: "full" });
