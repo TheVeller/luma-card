@@ -1147,12 +1147,25 @@ export async function processSyncQueueForUser(
     .lt("started_at", stale);
 
   let processed = 0;
-  const requestedSourceIds = sourceIds?.slice(0, maxJobs);
-  for (let index = 0; index < maxJobs; index++) {
-    const sourceId = requestedSourceIds?.[index];
-    if (requestedSourceIds && !sourceId) break;
-    if (!(await processNextSyncJob(userId, sourceId))) break;
-    processed++;
+  let requestedSourceIds = sourceIds?.slice(0, maxJobs);
+  if (!requestedSourceIds) {
+    const { data: meetupSources } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .select("id")
+      .eq("user_id", userId)
+      .eq("provider", "meetup")
+      .eq("sync_status", "queued")
+      .is("merged_into_id", null)
+      .limit(maxJobs);
+    requestedSourceIds = ((meetupSources as Array<{ id: string }> | null) ?? []).map(
+      (source) => source.id,
+    );
+  }
+  for (const sourceId of requestedSourceIds) {
+    if (await processNextSyncJob(userId, sourceId)) processed++;
+  }
+  if (!sourceIds) {
+    while (processed < maxJobs && (await processNextSyncJob(userId))) processed++;
   }
   const { count } = await supabaseAdmin
     .from("event_sync_jobs" as never)
