@@ -51,7 +51,7 @@ function normalize(input: string): { slug: string; url: string } {
   return { slug, url: `${LUMA_ORIGIN}/${slug}` };
 }
 
-async function getCalendarById(apiId: string): Promise<ResolvedCalendar | null> {
+export async function getCalendarById(apiId: string): Promise<ResolvedCalendar | null> {
   const res = await fetch(`${LUMA_API}/calendar/get?api_id=${encodeURIComponent(apiId)}`, {
     headers: { accept: "application/json" },
   });

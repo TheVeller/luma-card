@@ -157,9 +157,47 @@ function sourceFromUrl(rawUrl: string, name?: string): CuratedSource | null {
   };
 }
 
-export function parseBulkSources(input: string): CuratedSource[] {
+export type BulkParseReport = {
+  sources: CuratedSource[];
+  rowsProcessed: number;
+  uniqueUrls: number;
+  duplicatesIgnored: number;
+  invalidRows: number;
+};
+
+export function parseBulkSourcesReport(input: string): BulkParseReport {
   const sources: CuratedSource[] = [];
   const seen = new Set<string>();
+  let rowsProcessed = 0;
+  let duplicatesIgnored = 0;
+  let invalidRows = 0;
+
+  const collect = (rawUrl: string | undefined, name?: string) => {
+    rowsProcessed++;
+    if (!rawUrl) {
+      invalidRows++;
+      return;
+    }
+    const source = sourceFromUrl(rawUrl.trim(), name);
+    if (!source) {
+      invalidRows++;
+      return;
+    }
+    if (seen.has(source.url)) {
+      duplicatesIgnored++;
+      return;
+    }
+    seen.add(source.url);
+    sources.push(source);
+  };
+
+  const report = (): BulkParseReport => ({
+    sources,
+    rowsProcessed,
+    uniqueUrls: sources.length,
+    duplicatesIgnored,
+    invalidRows,
+  });
 
   const csvRows = parseCsvRows(input);
   const header = csvRows[0]?.map((cell) => cell.trim().toLowerCase()) ?? [];
@@ -175,20 +213,24 @@ export function parseBulkSources(input: string): CuratedSource[] {
         /^https?:\/\/(?:www\.)?(?:lu\.ma|luma\.com|meetup\.com)\//i.test(cell.trim()),
       );
       const rawUrl = row[urlColumn];
-      if (!rawUrl) continue;
+      if (!rawUrl) {
+        rowsProcessed++;
+        invalidRows++;
+        continue;
+      }
       const inferredName = hasHeader
         ? nameColumn >= 0
           ? row[nameColumn]
           : undefined
         : row.find((cell, index) => index !== urlColumn && cell.trim());
-      const source = sourceFromUrl(rawUrl.trim(), inferredName);
-      if (!source || seen.has(source.url)) continue;
-      seen.add(source.url);
-      sources.push(source);
+      collect(rawUrl, inferredName);
     }
-    if (sources.length > 0) return sources;
+    if (sources.length > 0) return report();
   }
 
+  rowsProcessed = 0;
+  duplicatesIgnored = 0;
+  invalidRows = 0;
   for (const rawLine of input.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("```") || /^[-| :]+$/.test(line)) continue;
@@ -198,10 +240,11 @@ export function parseBulkSources(input: string): CuratedSource[] {
     if (!url) continue;
     const cleanUrl = url.replace(/[),.;]+$/, "");
     const before = line.slice(0, line.indexOf(url)).replace(/^[|\s*\d.]+|[|\s—–-]+$/g, "");
-    const source = sourceFromUrl(cleanUrl, before);
-    if (!source || seen.has(source.url)) continue;
-    seen.add(source.url);
-    sources.push(source);
+    collect(cleanUrl, before);
   }
-  return sources;
+  return report();
+}
+
+export function parseBulkSources(input: string): CuratedSource[] {
+  return parseBulkSourcesReport(input).sources;
 }

@@ -13,6 +13,16 @@ export type CalendarEventStats = {
   unknown: number;
 };
 
+export type CalendarLibrarySummary = {
+  activeCalendars: number;
+  lumaConnected: number;
+  lumaExternal: number;
+  meetupExternal: number;
+  otherProviders: number;
+  mergedHidden: number;
+  erroredSources: number;
+};
+
 export type EventLibraryStats = {
   generatedAt: string;
   total: number;
@@ -20,7 +30,20 @@ export type EventLibraryStats = {
   past: number;
   unknown: number;
   calendars: CalendarEventStats[];
+  library: CalendarLibrarySummary;
 };
+
+export function emptyLibrarySummary(): CalendarLibrarySummary {
+  return {
+    activeCalendars: 0,
+    lumaConnected: 0,
+    lumaExternal: 0,
+    meetupExternal: 0,
+    otherProviders: 0,
+    mergedHidden: 0,
+    erroredSources: 0,
+  };
+}
 
 function emptyStats(): EventLibraryStats {
   return {
@@ -30,7 +53,52 @@ function emptyStats(): EventLibraryStats {
     past: 0,
     unknown: 0,
     calendars: [],
+    library: emptyLibrarySummary(),
   };
+}
+
+type LibraryRow = {
+  provider: string | null;
+  ownership: string | null;
+  merged_into_id: string | null;
+  sync_status: string | null;
+};
+
+export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySummary {
+  const summary = emptyLibrarySummary();
+  for (const row of rows) {
+    if (row.merged_into_id) {
+      summary.mergedHidden++;
+      continue;
+    }
+    summary.activeCalendars++;
+    const provider = row.provider ?? "luma";
+    const connected = (row.ownership ?? "external") === "connected";
+    if (provider === "luma") {
+      if (connected) summary.lumaConnected++;
+      else summary.lumaExternal++;
+    } else if (provider === "meetup") {
+      summary.meetupExternal++;
+    } else {
+      summary.otherProviders++;
+    }
+    if (["failed", "inaccessible"].includes(row.sync_status ?? "")) summary.erroredSources++;
+  }
+  return summary;
+}
+
+async function readCalendarLibrarySummary(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<CalendarLibrarySummary> {
+  const client =
+    userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+  const { data, error } = await client
+    .from("user_luma_calendars" as never)
+    .select("provider,ownership,merged_into_id,sync_status")
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return summarizeCalendarLibrary((data as unknown as LibraryRow[] | null) ?? []);
 }
 
 const CACHE_TTL_MS = 30_000;
@@ -58,6 +126,7 @@ async function readPersistedStats(
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const value = data as unknown as Partial<EventLibraryStats>;
   return {
+    library: emptyLibrarySummary(),
     generatedAt:
       typeof value.generatedAt === "string" ? value.generatedAt : new Date().toISOString(),
     total: Number(value.total) || 0,
@@ -150,6 +219,7 @@ export function summarizePersistedEventStats(
     }
   }
   return {
+    library: emptyLibrarySummary(),
     generatedAt: new Date(now).toISOString(),
     ...summarizeEventCounts([...globalEvents.values()], now),
     calendars: [...eventsByCalendar].map(([calendarRowId, events]) => ({
@@ -211,6 +281,7 @@ export function summarizeSourceEventStats(
     inputsByCalendar.set(input.calendarRowId, inputs);
   }
   return {
+    library: emptyLibrarySummary(),
     generatedAt: new Date(now).toISOString(),
     ...global,
     calendars: [...inputsByCalendar.entries()].map(([calendarRowId, inputs]) => ({
@@ -224,16 +295,21 @@ async function loadEventLibraryStats(
   userId: string,
   userClient?: UserSupabaseClient,
 ): Promise<EventLibraryStats> {
-  const persisted = await readPersistedStats(userId, userClient);
+  // Library counters and event counters always come from the same load, so the
+  // UI can never show two disagreeing totals.
+  const [library, persisted] = await Promise.all([
+    readCalendarLibrarySummary(userId, userClient),
+    readPersistedStats(userId, userClient),
+  ]);
   if (!(await statsNeedLiveFallback(userId, persisted, userClient))) {
-    return persisted ?? emptyStats();
+    return { ...(persisted ?? emptyStats()), library };
   }
   try {
-    return await readLiveStats(userId, userClient);
+    return { ...(await readLiveStats(userId, userClient)), library };
   } catch (error) {
     if (persisted) {
       console.warn("[event-stats] live fallback failed; using persisted counts", error);
-      return persisted;
+      return { ...persisted, library };
     }
     throw error;
   }

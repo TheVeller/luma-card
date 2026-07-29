@@ -129,8 +129,11 @@ async function ensureCuratedSourceRow(
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { lumaCalendarIdFromValues } = await import("./calendar-identity");
   const { providerSourceId } = await import("./event-providers");
-  const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
-    await import("./calendar-identity.server");
+  const {
+    resolveProviderScopedCalendarRowId,
+    registerLumaCalendarIdentity,
+    addCalendarAliases,
+  } = await import("./calendar-identity.server");
   const calendarId = sourceCalendarId(source);
   const calendarUrl = normalizeSourceUrl(source.url);
   const identity =
@@ -138,20 +141,25 @@ async function ensureCuratedSourceRow(
   const meetupProviderId =
     source.provider === "meetup" ? providerSourceId("meetup", calendarUrl) : null;
   const providerId = meetupProviderId ?? identity;
-  let existingId =
-    (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarUrl));
-  if (!existingId && source.provider === "meetup") {
+  // Identity lookups are always scoped to the same provider: a Luma calendar
+  // must never resolve onto a Meetup row (or the other way around).
+  let existingId: string | null = null;
+  if (providerId) {
     const { data: providerMatch } = await supabaseAdmin
       .from("user_luma_calendars" as never)
       .select("id")
       .eq("user_id", userId)
-      .eq("provider", "meetup")
-      .eq("provider_source_id", meetupProviderId!)
+      .eq("provider", source.provider)
+      .eq("provider_source_id", providerId)
       .is("merged_into_id", null)
       .maybeSingle();
     existingId = (providerMatch as { id?: string } | null)?.id ?? null;
+  }
+  if (!existingId) {
+    for (const candidate of [identity, calendarId, calendarUrl]) {
+      existingId = await resolveProviderScopedCalendarRowId(userId, candidate, source.provider);
+      if (existingId) break;
+    }
   }
   const sourceKind = source.kind === "group" ? "calendar" : source.kind;
   const syncAllEvents =
@@ -237,17 +245,31 @@ export async function listSyncSourcesForUser(userId: string): Promise<SyncSource
   return (data as SyncSourceRow[] | null) ?? [];
 }
 
+export type CuratedImportResult = {
+  imported: number;
+  created: number;
+  existing: number;
+  failed: Array<{ url: string; error: string }>;
+};
+
 export async function upsertCuratedSources(
   userId: string,
   sources: CuratedSource[],
-): Promise<number> {
-  let count = 0;
+): Promise<CuratedImportResult> {
+  const before = (await listSyncSourcesForUser(userId)).length;
+  const failed: Array<{ url: string; error: string }> = [];
+  let imported = 0;
   for (const [index, source] of sources.entries()) {
-    const row = await ensureCuratedSourceRow(userId, source, index);
-    await enqueueSource(userId, row.id, "manual");
-    count++;
+    try {
+      const row = await ensureCuratedSourceRow(userId, source, index);
+      await enqueueSource(userId, row.id, "manual");
+      imported++;
+    } catch (error) {
+      failed.push({ url: source.url, error: error instanceof Error ? error.message : String(error) });
+    }
   }
-  return count;
+  const created = Math.max(0, (await listSyncSourcesForUser(userId)).length - before);
+  return { imported, created, existing: Math.max(0, imported - created), failed };
 }
 
 export async function enqueueSource(
@@ -671,10 +693,33 @@ async function syncApiCalendar(userId: string, source: SyncSourceRow, scope: Res
   };
 }
 
+async function resolveKnownLumaCalendar(userId: string, source: SyncSourceRow) {
+  const { resolveLumaCalendar, getCalendarById } = await import("./luma-public.server");
+  // 1. Known canonical id from a previous sync — survives Luma blocking the
+  //    public HTML page, which is the usual cause of false "inaccessible".
+  const knownIds = new Set<string>();
+  if (source.luma_calendar_id) knownIds.add(source.luma_calendar_id);
+  const metaId = source.source_metadata?.lumaCalendarId;
+  if (typeof metaId === "string") knownIds.add(metaId);
+  if (/^cal-[A-Za-z0-9]+$/i.test(source.calendar_id)) knownIds.add(source.calendar_id);
+  // 2. Aliases recorded for this row.
+  const { readCalendarAliases } = await import("./calendar-identity.server");
+  const aliases = (await readCalendarAliases(userId, [source.id])).get(source.id) ?? [];
+  for (const alias of aliases) {
+    const match = alias.match(/(cal-[A-Za-z0-9]+)/i);
+    if (match) knownIds.add(match[1]);
+  }
+  for (const apiId of knownIds) {
+    const resolved = await getCalendarById(apiId);
+    if (resolved) return resolved;
+  }
+  // 3. Fall back to resolving the public URL.
+  return resolveLumaCalendar(source.calendar_url ?? "");
+}
+
 async function syncCalendar(userId: string, source: SyncSourceRow, scope: ResolvedSyncScope) {
-  const { resolveLumaCalendar, fetchPublicCalendarEventSnapshot } =
-    await import("./luma-public.server");
-  const calendar = await resolveLumaCalendar(source.calendar_url ?? "");
+  const { fetchPublicCalendarEventSnapshot } = await import("./luma-public.server");
+  const calendar = await resolveKnownLumaCalendar(userId, source);
   if (!calendar) throw new Error("Calendar is not publicly accessible");
   const runStartedAt = new Date().toISOString();
   let eventSnapshot: Awaited<ReturnType<typeof fetchPublicCalendarEventSnapshot>> | null = null;
@@ -1096,12 +1141,15 @@ export async function processNextSyncJob(userId?: string, sourceId?: string): Pr
       .eq("id", job.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const inaccessible = /not publicly accessible/i.test(message);
+    const unreachable = /not publicly accessible/i.test(message);
     const transient = /rate|429|5\d\d|temporar|timeout|fetch failed/i.test(message);
+    // A source that already imported events keeps its history and is reported
+    // as partial instead of being demoted to "inaccessible".
+    const keepsHistory = (source.imported_count ?? 0) > 0;
     await supabaseAdmin
       .from("user_luma_calendars" as never)
       .update({
-        sync_status: inaccessible ? "inaccessible" : "failed",
+        sync_status: unreachable ? (keepsHistory ? "partial" : "inaccessible") : "failed",
         sync_error: message,
         last_sync_attempted_at: attemptedAt,
         last_sync_scope: scope.kind,
