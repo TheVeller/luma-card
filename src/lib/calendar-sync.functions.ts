@@ -48,7 +48,7 @@ export const syncOneSource = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { enqueueSource, processSyncQueueForUser } = await import("./calendar-sync.server");
     await enqueueSource(context.userId, data.sourceId, "manual", undefined, data.scope);
-    await processSyncQueueForUser(context.userId, 1);
+    await processSyncQueueForUser(context.userId, 1, [data.sourceId]);
     return { ok: true };
   });
 

@@ -960,7 +960,7 @@ function stableHash(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
-export async function processNextSyncJob(userId?: string): Promise<boolean> {
+export async function processNextSyncJob(userId?: string, sourceId?: string): Promise<boolean> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   let query = supabaseAdmin
     .from("event_sync_jobs" as never)
@@ -970,6 +970,7 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
     .order("created_at", { ascending: true })
     .limit(1);
   if (userId) query = query.eq("user_id", userId);
+  if (sourceId) query = query.eq("source_id", sourceId);
   const { data } = await query.maybeSingle();
   const job = data as {
     id: string;
@@ -1129,6 +1130,7 @@ export async function processNextSyncJob(userId?: string): Promise<boolean> {
 export async function processSyncQueueForUser(
   userId: string,
   maxJobs = 4,
+  sourceIds?: string[],
 ): Promise<{ processed: number; remaining: number }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const stale = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -1145,8 +1147,11 @@ export async function processSyncQueueForUser(
     .lt("started_at", stale);
 
   let processed = 0;
+  const requestedSourceIds = sourceIds?.slice(0, maxJobs);
   for (let index = 0; index < maxJobs; index++) {
-    if (!(await processNextSyncJob(userId))) break;
+    const sourceId = requestedSourceIds?.[index];
+    if (requestedSourceIds && !sourceId) break;
+    if (!(await processNextSyncJob(userId, sourceId))) break;
     processed++;
   }
   const { count } = await supabaseAdmin
