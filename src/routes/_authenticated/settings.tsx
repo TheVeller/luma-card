@@ -933,6 +933,9 @@ function CalendarOrganizer({
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">
+                      <span className="rounded-full border border-hairline bg-surface-2 px-2 py-0.5 font-mono text-[9px] uppercase text-foreground">
+                        {calendar.provider}
+                      </span>
                       {calendar.hasApiConnection && (
                         <span
                           className={`rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase ${
