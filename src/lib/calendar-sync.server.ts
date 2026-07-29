@@ -679,10 +679,33 @@ async function syncApiCalendar(userId: string, source: SyncSourceRow, scope: Res
   };
 }
 
+async function resolveKnownLumaCalendar(userId: string, source: SyncSourceRow) {
+  const { resolveLumaCalendar, getCalendarById } = await import("./luma-public.server");
+  // 1. Known canonical id from a previous sync — survives Luma blocking the
+  //    public HTML page, which is the usual cause of false "inaccessible".
+  const knownIds = new Set<string>();
+  if (source.luma_calendar_id) knownIds.add(source.luma_calendar_id);
+  const metaId = source.source_metadata?.lumaCalendarId;
+  if (typeof metaId === "string") knownIds.add(metaId);
+  if (/^cal-[A-Za-z0-9]+$/i.test(source.calendar_id)) knownIds.add(source.calendar_id);
+  // 2. Aliases recorded for this row.
+  const { readCalendarAliases } = await import("./calendar-identity.server");
+  const aliases = (await readCalendarAliases(userId, [source.id])).get(source.id) ?? [];
+  for (const alias of aliases) {
+    const match = alias.match(/(cal-[A-Za-z0-9]+)/i);
+    if (match) knownIds.add(match[1]);
+  }
+  for (const apiId of knownIds) {
+    const resolved = await getCalendarById(apiId);
+    if (resolved) return resolved;
+  }
+  // 3. Fall back to resolving the public URL.
+  return resolveLumaCalendar(source.calendar_url ?? "");
+}
+
 async function syncCalendar(userId: string, source: SyncSourceRow, scope: ResolvedSyncScope) {
-  const { resolveLumaCalendar, fetchPublicCalendarEventSnapshot } =
-    await import("./luma-public.server");
-  const calendar = await resolveLumaCalendar(source.calendar_url ?? "");
+  const { fetchPublicCalendarEventSnapshot } = await import("./luma-public.server");
+  const calendar = await resolveKnownLumaCalendar(userId, source);
   if (!calendar) throw new Error("Calendar is not publicly accessible");
   const runStartedAt = new Date().toISOString();
   let eventSnapshot: Awaited<ReturnType<typeof fetchPublicCalendarEventSnapshot>> | null = null;
