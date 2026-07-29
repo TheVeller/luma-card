@@ -13,6 +13,16 @@ export type CalendarEventStats = {
   unknown: number;
 };
 
+export type CalendarLibrarySummary = {
+  activeCalendars: number;
+  lumaConnected: number;
+  lumaExternal: number;
+  meetupExternal: number;
+  otherProviders: number;
+  mergedHidden: number;
+  erroredSources: number;
+};
+
 export type EventLibraryStats = {
   generatedAt: string;
   total: number;
@@ -20,7 +30,20 @@ export type EventLibraryStats = {
   past: number;
   unknown: number;
   calendars: CalendarEventStats[];
+  library: CalendarLibrarySummary;
 };
+
+export function emptyLibrarySummary(): CalendarLibrarySummary {
+  return {
+    activeCalendars: 0,
+    lumaConnected: 0,
+    lumaExternal: 0,
+    meetupExternal: 0,
+    otherProviders: 0,
+    mergedHidden: 0,
+    erroredSources: 0,
+  };
+}
 
 function emptyStats(): EventLibraryStats {
   return {
@@ -30,7 +53,52 @@ function emptyStats(): EventLibraryStats {
     past: 0,
     unknown: 0,
     calendars: [],
+    library: emptyLibrarySummary(),
   };
+}
+
+type LibraryRow = {
+  provider: string | null;
+  ownership: string | null;
+  merged_into_id: string | null;
+  sync_status: string | null;
+};
+
+export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySummary {
+  const summary = emptyLibrarySummary();
+  for (const row of rows) {
+    if (row.merged_into_id) {
+      summary.mergedHidden++;
+      continue;
+    }
+    summary.activeCalendars++;
+    const provider = row.provider ?? "luma";
+    const connected = (row.ownership ?? "external") === "connected";
+    if (provider === "luma") {
+      if (connected) summary.lumaConnected++;
+      else summary.lumaExternal++;
+    } else if (provider === "meetup") {
+      summary.meetupExternal++;
+    } else {
+      summary.otherProviders++;
+    }
+    if (["failed", "inaccessible"].includes(row.sync_status ?? "")) summary.erroredSources++;
+  }
+  return summary;
+}
+
+async function readCalendarLibrarySummary(
+  userId: string,
+  userClient?: UserSupabaseClient,
+): Promise<CalendarLibrarySummary> {
+  const client =
+    userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+  const { data, error } = await client
+    .from("user_luma_calendars" as never)
+    .select("provider,ownership,merged_into_id,sync_status")
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return summarizeCalendarLibrary((data as unknown as LibraryRow[] | null) ?? []);
 }
 
 const CACHE_TTL_MS = 30_000;
