@@ -85,30 +85,46 @@ export async function upsertCanonicalEventSource(
   if (canonicalError) throw new Error(canonicalError.message);
 
   const canonicalEventId = (canonical as { id: string }).id;
-  const { error: sourceError } = await supabaseAdmin.from("event_sources" as never).upsert(
-    {
-      user_id: userId,
-      canonical_event_id: canonicalEventId,
-      source_type: source.sourceType,
-      provider: source.provider,
-      provider_event_id: source.externalEventId,
-      origin_provider_source_id:
-        typeof input.payload?.originCalendarApiId === "string"
-          ? input.payload.originCalendarApiId
-          : null,
-      source_key: source.sourceKey,
-      calendar_row_id: input.calendarRowId ?? null,
-      calendar_public_id: source.calendarId,
-      calendar_name: source.calendarName,
-      source_url: source.sourceUrl,
-      external_event_id: source.externalEventId,
-      host_name: source.hostName,
-      payload: input.payload ?? {},
-      last_synced_at: source.lastSyncedAt,
-      updated_at: source.lastSyncedAt,
-    } as never,
-    { onConflict: "user_id,source_type,source_key" },
-  );
+  const sourceValues = {
+    user_id: userId,
+    canonical_event_id: canonicalEventId,
+    source_type: source.sourceType,
+    provider: source.provider,
+    provider_event_id: source.externalEventId,
+    origin_provider_source_id:
+      typeof input.payload?.originCalendarApiId === "string"
+        ? input.payload.originCalendarApiId
+        : null,
+    source_key: source.sourceKey,
+    calendar_row_id: input.calendarRowId ?? null,
+    calendar_public_id: source.calendarId,
+    calendar_name: source.calendarName,
+    source_url: source.sourceUrl,
+    external_event_id: source.externalEventId,
+    host_name: source.hostName,
+    payload: input.payload ?? {},
+    last_synced_at: source.lastSyncedAt,
+    updated_at: source.lastSyncedAt,
+  };
+  let { error: sourceError } = await supabaseAdmin
+    .from("event_sources" as never)
+    .upsert(sourceValues as never, { onConflict: "user_id,source_type,source_key" });
+  if (
+    sourceError?.code === "23514" &&
+    sourceError.message.includes("event_sources_source_type_check") &&
+    !["api", "calendar_scrape", "event_scrape", "profile_scrape"].includes(source.sourceType)
+  ) {
+    const retry = await supabaseAdmin.from("event_sources" as never).upsert(
+      {
+        ...sourceValues,
+        // Compatibility with databases where the provider columns landed
+        // before the expanded source_type constraint.
+        source_type: "calendar_scrape",
+      } as never,
+      { onConflict: "user_id,source_type,source_key" },
+    );
+    sourceError = retry.error;
+  }
   if (sourceError) throw new Error(sourceError.message);
   return { canonicalEventId };
 }
