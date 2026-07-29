@@ -129,8 +129,11 @@ async function ensureCuratedSourceRow(
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { lumaCalendarIdFromValues } = await import("./calendar-identity");
   const { providerSourceId } = await import("./event-providers");
-  const { resolveCanonicalCalendarRowId, registerLumaCalendarIdentity, addCalendarAliases } =
-    await import("./calendar-identity.server");
+  const {
+    resolveProviderScopedCalendarRowId,
+    registerLumaCalendarIdentity,
+    addCalendarAliases,
+  } = await import("./calendar-identity.server");
   const calendarId = sourceCalendarId(source);
   const calendarUrl = normalizeSourceUrl(source.url);
   const identity =
@@ -138,20 +141,25 @@ async function ensureCuratedSourceRow(
   const meetupProviderId =
     source.provider === "meetup" ? providerSourceId("meetup", calendarUrl) : null;
   const providerId = meetupProviderId ?? identity;
-  let existingId =
-    (identity && (await resolveCanonicalCalendarRowId(userId, identity))) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarId)) ||
-    (await resolveCanonicalCalendarRowId(userId, calendarUrl));
-  if (!existingId && source.provider === "meetup") {
+  // Identity lookups are always scoped to the same provider: a Luma calendar
+  // must never resolve onto a Meetup row (or the other way around).
+  let existingId: string | null = null;
+  if (providerId) {
     const { data: providerMatch } = await supabaseAdmin
       .from("user_luma_calendars" as never)
       .select("id")
       .eq("user_id", userId)
-      .eq("provider", "meetup")
-      .eq("provider_source_id", meetupProviderId!)
+      .eq("provider", source.provider)
+      .eq("provider_source_id", providerId)
       .is("merged_into_id", null)
       .maybeSingle();
     existingId = (providerMatch as { id?: string } | null)?.id ?? null;
+  }
+  if (!existingId) {
+    for (const candidate of [identity, calendarId, calendarUrl]) {
+      existingId = await resolveProviderScopedCalendarRowId(userId, candidate, source.provider);
+      if (existingId) break;
+    }
   }
   const sourceKind = source.kind === "group" ? "calendar" : source.kind;
   const syncAllEvents =
