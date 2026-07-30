@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Grid3X3, List } from "lucide-react";
+import { CalendarDays, Grid3X3, List, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
@@ -22,7 +22,24 @@ import {
   parseEventTime,
 } from "@/lib/event-time";
 
+type EventsSearch = {
+  q: string;
+  provider: string;
+  labels: string[];
+};
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return value.split(",").filter(Boolean);
+  return [];
+}
+
 export const Route = createFileRoute("/_authenticated/events")({
+  validateSearch: (search: Record<string, unknown>): EventsSearch => ({
+    q: typeof search.q === "string" ? search.q : "",
+    provider: typeof search.provider === "string" ? search.provider : "all",
+    labels: toStringArray(search.labels),
+  }),
   head: () => ({
     meta: [
       { title: "Your events — Event Router" },
@@ -41,6 +58,7 @@ export const Route = createFileRoute("/_authenticated/events")({
   }),
   component: EventsPage,
 });
+
 
 function formatDate(iso: string) {
   const date = new Date(iso);
