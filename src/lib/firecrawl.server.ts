@@ -1,5 +1,6 @@
 // Server-only Firecrawl helpers. Direct API mode (fc-* key).
 // Only imported from server functions and server routes.
+import type { EventEnrichment } from "./canonical-events";
 
 const FIRECRAWL_V2 = "https://api.firecrawl.dev/v2";
 
@@ -145,6 +146,7 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
   startAt: string | null;
   endAt: string | null;
   hostName: string | null;
+  enrichment: EventEnrichment;
   branding: FirecrawlBranding | null;
   ogImage: string | null;
 } | null> {
@@ -158,6 +160,12 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
       startAt: { type: "string" },
       endAt: { type: "string" },
       hostName: { type: "string" },
+      countryCode: { type: "string" },
+      languageCode: { type: "string" },
+      isOnline: { type: "boolean" },
+      format: { type: "string" },
+      venueName: { type: "string" },
+      venueAddress: { type: "string" },
     },
     required: ["name"],
   } as const;
@@ -172,7 +180,7 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
           type: "json",
           schema,
           prompt:
-            "Extract the event's name, one-paragraph description, cover image URL, city (or 'Online'), ISO start date, ISO end date, and host/organizer name. Dates must include a timezone offset when the page provides one.",
+            "Extract the event's name, one-paragraph description, cover image URL, city, ISO start date, ISO end date, host/organizer, two-letter ISO country code, BCP-47 language code, whether it is online, format, venue name, and full venue address. Dates must include a timezone offset when the page provides one. Omit location values when they are not stated; do not infer them from the organizer alone.",
         },
       ],
       onlyMainContent: true,
@@ -186,6 +194,12 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
       startAt: string;
       endAt: string;
       hostName: string;
+      countryCode: string;
+      languageCode: string;
+      isOnline: boolean;
+      format: string;
+      venueName: string;
+      venueAddress: string;
     }>;
     const meta = body.metadata ?? {};
     const ogImage =
@@ -195,6 +209,18 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
       null;
     const name = (j.name ?? (meta.title as string | undefined) ?? "").trim();
     if (!name) return null;
+    const sources = Object.fromEntries(
+      [
+        ["countryCode", j.countryCode],
+        ["languageCode", j.languageCode],
+        ["isOnline", typeof j.isOnline === "boolean" ? String(j.isOnline) : null],
+        ["format", j.format],
+        ["venueName", j.venueName],
+        ["venueAddress", j.venueAddress],
+      ]
+        .filter(([, value]) => value !== null && value !== undefined && value !== "")
+        .map(([field]) => [field, "firecrawl"]),
+    );
     return {
       name,
       description: j.description ?? (meta.description as string | undefined) ?? null,
@@ -203,6 +229,16 @@ export async function firecrawlScrapeEvent(url: string): Promise<{
       startAt: j.startAt ?? null,
       endAt: j.endAt ?? null,
       hostName: j.hostName ?? null,
+      enrichment: {
+        countryCode: j.countryCode?.trim().toUpperCase() || null,
+        languageCode: j.languageCode?.trim().toLowerCase() || null,
+        isOnline: typeof j.isOnline === "boolean" ? j.isOnline : null,
+        format: j.format?.trim() || null,
+        venueName: j.venueName?.trim() || null,
+        venueAddress: j.venueAddress?.trim() || null,
+        confidence: Object.keys(sources).length > 0 ? 0.88 : null,
+        sources,
+      },
       branding: body.branding ?? null,
       ogImage,
     };

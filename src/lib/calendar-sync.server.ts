@@ -5,6 +5,7 @@ import {
   sourceCalendarId,
   type CuratedSource,
 } from "./owner-curated-catalog";
+import type { EventEnrichment } from "./canonical-events";
 import { summarizeEventCounts } from "./event-time";
 
 export type SyncSourceRow = {
@@ -362,6 +363,10 @@ async function upsertScrapedRows(
           payload.venue && typeof payload.venue === "object"
             ? (payload.venue as Record<string, unknown>)
             : null;
+        const extractedEnrichment =
+          payload.enrichment && typeof payload.enrichment === "object"
+            ? (payload.enrichment as EventEnrichment)
+            : {};
         const externalEventId =
           typeof (row.payload as Record<string, unknown> | undefined)?.externalEventId === "string"
             ? String((row.payload as Record<string, unknown>).externalEventId)
@@ -390,18 +395,29 @@ async function upsertScrapedRows(
             description: typeof row.description === "string" ? row.description : undefined,
             timezone: typeof payload.timezone === "string" ? payload.timezone : null,
             enrichment: {
-              venueName: typeof venue?.name === "string" ? venue.name : null,
+              ...extractedEnrichment,
+              venueName:
+                typeof venue?.name === "string"
+                  ? venue.name
+                  : (extractedEnrichment.venueName ?? null),
               region:
                 typeof venue?.state === "string"
                   ? venue.state
                   : typeof venue?.city === "string"
                     ? venue.city
-                    : null,
-              countryCode: typeof venue?.country === "string" ? venue.country.toUpperCase() : null,
-              isOnline: typeof venue?.name === "string" ? /online|virtual/i.test(venue.name) : null,
+                    : (extractedEnrichment.region ?? null),
+              countryCode:
+                typeof venue?.country === "string"
+                  ? venue.country.toUpperCase()
+                  : (extractedEnrichment.countryCode ?? null),
+              isOnline:
+                typeof venue?.name === "string"
+                  ? /online|virtual/i.test(venue.name)
+                  : (extractedEnrichment.isOnline ?? null),
               organizer: typeof row.host_name === "string" ? row.host_name : null,
               sources: {
-                venue: venue ? "provider" : "unknown",
+                ...(extractedEnrichment.sources ?? {}),
+                venue: venue ? "provider" : (extractedEnrichment.sources?.venueName ?? "unknown"),
                 organizer: row.host_name ? "provider" : "unknown",
               },
             },
@@ -853,6 +869,7 @@ async function syncCalendar(userId: string, source: SyncSourceRow, scope: Resolv
               source: "calendar-firecrawl-fallback",
               externalEventId: null,
               branding: event.branding ?? null,
+              enrichment: event.enrichment,
             },
           };
         }),
@@ -1010,7 +1027,12 @@ async function syncProfile(userId: string, source: SyncSourceRow, scope: Resolve
           start_at: event.startAt,
           end_at: event.endAt,
           host_name: event.hostName,
-          payload: { source: "profile", profileUrl: url, branding: event.branding ?? null },
+          payload: {
+            source: "profile",
+            profileUrl: url,
+            branding: event.branding ?? null,
+            enrichment: event.enrichment,
+          },
         };
       }),
     );

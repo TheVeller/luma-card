@@ -1,5 +1,6 @@
 import type { CanonicalBaseEvent, EventProvider } from "./canonical-events";
 import { providerEventId } from "./event-providers";
+import { inferRoutingCountryCode } from "./event-routing-enrichment";
 
 export type ProviderEvent = {
   event: CanonicalBaseEvent;
@@ -34,6 +35,12 @@ export type ProviderSnapshot = {
 
 export type ProviderSyncScope = { kind: "full" } | { kind: "maintenance"; after: string };
 
+function providerCountryCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : inferRoutingCountryCode(value);
+}
+
 function eventbriteEvent(raw: {
   id: string;
   name?: { text?: string };
@@ -43,7 +50,16 @@ function eventbriteEvent(raw: {
   end?: { utc?: string };
   logo?: { original?: { url?: string }; url?: string };
   organizer?: { name?: string };
-  venue?: { address?: { city?: string; region?: string } };
+  online_event?: boolean;
+  venue?: {
+    name?: string;
+    address?: {
+      city?: string;
+      region?: string;
+      country_code?: string;
+      localized_address_display?: string;
+    };
+  };
 }): ProviderEvent | null {
   if (!raw.id || !raw.name?.text || !raw.start?.utc || !raw.url) return null;
   const city = [raw.venue?.address?.city, raw.venue?.address?.region].filter(Boolean).join(", ");
@@ -57,6 +73,26 @@ function eventbriteEvent(raw: {
       endAt: raw.end?.utc,
       city: city || undefined,
       description: raw.description?.text,
+      enrichment: {
+        countryCode: providerCountryCode(raw.venue?.address?.country_code),
+        region: raw.venue?.address?.region ?? null,
+        venueName: raw.venue?.name ?? null,
+        venueAddress: raw.venue?.address?.localized_address_display ?? null,
+        isOnline: raw.online_event ?? null,
+        format:
+          typeof raw.online_event === "boolean"
+            ? raw.online_event
+              ? "online"
+              : "in_person"
+            : null,
+        organizer: raw.organizer?.name ?? null,
+        confidence: 1,
+        sources: {
+          countryCode: "eventbrite_api",
+          venueName: "eventbrite_api",
+          isOnline: "eventbrite_api",
+        },
+      },
     },
     externalId: raw.id,
     hostName: raw.organizer?.name ?? null,
@@ -154,6 +190,12 @@ type MeetupEventNode = {
   eventHosts?: Array<{ name?: string }>;
   featuredEventPhoto?: { id?: string; baseUrl?: string };
   group?: { id?: string; name?: string; urlname?: string };
+  venue?: {
+    name?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  } | null;
 };
 
 type MeetupGroupResponse = {
@@ -177,6 +219,9 @@ function meetupProviderEvent(event: MeetupEventNode): ProviderEvent {
   const endAt = durationMs
     ? new Date(Date.parse(event.dateTime) + durationMs).toISOString()
     : undefined;
+  const city = [event.venue?.city, event.venue?.state]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join(", ");
   return {
     event: {
       id: event.id,
@@ -185,7 +230,24 @@ function meetupProviderEvent(event: MeetupEventNode): ProviderEvent {
       url: event.eventUrl,
       startAt: event.dateTime,
       endAt,
+      city: city || undefined,
       description: event.description,
+      enrichment: {
+        countryCode: providerCountryCode(event.venue?.country),
+        region: event.venue?.state ?? event.venue?.city ?? null,
+        venueName: event.venue?.name ?? null,
+        isOnline:
+          typeof event.venue?.name === "string" ? /online|virtual/i.test(event.venue.name) : null,
+        organizer: event.eventHosts?.[0]?.name ?? null,
+        confidence: event.venue ? 1 : null,
+        sources: event.venue
+          ? {
+              countryCode: "meetup_api",
+              venueName: "meetup_api",
+              isOnline: "meetup_api",
+            }
+          : {},
+      },
     },
     externalId: event.id,
     hostName: event.eventHosts?.[0]?.name ?? null,
@@ -260,6 +322,22 @@ function meetupPublicProviderEvent(event: MeetupPublicEventNode): ProviderEvent 
       endAt: event.endTime,
       city: city || undefined,
       description: event.description,
+      enrichment: {
+        countryCode: providerCountryCode(event.venue?.country),
+        region: event.venue?.state ?? event.venue?.city ?? null,
+        venueName: event.venue?.name ?? null,
+        isOnline:
+          typeof event.venue?.name === "string" ? /online|virtual/i.test(event.venue.name) : null,
+        organizer: event.eventHosts?.[0]?.name ?? null,
+        confidence: event.venue ? 1 : null,
+        sources: event.venue
+          ? {
+              countryCode: "meetup_public_graphql",
+              venueName: "meetup_public_graphql",
+              isOnline: "meetup_public_graphql",
+            }
+          : {},
+      },
     },
     externalId: event.id,
     hostName: event.eventHosts?.[0]?.name ?? null,
@@ -564,6 +642,7 @@ async function meetupSnapshot(
                     id title eventUrl description dateTime duration
                     eventHosts { name }
                     featuredEventPhoto { id baseUrl }
+                    venue { name city state country }
                     group { id name urlname }
                   }
                 }
@@ -717,6 +796,18 @@ function publicJsonLdEvent(
     raw.organizer && typeof raw.organizer === "object"
       ? (raw.organizer as Record<string, unknown>)
       : null;
+  const addressCountry =
+    address?.addressCountry && typeof address.addressCountry === "object"
+      ? (address.addressCountry as Record<string, unknown>).name
+      : address?.addressCountry;
+  const attendanceMode = typeof raw.eventAttendanceMode === "string" ? raw.eventAttendanceMode : "";
+  const locationType = typeof location?.["@type"] === "string" ? String(location["@type"]) : "";
+  const hasOnlineSignal =
+    /online/i.test(attendanceMode) ||
+    /virtuallocation/i.test(locationType) ||
+    (typeof location?.name === "string" && /online|virtual/i.test(location.name));
+  const isOnline = hasOnlineSignal ? true : address || location ? false : null;
+  const language = Array.isArray(raw.inLanguage) ? raw.inLanguage[0] : raw.inLanguage;
   const image = Array.isArray(raw.image) ? raw.image[0] : raw.image;
   const externalId =
     providerEventId(provider, fallbackUrl) ?? String(raw.identifier ?? raw.url ?? fallbackUrl);
@@ -735,6 +826,28 @@ function publicJsonLdEvent(
             ? location.name
             : undefined,
       description: typeof raw.description === "string" ? raw.description : undefined,
+      enrichment: {
+        countryCode: providerCountryCode(addressCountry),
+        languageCode: typeof language === "string" ? language.toLowerCase() : null,
+        region:
+          typeof address?.addressRegion === "string"
+            ? address.addressRegion
+            : typeof address?.addressLocality === "string"
+              ? address.addressLocality
+              : null,
+        venueName: typeof location?.name === "string" ? location.name : null,
+        venueAddress: typeof address?.streetAddress === "string" ? address.streetAddress : null,
+        isOnline,
+        format: isOnline === true ? "online" : isOnline === false ? "in_person" : null,
+        organizer: typeof organizer?.name === "string" ? organizer.name : null,
+        confidence: 0.95,
+        sources: {
+          countryCode: "provider_jsonld",
+          languageCode: "provider_jsonld",
+          venueName: "provider_jsonld",
+          isOnline: "provider_jsonld",
+        },
+      },
     },
     externalId,
     hostName: typeof organizer?.name === "string" ? organizer.name : null,
@@ -782,10 +895,15 @@ export async function fetchPublicProviderEvent(
       endAt: scraped.endAt ?? undefined,
       city: scraped.city ?? undefined,
       description: scraped.description ?? undefined,
+      enrichment: scraped.enrichment,
     },
     externalId,
     hostName: scraped.hostName,
-    payload: { source: `${provider}-public-firecrawl`, branding: scraped.branding },
+    payload: {
+      source: `${provider}-public-firecrawl`,
+      branding: scraped.branding,
+      enrichment: scraped.enrichment,
+    },
   };
 }
 

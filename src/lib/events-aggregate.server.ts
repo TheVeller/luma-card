@@ -18,6 +18,7 @@ import {
   type EventEnrichment,
   type SourceEventInput,
 } from "./canonical-events";
+import { enrichEventForRouting } from "./event-routing-enrichment";
 import { compareEventsUpcomingFirst } from "./event-time";
 
 export type EventDTO = {
@@ -287,7 +288,13 @@ export async function aggregateEventsForUser(
     const k = `${event.calendarId}:${event.id}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    merged.push(event);
+    merged.push({
+      ...event,
+      enrichment: enrichEventForRouting({
+        event,
+        calendarNames: event.calendarName ? [event.calendarName] : [],
+      }),
+    });
   }
 
   const now = Date.now();
@@ -306,6 +313,14 @@ export async function aggregateCanonicalEventsForUser(
 }> {
   const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
   const events = canonicalizeEvents(inputs);
+  for (const event of events) {
+    event.enrichment = enrichEventForRouting({
+      event,
+      calendarNames: event.sources.flatMap((source) =>
+        source.calendarName ? [source.calendarName] : [],
+      ),
+    });
+  }
   const canonicalIds = events
     .map((event) => event.canonicalId)
     .filter((id): id is string => Boolean(id));

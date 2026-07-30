@@ -483,6 +483,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
           endAt: ev.endAt ?? undefined,
           city: ev.city ?? undefined,
           description: ev.description ?? undefined,
+          enrichment: ev.enrichment,
           calendarId,
           calendarName,
         };
@@ -498,7 +499,12 @@ export const importFromUrl = createServerFn({ method: "POST" })
           start_at: ev.startAt,
           end_at: ev.endAt,
           host_name: ev.hostName,
-          payload: { source: "profile", profileUrl: data.url, branding: ev.branding ?? null },
+          payload: {
+            source: "profile",
+            profileUrl: data.url,
+            branding: ev.branding ?? null,
+            enrichment: ev.enrichment,
+          },
           updated_at: new Date().toISOString(),
         });
         if (upErr) {
@@ -514,7 +520,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
           sourceUrl: url,
           externalEventId: eventKey,
           hostName: ev.hostName,
-          payload: { profileUrl: data.url },
+          payload: { profileUrl: data.url, enrichment: ev.enrichment },
         });
         return eventKey;
       };
@@ -571,7 +577,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
       start_at: ev.startAt,
       end_at: ev.endAt,
       host_name: ev.hostName,
-      payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
+      payload: {
+        branding: ev.branding ?? null,
+        ogImage: ev.ogImage ?? null,
+        enrichment: ev.enrichment,
+      },
       updated_at: new Date().toISOString(),
     });
     if (upErr) throw new Error(upErr.message);
@@ -586,6 +596,7 @@ export const importFromUrl = createServerFn({ method: "POST" })
         endAt: ev.endAt ?? undefined,
         city: ev.city ?? undefined,
         description: ev.description ?? undefined,
+        enrichment: ev.enrichment,
         calendarId,
         calendarName,
       },
@@ -596,7 +607,11 @@ export const importFromUrl = createServerFn({ method: "POST" })
       sourceUrl: data.url,
       externalEventId: eventKey,
       hostName: ev.hostName,
-      payload: { branding: ev.branding ?? null, ogImage: ev.ogImage ?? null },
+      payload: {
+        branding: ev.branding ?? null,
+        ogImage: ev.ogImage ?? null,
+        enrichment: ev.enrichment,
+      },
     });
     const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
     invalidateEventLibraryStatsCache(context.userId);
