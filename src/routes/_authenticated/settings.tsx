@@ -73,6 +73,9 @@ function SettingsPage() {
   const { data: eventStats } = useQuery({
     queryKey: ["event-library-stats"],
     queryFn: () => fetchEventStats(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const [statsOpen, setStatsOpen] = useState(false);

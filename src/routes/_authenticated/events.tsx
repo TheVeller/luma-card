@@ -89,8 +89,9 @@ export const Route = createFileRoute("/_authenticated/events")({
     cities: z.preprocess(toStringArray, z.array(z.string())).default([]),
     countries: z.preprocess(toStringArray, z.array(z.string())).default([]),
     languages: z.preprocess(toStringArray, z.array(z.string())).default([]),
-    dateFrom: z.string().default(""),
-    dateTo: z.string().default(""),
+  dateFrom: z.string().default(""),
+  dateTo: z.string().default(""),
+  status: z.enum(["all", "upcoming", "past"]).default("all"),
   }),
   head: () => ({
     meta: [
@@ -200,6 +201,9 @@ function EventsPage() {
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
     queryFn: () => fetchEvents({ data: { calendarId: activeCalendarId ?? undefined } }),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
   const syncMut = useMutation({
     mutationFn: () => runSync(),
@@ -208,7 +212,7 @@ function EventsPage() {
     },
   });
 
-  const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
+  const filter = search.status;
   const [sortMode, setSortMode] = useState<SortMode>("upcoming");
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [exportMenu, setExportMenu] = useState(false);
@@ -245,6 +249,7 @@ function EventsPage() {
             languages: view.filters.languages,
             dateFrom: view.filters.dateFrom,
             dateTo: view.filters.dateTo,
+            status: view.filters.status,
           },
           sortMode,
           viewMode,
@@ -258,7 +263,6 @@ function EventsPage() {
   }
 
   function applyFilters(next: EventFilterState) {
-    setFilter(next.status);
     patchSearch({
       q: next.q,
       provider: next.provider,
@@ -272,6 +276,7 @@ function EventsPage() {
       languages: next.languages,
       dateFrom: next.dateFrom,
       dateTo: next.dateTo,
+      status: next.status,
     });
   }
 
@@ -324,6 +329,7 @@ function EventsPage() {
       languages: saved.languages ?? [],
       dateFrom: saved.dateFrom ?? "",
       dateTo: saved.dateTo ?? "",
+      status: saved.status === "upcoming" || saved.status === "past" ? saved.status : "all",
     });
     setSavedViewsOpen(false);
     if (view.sortMode === "upcoming" || view.sortMode === "latest" || view.sortMode === "az") {
@@ -344,9 +350,11 @@ function EventsPage() {
   useEffect(() => {
     const refreshNow = () => setNow(Date.now());
     window.addEventListener("focus", refreshNow);
-    const timer = window.setInterval(refreshNow, 60_000);
+    document.addEventListener("visibilitychange", refreshNow);
+    const timer = window.setInterval(refreshNow, 15_000);
     return () => {
       window.removeEventListener("focus", refreshNow);
+      document.removeEventListener("visibilitychange", refreshNow);
       window.clearInterval(timer);
     };
   }, []);
@@ -539,7 +547,7 @@ function EventsPage() {
             {(["all", "upcoming", "past"] as const).map((f) => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                onClick={() => patchSearch({ status: f })}
                 className={
                   "rounded-full px-4 py-1.5 capitalize transition " +
                   (filter === f

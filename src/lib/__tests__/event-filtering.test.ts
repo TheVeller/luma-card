@@ -113,4 +113,16 @@ describe("event filtering", () => {
       matchesEvent(baseEvent, filters({ online: "in-person" }), Date.parse("2030-01-01")),
     ).toBe(false);
   });
+
+  it("moves an event out of upcoming when its end time passes", () => {
+    const starts = Date.parse("2030-06-10T18:00:00Z");
+    const event = { ...baseEvent, endAt: "2030-06-10T19:00:00Z" };
+    expect(matchesEvent(event, filters({ status: "upcoming" }), starts - 1)).toBe(true);
+    expect(matchesEvent(event, filters({ status: "upcoming" }), starts + 2 * 60 * 60 * 1000)).toBe(
+      false,
+    );
+    expect(matchesEvent(event, filters({ status: "past" }), starts + 2 * 60 * 60 * 1000)).toBe(
+      true,
+    );
+  });
 });

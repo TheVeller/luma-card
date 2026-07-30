@@ -194,9 +194,13 @@ async function readPersistedStats(
 ): Promise<EventLibraryStats | null> {
   const client =
     userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+  const pAt = new Date().toISOString();
   const { data, error } = userClient
-    ? await client.rpc("get_my_event_library_stats" as never)
-    : await client.rpc("get_event_library_stats" as never, { p_user_id: userId } as never);
+    ? await client.rpc("get_my_event_library_stats" as never, { p_at: pAt } as never)
+    : await client.rpc(
+        "get_event_library_stats" as never,
+        { p_user_id: userId, p_at: pAt } as never,
+      );
   if (error) {
     if (/schema cache|does not exist/i.test(error.message)) return null;
     throw new Error(error.message);

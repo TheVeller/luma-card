@@ -183,6 +183,7 @@ export type SavedEventViewFilters = {
   languages?: string[];
   dateFrom?: string;
   dateTo?: string;
+  status?: "all" | "upcoming" | "past";
 };
 
 export const listSavedEventViews = createServerFn({ method: "GET" })
