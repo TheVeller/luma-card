@@ -194,7 +194,7 @@ function EventsPage() {
   const runSync = useServerFn(syncEventLibrary);
   const qc = useQueryClient();
   const navigate = useNavigate({ from: "/events" });
-  const { q, provider, labels: activeLabels } = Route.useSearch();
+  const { q, provider, labels: activeLabels }: EventsSearch = Route.useSearch();
   const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
