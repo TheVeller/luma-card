@@ -138,6 +138,57 @@ function sourceLabel(ev: EventDTO) {
   return ev.calendarName ?? ev.calendarId ?? "Default calendar";
 }
 
+/**
+ * Events come back either as plain calendar DTOs or as canonical DTOs carrying
+ * tags, enrichment and per-provider sources. Read those optional fields
+ * defensively so both shapes render the same filter chips.
+ */
+type EnrichedEvent = EventDTO & {
+  tags?: string[];
+  suggestedTags?: string[];
+  sources?: Array<{ provider?: string }>;
+  enrichment?: {
+    topics?: string[];
+    audience?: string[];
+    format?: string | null;
+    level?: string | null;
+    isOnline?: boolean | null;
+    languageCode?: string | null;
+    countryCode?: string | null;
+  };
+};
+
+function eventProviders(ev: EventDTO): string[] {
+  const sources = (ev as EnrichedEvent).sources ?? [];
+  const providers = new Set(sources.map((s) => s.provider ?? "luma"));
+  if (providers.size === 0) providers.add("luma");
+  return [...providers];
+}
+
+function eventLabels(ev: EventDTO): string[] {
+  const enriched = ev as EnrichedEvent;
+  const labels = new Set<string>();
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const clean = value.trim().toLowerCase();
+    if (clean) labels.add(clean);
+  };
+  enriched.tags?.forEach(push);
+  enriched.suggestedTags?.forEach(push);
+  enriched.enrichment?.topics?.forEach(push);
+  enriched.enrichment?.audience?.forEach(push);
+  push(enriched.enrichment?.format);
+  push(enriched.enrichment?.level);
+  push(enriched.enrichment?.languageCode);
+  push(enriched.enrichment?.countryCode);
+  if (typeof enriched.enrichment?.isOnline === "boolean") {
+    labels.add(enriched.enrichment.isOnline ? "online" : "in-person");
+  }
+  push(ev.city);
+  return [...labels];
+}
+
+
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const runSync = useServerFn(syncEventLibrary);
