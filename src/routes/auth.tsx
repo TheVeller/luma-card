@@ -19,7 +19,7 @@ export const Route = createFileRoute("/auth")({
     if (data.session) {
       const next = safeNext(search.next);
       if (next) throw redirect({ href: next });
-      throw redirect({ to: "/events" });
+      throw redirect({ to: "/events", search: { q: "", provider: "all", labels: [] } });
     }
   },
   head: () => ({
@@ -51,7 +51,7 @@ function AuthPage() {
         if (target) {
           window.location.href = target;
         } else {
-          navigate({ to: "/events" });
+          navigate({ to: "/events", search: { q: "", provider: "all", labels: [] } });
         }
       }
     });

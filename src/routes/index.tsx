@@ -5,7 +5,8 @@ export const Route = createFileRoute("/")({
   ssr: false,
   beforeLoad: async () => {
     const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/events" });
+    if (data.session)
+      throw redirect({ to: "/events", search: { q: "", provider: "all", labels: [] } });
   },
   head: () => ({
     meta: [
@@ -58,8 +59,8 @@ function Landing() {
           <span className="text-accent">badge worth sharing.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-          Bring your own Luma API key. We detect each event's artwork and
-          auto-brand a stamp-style badge — photo, colors, typography, and QR.
+          Bring your own Luma API key. We detect each event's artwork and auto-brand a stamp-style
+          badge — photo, colors, typography, and QR.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">

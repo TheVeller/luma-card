@@ -134,7 +134,9 @@ describe("library summary", () => {
         { provider: "luma", ownership: "connected", merged_into_id: "x", sync_status: "completed" },
       ]),
     ).toEqual({
+      totalCalendars: 4,
       activeCalendars: 3,
+      duplicateCalendars: 0,
       lumaConnected: 1,
       lumaExternal: 1,
       meetupExternal: 1,

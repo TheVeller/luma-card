@@ -45,13 +45,14 @@ function ImportPage() {
             if (result.kind === "event" && result.eventIds[0]) {
               navigate({ to: "/e/$eventId", params: { eventId: result.eventIds[0] } });
             } else {
-              navigate({ to: "/events" });
+              navigate({ to: "/events", search: { q: "", provider: "all", labels: [] } });
             }
           }}
         />
         <div className="mt-5">
           <Link
             to="/events"
+            search={{ q: "", provider: "all", labels: [] }}
             className="text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel

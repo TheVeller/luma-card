@@ -440,7 +440,11 @@ function EventBadgePage() {
             <>
               <p className="text-sm">Event not found or Luma error.</p>
               <p className="mt-2 max-w-md text-xs text-destructive">{msg}</p>
-              <Link to="/events" className="mt-4 inline-block text-accent underline">
+              <Link
+                to="/events"
+                search={{ q: "", provider: "all", labels: [] }}
+                className="mt-4 inline-block text-accent underline"
+              >
                 Back to events
               </Link>
             </>
@@ -460,6 +464,7 @@ function EventBadgePage() {
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-3">
           <Link
             to="/events"
+            search={{ q: "", provider: "all", labels: [] }}
             className="shrink-0 font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground transition-colors hover:text-foreground"
           >
             ←

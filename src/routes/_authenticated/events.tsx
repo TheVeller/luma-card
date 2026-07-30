@@ -1,8 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Grid3X3, List, Search, SlidersHorizontal, X, Bookmark } from "lucide-react";
+import { CalendarDays, Grid3X3, List, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
 import { downloadEventsDataset } from "@/lib/export-events";
@@ -21,22 +22,25 @@ import {
   eventTemporalStatus,
   parseEventTime,
 } from "@/lib/event-time";
-import {
-  listEventTagDefinitions,
-  listSavedEventViews,
-  saveEventView,
-  updateEventTags,
-  type SavedEventViewDTO,
-} from "@/lib/event-tags.functions";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+
+type EventsSearch = {
+  q: string;
+  provider: string;
+  labels: string[];
+};
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return value.split(",").filter(Boolean);
+  return [];
+}
 
 export const Route = createFileRoute("/_authenticated/events")({
+  validateSearch: z.object({
+    q: z.string().catch(""),
+    provider: z.string().catch("all"),
+    labels: z.preprocess(toStringArray, z.array(z.string())).catch([]),
+  }),
   head: () => ({
     meta: [
       { title: "Your events — Event Router" },
@@ -134,26 +138,66 @@ function sourceLabel(ev: EventDTO) {
   return ev.calendarName ?? ev.calendarId ?? "Default calendar";
 }
 
+/**
+ * Events come back either as plain calendar DTOs or as canonical DTOs carrying
+ * tags, enrichment and per-provider sources. Read those optional fields
+ * defensively so both shapes render the same filter chips.
+ */
+type EnrichedEvent = EventDTO & {
+  tags?: string[];
+  suggestedTags?: string[];
+  sources?: Array<{ provider?: string }>;
+  enrichment?: {
+    topics?: string[];
+    audience?: string[];
+    format?: string | null;
+    level?: string | null;
+    isOnline?: boolean | null;
+    languageCode?: string | null;
+    countryCode?: string | null;
+  };
+};
+
+function eventProviders(ev: EventDTO): string[] {
+  const sources = (ev as EnrichedEvent).sources ?? [];
+  const providers = new Set(sources.map((s) => s.provider ?? "luma"));
+  if (providers.size === 0) providers.add("luma");
+  return [...providers];
+}
+
+function eventLabels(ev: EventDTO): string[] {
+  const enriched = ev as EnrichedEvent;
+  const labels = new Set<string>();
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const clean = value.trim().toLowerCase();
+    if (clean) labels.add(clean);
+  };
+  enriched.tags?.forEach(push);
+  enriched.suggestedTags?.forEach(push);
+  enriched.enrichment?.topics?.forEach(push);
+  enriched.enrichment?.audience?.forEach(push);
+  push(enriched.enrichment?.format);
+  push(enriched.enrichment?.level);
+  push(enriched.enrichment?.languageCode);
+  push(enriched.enrichment?.countryCode);
+  if (typeof enriched.enrichment?.isOnline === "boolean") {
+    labels.add(enriched.enrichment.isOnline ? "online" : "in-person");
+  }
+  push(ev.city);
+  return [...labels];
+}
+
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const runSync = useServerFn(syncEventLibrary);
-  const fetchTagDefinitions = useServerFn(listEventTagDefinitions);
-  const fetchSavedViews = useServerFn(listSavedEventViews);
-  const persistView = useServerFn(saveEventView);
-  const mutateEventTags = useServerFn(updateEventTags);
   const qc = useQueryClient();
+  const navigate = useNavigate({ from: "/events" });
+  const { q, provider, labels: activeLabels }: EventsSearch = Route.useSearch();
   const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
     queryFn: () => fetchEvents({ data: { calendarId: activeCalendarId ?? undefined } }),
-  });
-  const { data: tagDefinitions = [] } = useQuery({
-    queryKey: ["event-tag-definitions"],
-    queryFn: () => fetchTagDefinitions(),
-  });
-  const { data: savedViews = [], refetch: refetchViews } = useQuery({
-    queryKey: ["saved-event-views"],
-    queryFn: () => fetchSavedViews(),
   });
   const syncMut = useMutation({
     mutationFn: () => runSync(),
@@ -169,34 +213,18 @@ function EventsPage() {
   const [sortMenu, setSortMenu] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [providerFilter, setProviderFilter] = useState("");
-  const [onlineFilter, setOnlineFilter] = useState<"" | "true" | "false">("");
-  const [tagFilter, setTagFilter] = useState("");
-  const [saveViewOpen, setSaveViewOpen] = useState(false);
-  const [viewName, setViewName] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkTag, setBulkTag] = useState("");
-  const bulkTagMut = useMutation({
-    mutationFn: (mode: "add" | "remove") => {
-      const [namespace, slug] = bulkTag.split(":");
-      return mutateEventTags({
-        data: {
-          eventIds: [...selectedIds]
-            .map((id) => data?.find((event) => event.id === id)?.canonicalId)
-            .filter((id): id is string => Boolean(id)),
-          tags: [{ namespace: namespace as "format" | "topic" | "audience", slug }],
-          mode,
-        },
-      });
-    },
-    onSuccess: () => {
-      setSelectedIds(new Set());
-      setBulkTag("");
-      qc.invalidateQueries({ queryKey: ["luma-events"] });
-    },
-  });
+
+  function patchSearch(patch: Partial<EventsSearch>) {
+    navigate({ search: (prev: EventsSearch) => ({ ...prev, ...patch }) });
+  }
+
+  function toggleLabel(label: string) {
+    patchSearch({
+      labels: activeLabels.includes(label)
+        ? activeLabels.filter((item) => item !== label)
+        : [...activeLabels, label],
+    });
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -229,72 +257,45 @@ function EventsPage() {
     errorMessage.includes("SUPABASE_NOT_CONFIGURED") ||
     errorMessage.includes("Missing Supabase environment variable");
 
+  const labelIndex = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const label of eventLabels(ev)) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [data]);
+
+  const providerOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const name of eventProviders(ev)) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [data]);
+
+  const query = q.trim().toLowerCase();
+
   const filtered = useMemo(() => {
     if (!data) return [];
     return data.filter((ev: EventDTO) => {
       const status = eventTemporalStatus(ev, now);
-      if (filter === "upcoming") return status === "upcoming" || status === "ongoing";
-      if (filter === "past") return status === "past";
-      if (search.trim()) {
-        const needle = search.trim().toLowerCase();
-        if (
-          ![ev.name, ev.description, ev.city]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(needle)) === false
-        )
-          return false;
+      if (filter === "upcoming" && !(status === "upcoming" || status === "ongoing")) return false;
+      if (filter === "past" && status !== "past") return false;
+      if (provider !== "all" && !eventProviders(ev).includes(provider)) return false;
+      if (activeLabels.length > 0) {
+        const labels = eventLabels(ev);
+        if (!activeLabels.every((label) => labels.includes(label))) return false;
       }
-      if (providerFilter && !ev.sources?.some((source) => source.provider === providerFilter))
-        return false;
-      if (onlineFilter && String(Boolean(ev.enrichment?.isOnline)) !== onlineFilter) return false;
-      if (
-        tagFilter &&
-        !(ev.tagDetails ?? []).some(
-          (tag) => `${tag.namespace}:${tag.slug}` === tagFilter && tag.state === "active",
-        )
-      )
-        return false;
+      if (query) {
+        const haystack = [ev.name, ev.city, ev.calendarName, ev.description]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
       return true;
     });
-  }, [data, filter, now, search, providerFilter, onlineFilter, tagFilter]);
-
-  const activeFilterCount = [search, providerFilter, onlineFilter, tagFilter].filter(
-    Boolean,
-  ).length;
-  async function saveCurrentView() {
-    if (!viewName.trim()) return;
-    await persistView({
-      data: {
-        name: viewName.trim(),
-        filters: { search, provider: providerFilter, online: onlineFilter, tag: tagFilter },
-        sortMode,
-        viewMode,
-      },
-    });
-    setViewName("");
-    setSaveViewOpen(false);
-    await refetchViews();
-  }
-
-  function applySavedView(view: SavedEventViewDTO) {
-    const filters = view.filters;
-    setSearch(typeof filters.search === "string" ? filters.search : "");
-    setProviderFilter(typeof filters.provider === "string" ? filters.provider : "");
-    setOnlineFilter(filters.online === "true" || filters.online === "false" ? filters.online : "");
-    setTagFilter(typeof filters.tag === "string" ? filters.tag : "");
-    if (["upcoming", "latest", "az"].includes(view.sortMode))
-      setSortMode(view.sortMode as SortMode);
-    if (["gallery", "list", "calendar"].includes(view.viewMode)) setView(view.viewMode as ViewMode);
-  }
-
-  function toggleSelected(id: string) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  }, [data, filter, now, provider, activeLabels, query]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -303,6 +304,8 @@ function EventsPage() {
     else arr.sort(compareEventName);
     return arr;
   }, [filtered, sortMode, now]);
+
+  const filtersActive = query !== "" || provider !== "all" || activeLabels.length > 0;
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
@@ -451,54 +454,6 @@ function EventsPage() {
 
       {data && data.length > 0 && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <div className="flex min-w-48 flex-1 items-center gap-2 rounded-full border border-hairline bg-surface/60 px-3 py-1.5">
-              <Search className="size-3.5 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search events"
-                className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-              />
-              {search && (
-                <button onClick={() => setSearch("")} aria-label="Clear search">
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-            <button
-              onClick={() => setAdvancedOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-surface/60 px-3 py-1.5 text-xs font-medium hover:bg-surface-2"
-            >
-              <SlidersHorizontal className="size-3.5" /> Filters
-              {activeFilterCount > 0 && (
-                <span className="rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
-            <select
-              value=""
-              onChange={(event) => {
-                const view = savedViews.find((item) => item.id === event.target.value);
-                if (view) applySavedView(view);
-              }}
-              className="max-w-40 rounded-full border border-hairline bg-surface/60 px-3 py-1.5 text-xs"
-            >
-              <option value="">Saved views</option>
-              {savedViews.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.name}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => setSaveViewOpen((value) => !value)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-surface/60 px-3 py-1.5 text-xs"
-            >
-              <Bookmark className="size-3.5" /> Save view
-            </button>
-          </div>
           <div className="inline-flex rounded-full border border-hairline bg-surface/60 p-1 text-xs font-medium">
             {(["all", "upcoming", "past"] as const).map((f) => (
               <button
@@ -536,146 +491,69 @@ function EventsPage() {
         </div>
       )}
 
-      {saveViewOpen && (
-        <div className="mt-2 flex max-w-md items-center gap-2 rounded-xl border border-hairline bg-surface/70 p-2">
-          <input
-            autoFocus
-            value={viewName}
-            onChange={(event) => setViewName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") saveCurrentView();
-            }}
-            placeholder="View name"
-            className="min-w-0 flex-1 rounded-lg bg-background px-3 py-2 text-xs outline-none"
-          />
-          <button
-            onClick={saveCurrentView}
-            disabled={!viewName.trim()}
-            className="rounded-full bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-40"
-          >
-            Save
-          </button>
-        </div>
-      )}
-
-      {selectedIds.size > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 p-2">
-          <span className="text-xs font-medium">{selectedIds.size} selected</span>
-          <select
-            value={bulkTag}
-            onChange={(event) => setBulkTag(event.target.value)}
-            className="h-8 rounded-lg border border-hairline bg-background px-2 text-xs"
-          >
-            <option value="">Choose tag</option>
-            {tagDefinitions.map((tag) => (
-              <option key={`${tag.namespace}:${tag.slug}`} value={`${tag.namespace}:${tag.slug}`}>
-                {tag.namespace}: {tag.label}
-              </option>
-            ))}
-          </select>
-          <button
-            disabled={!bulkTag || bulkTagMut.isPending}
-            onClick={() => bulkTagMut.mutate("add")}
-            className="rounded-full bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-40"
-          >
-            Add tag
-          </button>
-          <button
-            disabled={!bulkTag || bulkTagMut.isPending}
-            onClick={() => bulkTagMut.mutate("remove")}
-            className="rounded-full border border-hairline px-3 py-1.5 text-xs disabled:opacity-40"
-          >
-            Remove
-          </button>
-          <button
-            onClick={() => setSelectedIds(new Set())}
-            className="ml-auto text-xs text-muted-foreground underline"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>Advanced filters</SheetTitle>
-            <SheetDescription>Combine filters to narrow your event library.</SheetDescription>
-          </SheetHeader>
-          <div className="mt-6 space-y-5">
-            <label className="block text-xs font-medium">
-              Provider
+      {data && data.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={q}
+              onChange={(event) => patchSearch({ q: event.target.value })}
+              placeholder="Search events, cities, calendars…"
+              className="h-9 min-w-[220px] flex-1 rounded-full border border-hairline bg-surface/60 px-4 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+              aria-label="Search events"
+            />
+            {providerOptions.length > 1 && (
               <select
-                value={providerFilter}
-                onChange={(event) => setProviderFilter(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-hairline bg-background px-3 text-sm"
+                value={provider}
+                onChange={(event) => patchSearch({ provider: event.target.value })}
+                className="h-9 rounded-full border border-hairline bg-surface/60 px-3 text-xs font-medium outline-none focus:border-primary"
+                aria-label="Filter by provider"
               >
-                <option value="">All providers</option>
-                <option value="luma">Luma</option>
-                <option value="meetup">Meetup</option>
-                <option value="eventbrite">Eventbrite</option>
+                <option value="all">All providers</option>
+                {providerOptions.map(([name, count]) => (
+                  <option key={name} value={name}>
+                    {name} ({count})
+                  </option>
+                ))}
               </select>
-            </label>
-            <label className="block text-xs font-medium">
-              Format
-              <select
-                value={tagFilter.startsWith("format:") ? tagFilter : ""}
-                onChange={(event) => setTagFilter(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-hairline bg-background px-3 text-sm"
+            )}
+            <span className="text-xs text-muted-foreground">
+              {sorted.length} of {data.length}
+            </span>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={() => patchSearch({ q: "", provider: "all", labels: [] })}
+                className="inline-flex h-9 items-center gap-1 rounded-full border border-hairline px-3 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
               >
-                <option value="">Any format</option>
-                {tagDefinitions
-                  .filter((tag) => tag.namespace === "format")
-                  .map((tag) => (
-                    <option key={tag.slug} value={`format:${tag.slug}`}>
-                      {tag.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="block text-xs font-medium">
-              Topic
-              <select
-                value={tagFilter.startsWith("topic:") ? tagFilter : ""}
-                onChange={(event) => setTagFilter(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-hairline bg-background px-3 text-sm"
-              >
-                <option value="">Any topic</option>
-                {tagDefinitions
-                  .filter((tag) => tag.namespace === "topic")
-                  .map((tag) => (
-                    <option key={tag.slug} value={`topic:${tag.slug}`}>
-                      {tag.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="block text-xs font-medium">
-              Online
-              <select
-                value={onlineFilter}
-                onChange={(event) => setOnlineFilter(event.target.value as typeof onlineFilter)}
-                className="mt-1 h-10 w-full rounded-lg border border-hairline bg-background px-3 text-sm"
-              >
-                <option value="">Any format</option>
-                <option value="true">Online</option>
-                <option value="false">In person</option>
-              </select>
-            </label>
-            <button
-              onClick={() => {
-                setProviderFilter("");
-                setOnlineFilter("");
-                setTagFilter("");
-                setAdvancedOpen(false);
-              }}
-              className="text-xs text-muted-foreground underline"
-            >
-              Clear advanced filters
-            </button>
+                <X className="size-3" aria-hidden /> Clear
+              </button>
+            )}
           </div>
-        </SheetContent>
-      </Sheet>
+          {labelIndex.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {labelIndex.slice(0, 24).map(([label, count]) => {
+                const active = activeLabels.includes(label);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleLabel(label)}
+                    className={
+                      "rounded-full border px-3 py-1 text-[11px] font-medium capitalize transition " +
+                      (active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-hairline text-muted-foreground hover:bg-surface hover:text-foreground")
+                    }
+                  >
+                    {label}
+                    <span className="ml-1 opacity-60">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {isLoading && (
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -740,20 +618,10 @@ function EventsPage() {
       )}
 
       {sorted.length > 0 && viewMode === "gallery" && (
-        <GalleryView
-          events={sorted}
-          showCalendarName={activeCalendarId === "__all__"}
-          selectedIds={selectedIds}
-          onToggle={toggleSelected}
-        />
+        <GalleryView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "list" && (
-        <ListView
-          events={sorted}
-          showCalendarName={activeCalendarId === "__all__"}
-          selectedIds={selectedIds}
-          onToggle={toggleSelected}
-        />
+        <ListView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "calendar" && <CalendarView events={sorted} />}
     </div>
@@ -770,40 +638,12 @@ function EventImage({ ev, className }: { ev: EventDTO; className: string }) {
   );
 }
 
-function EventTagChips({ event, dark = false }: { event: EventDTO; dark?: boolean }) {
-  const tags = event.tagDetails?.filter((tag) => tag.state === "active") ?? [];
-  if (tags.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      {tags.slice(0, 2).map((tag) => (
-        <span
-          key={`${tag.namespace}:${tag.slug}`}
-          className={`rounded-full border px-2 py-0.5 text-[9px] font-medium ${dark ? "border-white/20 bg-black/30 text-white/90" : "border-hairline bg-surface-2 text-muted-foreground"}`}
-        >
-          {tag.label}
-        </span>
-      ))}
-      {tags.length > 2 && (
-        <span
-          className={`rounded-full px-2 py-0.5 text-[9px] ${dark ? "bg-black/30 text-white/80" : "bg-surface-2 text-muted-foreground"}`}
-        >
-          +{tags.length - 2}
-        </span>
-      )}
-    </div>
-  );
-}
-
 function GalleryView({
   events,
   showCalendarName,
-  selectedIds,
-  onToggle,
 }: {
   events: EventDTO[];
   showCalendarName: boolean;
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
 }) {
   return (
     <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -815,17 +655,6 @@ function GalleryView({
           className="group overflow-hidden rounded-2xl border border-hairline bg-surface/70 transition hover:-translate-y-0.5 hover:border-white/20"
         >
           <div className="relative aspect-square w-full overflow-hidden bg-surface-2">
-            <input
-              type="checkbox"
-              checked={selectedIds.has(ev.id)}
-              onChange={() => onToggle(ev.id)}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              className="absolute left-3 top-3 z-10 size-4 accent-[hsl(var(--accent))]"
-              aria-label={`Select ${ev.name}`}
-            />
             <EventImage
               ev={ev}
               className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
@@ -840,15 +669,11 @@ function GalleryView({
                 {ev.calendarName}
               </div>
             )}
-            <div className="absolute left-3 bottom-10">
-              <EventTagChips event={ev} dark />
-            </div>
           </div>
           <div className="p-4">
             <h3 className="line-clamp-2 font-display text-lg font-semibold leading-tight">
               {ev.name}
             </h3>
-            <EventTagChips event={ev} />
             <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent">
               Generate badge <span aria-hidden>→</span>
             </div>
@@ -859,17 +684,7 @@ function GalleryView({
   );
 }
 
-function ListView({
-  events,
-  showCalendarName,
-  selectedIds,
-  onToggle,
-}: {
-  events: EventDTO[];
-  showCalendarName: boolean;
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
-}) {
+function ListView({ events, showCalendarName }: { events: EventDTO[]; showCalendarName: boolean }) {
   return (
     <div className="mt-8 overflow-hidden rounded-2xl border border-hairline bg-surface/50">
       {events.map((ev) => (
@@ -877,19 +692,8 @@ function ListView({
           key={eventKey(ev)}
           to="/e/$eventId"
           params={{ eventId: ev.id }}
-          className="relative grid grid-cols-[88px_minmax(0,1fr)] gap-4 border-b border-hairline p-3 transition last:border-b-0 hover:bg-surface sm:grid-cols-[112px_minmax(0,1fr)_auto] sm:items-center"
+          className="grid grid-cols-[88px_minmax(0,1fr)] gap-4 border-b border-hairline p-3 transition last:border-b-0 hover:bg-surface sm:grid-cols-[112px_minmax(0,1fr)_auto] sm:items-center"
         >
-          <input
-            type="checkbox"
-            checked={selectedIds.has(ev.id)}
-            onChange={() => onToggle(ev.id)}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            className="absolute left-1 top-1 z-10 size-4 accent-[hsl(var(--accent))]"
-            aria-label={`Select ${ev.name}`}
-          />
           <div className="h-20 overflow-hidden rounded-xl bg-surface-2 sm:h-24">
             <EventImage ev={ev} className="h-full w-full object-cover" />
           </div>
@@ -902,7 +706,6 @@ function ListView({
             <h3 className="mt-1 line-clamp-2 font-display text-lg font-semibold leading-tight">
               {ev.name}
             </h3>
-            <EventTagChips event={ev} />
             {ev.description && (
               <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                 {ev.description}
