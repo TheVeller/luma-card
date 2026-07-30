@@ -12,26 +12,93 @@ export const CORS: Record<string, string> = {
   "access-control-allow-methods": "GET, OPTIONS",
 };
 
-export function json(status: number, body: unknown): Response {
+const rateWindows = new Map<string, { resetAt: number; count: number }>();
+const RATE_LIMIT = 120;
+const RATE_WINDOW_MS = 60_000;
+
+export function json(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
       ...CORS,
+      ...headers,
     },
   });
+}
+
+export function apiError(
+  status: number,
+  error: string,
+  message: string,
+  details: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+): Response {
+  const requestId = `req_${crypto.randomUUID()}`;
+  return json(
+    status,
+    { error, message, requestId, details },
+    { "x-request-id": requestId, ...headers },
+  );
+}
+
+export function checkRateLimit(tokenId: string): Response | null {
+  const now = Date.now();
+  const current = rateWindows.get(tokenId);
+  const window =
+    !current || current.resetAt <= now ? { resetAt: now + RATE_WINDOW_MS, count: 0 } : current;
+  window.count++;
+  rateWindows.set(tokenId, window);
+  const headers = {
+    "x-ratelimit-limit": String(RATE_LIMIT),
+    "x-ratelimit-remaining": String(Math.max(0, RATE_LIMIT - window.count)),
+    "x-ratelimit-reset": String(Math.ceil(window.resetAt / 1000)),
+  };
+  if (window.count > RATE_LIMIT) {
+    return apiError(
+      429,
+      "rate_limited",
+      "Too many requests",
+      {},
+      {
+        ...headers,
+        "retry-after": String(Math.ceil((window.resetAt - now) / 1000)),
+      },
+    );
+  }
+  return null;
+}
+
+export function rateLimitHeaders(tokenId: string): Record<string, string> {
+  const current = rateWindows.get(tokenId);
+  if (!current || current.resetAt <= Date.now()) return {};
+  return {
+    "x-ratelimit-limit": String(RATE_LIMIT),
+    "x-ratelimit-remaining": String(Math.max(0, RATE_LIMIT - current.count)),
+    "x-ratelimit-reset": String(Math.ceil(current.resetAt / 1000)),
+  };
 }
 
 /** Parse `Authorization: Bearer <token>` → owner, or null if missing/invalid/revoked. */
 export async function authFromRequest(
   request: Request,
-): Promise<{ userId: string; tokenId: string } | null> {
+): Promise<{ userId: string; tokenId: string; scopes: string[] } | null> {
   const h = request.headers.get("authorization");
   if (!h || !h.startsWith("Bearer ")) return null;
   const raw = h.slice("Bearer ".length).trim();
   if (!raw) return null;
   return verifyApiToken(raw);
+}
+
+export function requireScope(auth: { scopes: string[] }, scope: string): Response | null {
+  return auth.scopes.includes(scope)
+    ? null
+    : apiError(403, "insufficient_scope", `Missing scope: ${scope}`);
 }
 
 export function clampInt(v: string | null, def: number, min: number, max: number): number {

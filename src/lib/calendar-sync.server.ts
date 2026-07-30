@@ -354,6 +354,14 @@ async function upsertScrapedRows(
     await Promise.all(
       rows.slice(offset, offset + 10).map((row) => {
         const eventKey = String(row.event_key);
+        const payload =
+          row.payload && typeof row.payload === "object"
+            ? (row.payload as Record<string, unknown>)
+            : {};
+        const venue =
+          payload.venue && typeof payload.venue === "object"
+            ? (payload.venue as Record<string, unknown>)
+            : null;
         const externalEventId =
           typeof (row.payload as Record<string, unknown> | undefined)?.externalEventId === "string"
             ? String((row.payload as Record<string, unknown>).externalEventId)
@@ -380,6 +388,23 @@ async function upsertScrapedRows(
             endAt: typeof row.end_at === "string" ? row.end_at : undefined,
             city: typeof row.city === "string" ? row.city : undefined,
             description: typeof row.description === "string" ? row.description : undefined,
+            timezone: typeof payload.timezone === "string" ? payload.timezone : null,
+            enrichment: {
+              venueName: typeof venue?.name === "string" ? venue.name : null,
+              region:
+                typeof venue?.state === "string"
+                  ? venue.state
+                  : typeof venue?.city === "string"
+                    ? venue.city
+                    : null,
+              countryCode: typeof venue?.country === "string" ? venue.country.toUpperCase() : null,
+              isOnline: typeof venue?.name === "string" ? /online|virtual/i.test(venue.name) : null,
+              organizer: typeof row.host_name === "string" ? row.host_name : null,
+              sources: {
+                venue: venue ? "provider" : "unknown",
+                organizer: row.host_name ? "provider" : "unknown",
+              },
+            },
             calendarId: source.calendar_id,
             calendarName: source.curated_name ?? source.calendar_name ?? undefined,
           },
@@ -391,10 +416,7 @@ async function upsertScrapedRows(
           sourceUrl: String(row.source_url),
           externalEventId,
           hostName: typeof row.host_name === "string" ? row.host_name : null,
-          payload:
-            row.payload && typeof row.payload === "object"
-              ? (row.payload as Record<string, unknown>)
-              : {},
+          payload,
           lastSyncedAt: syncedAt,
         });
       }),

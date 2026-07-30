@@ -23,20 +23,30 @@ export function generateToken(): { raw: string; prefix: string; hash: string } {
  */
 export async function verifyApiToken(
   raw: string,
-): Promise<{ userId: string; tokenId: string } | null> {
+): Promise<{ userId: string; tokenId: string; scopes: string[] } | null> {
   if (!raw || !raw.startsWith("luma_sk_")) return null;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const hash = hashToken(raw);
   const { data } = await supabaseAdmin
     .from("api_tokens" as never)
-    .select("id, user_id, revoked_at")
+    .select("id, user_id, revoked_at, scopes, expires_at")
     .eq("token_hash", hash)
     .maybeSingle();
-  const r = data as { id: string; user_id: string; revoked_at: string | null } | null;
-  if (!r || r.revoked_at) return null;
+  const r = data as {
+    id: string;
+    user_id: string;
+    revoked_at: string | null;
+    scopes: string[] | null;
+    expires_at: string | null;
+  } | null;
+  if (!r || r.revoked_at || (r.expires_at && Date.parse(r.expires_at) <= Date.now())) return null;
   await supabaseAdmin
     .from("api_tokens" as never)
     .update({ last_used_at: new Date().toISOString() } as never)
     .eq("id", r.id);
-  return { userId: r.user_id, tokenId: r.id };
+  return {
+    userId: r.user_id,
+    tokenId: r.id,
+    scopes: r.scopes ?? ["events:read", "calendars:read", "changes:read"],
+  };
 }

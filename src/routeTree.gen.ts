@@ -28,6 +28,8 @@ import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
 import { Route as AuthenticatedEEventIdRouteImport } from './routes/_authenticated/e.$eventId'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
+import { Route as ApiV1EventsChangesRouteImport } from './routes/api/v1/events/changes'
+import { Route as ApiV1EventsCanonicalIdRouteImport } from './routes/api/v1/events/$canonicalId'
 
 const Phase2Route = Phase2RouteImport.update({
   id: '/phase-2',
@@ -126,6 +128,16 @@ const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
   path: '/.lovable/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1EventsChangesRoute = ApiV1EventsChangesRouteImport.update({
+  id: '/changes',
+  path: '/changes',
+  getParentRoute: () => ApiV1EventsRoute,
+} as any)
+const ApiV1EventsCanonicalIdRoute = ApiV1EventsCanonicalIdRouteImport.update({
+  id: '/$canonicalId',
+  path: '/$canonicalId',
+  getParentRoute: () => ApiV1EventsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -145,7 +157,9 @@ export interface FileRoutesByFullPath {
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
-  '/api/v1/events': typeof ApiV1EventsRoute
+  '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
+  '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -165,7 +179,9 @@ export interface FileRoutesByTo {
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
-  '/api/v1/events': typeof ApiV1EventsRoute
+  '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
+  '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -187,7 +203,9 @@ export interface FileRoutesById {
   '/_authenticated/e/$eventId': typeof AuthenticatedEEventIdRoute
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
-  '/api/v1/events': typeof ApiV1EventsRoute
+  '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
+  '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -210,6 +228,8 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/events/$canonicalId'
+    | '/api/v1/events/changes'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -230,6 +250,8 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/events/$canonicalId'
+    | '/api/v1/events/changes'
   id:
     | '__root__'
     | '/'
@@ -251,6 +273,8 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/events/$canonicalId'
+    | '/api/v1/events/changes'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -266,7 +290,7 @@ export interface RootRouteChildren {
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
   ApiV1CalendarsRoute: typeof ApiV1CalendarsRoute
-  ApiV1EventsRoute: typeof ApiV1EventsRoute
+  ApiV1EventsRoute: typeof ApiV1EventsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -404,6 +428,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotlovableOauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/events/changes': {
+      id: '/api/v1/events/changes'
+      path: '/changes'
+      fullPath: '/api/v1/events/changes'
+      preLoaderRoute: typeof ApiV1EventsChangesRouteImport
+      parentRoute: typeof ApiV1EventsRoute
+    }
+    '/api/v1/events/$canonicalId': {
+      id: '/api/v1/events/$canonicalId'
+      path: '/$canonicalId'
+      fullPath: '/api/v1/events/$canonicalId'
+      preLoaderRoute: typeof ApiV1EventsCanonicalIdRouteImport
+      parentRoute: typeof ApiV1EventsRoute
+    }
   }
 }
 
@@ -428,6 +466,20 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface ApiV1EventsRouteChildren {
+  ApiV1EventsCanonicalIdRoute: typeof ApiV1EventsCanonicalIdRoute
+  ApiV1EventsChangesRoute: typeof ApiV1EventsChangesRoute
+}
+
+const ApiV1EventsRouteChildren: ApiV1EventsRouteChildren = {
+  ApiV1EventsCanonicalIdRoute: ApiV1EventsCanonicalIdRoute,
+  ApiV1EventsChangesRoute: ApiV1EventsChangesRoute,
+}
+
+const ApiV1EventsRouteWithChildren = ApiV1EventsRoute._addFileChildren(
+  ApiV1EventsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
@@ -442,7 +494,7 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,
   ApiV1CalendarsRoute: ApiV1CalendarsRoute,
-  ApiV1EventsRoute: ApiV1EventsRoute,
+  ApiV1EventsRoute: ApiV1EventsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

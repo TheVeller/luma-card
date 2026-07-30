@@ -13,6 +13,8 @@ export type ApiTokenDTO = {
   lastUsedAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  scopes: string[];
+  expiresAt: string | null;
 };
 
 type Row = {
@@ -22,6 +24,8 @@ type Row = {
   last_used_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  scopes?: string[] | null;
+  expires_at?: string | null;
 };
 
 function toDTO(r: Row): ApiTokenDTO {
@@ -32,10 +36,12 @@ function toDTO(r: Row): ApiTokenDTO {
     lastUsedAt: r.last_used_at,
     revokedAt: r.revoked_at,
     createdAt: r.created_at,
+    scopes: r.scopes ?? ["events:read", "calendars:read", "changes:read"],
+    expiresAt: r.expires_at ?? null,
   };
 }
 
-const SELECT = "id, name, token_prefix, last_used_at, revoked_at, created_at";
+const SELECT = "id, name, token_prefix, last_used_at, revoked_at, created_at, scopes, expires_at";
 
 export const listApiTokens = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -51,7 +57,18 @@ export const listApiTokens = createServerFn({ method: "GET" })
 
 export const createApiToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ name: z.string().trim().min(1).max(80) }).parse(d))
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        name: z.string().trim().min(1).max(80),
+        scopes: z
+          .array(z.enum(["events:read", "calendars:read", "changes:read"]))
+          .min(1)
+          .default(["events:read", "calendars:read", "changes:read"]),
+        expiresAt: z.string().datetime().nullable().optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data, context }): Promise<ApiTokenDTO & { token: string }> => {
     const { generateToken } = await import("./api-tokens.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -63,6 +80,8 @@ export const createApiToken = createServerFn({ method: "POST" })
         name: data.name,
         token_prefix: prefix,
         token_hash: hash,
+        scopes: data.scopes,
+        expires_at: data.expiresAt ?? null,
       } as never)
       .select(SELECT)
       .single();

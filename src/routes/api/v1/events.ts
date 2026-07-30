@@ -11,7 +11,7 @@
 // Server-only helpers are imported dynamically inside the handlers because this
 // route file ships to the client bundle.
 import { createFileRoute } from "@tanstack/react-router";
-import type { CanonicalEventSourceDTO } from "@/lib/canonical-events";
+import type { CanonicalEventSourceDTO, EventEnrichment } from "@/lib/canonical-events";
 
 export const Route = createFileRoute("/api/v1/events")({
   server: {
@@ -21,54 +21,69 @@ export const Route = createFileRoute("/api/v1/events")({
         return new Response(null, { status: 204, headers: CORS });
       },
       GET: async ({ request }) => {
-        const { json, authFromRequest, clampInt, decodeCursor, encodeCursor, isBadDate } =
-          await import("@/lib/api-v1.server");
+        const {
+          json,
+          apiError,
+          authFromRequest,
+          requireScope,
+          checkRateLimit,
+          rateLimitHeaders,
+          clampInt,
+          decodeCursor,
+          encodeCursor,
+          isBadDate,
+        } = await import("@/lib/api-v1.server");
 
         const authHeader = request.headers.get("authorization");
-        if (!authHeader) return json(401, { error: "missing_token" });
+        if (!authHeader) return apiError(401, "missing_token", "Authorization header is required");
         const auth = await authFromRequest(request);
-        if (!auth) return json(401, { error: "invalid_token" });
+        if (!auth) return apiError(401, "invalid_token", "Token is invalid, revoked, or expired");
+        const rateLimited = checkRateLimit(auth.tokenId);
+        if (rateLimited) return rateLimited;
+        const scopeError = requireScope(auth, "events:read");
+        if (scopeError) return scopeError;
 
         const params = new URL(request.url).searchParams;
         const calendar = params.get("calendar") ?? "all";
         const provider = params.get("provider");
+        const q = params.get("q")?.trim().toLowerCase() || null;
+        const country = params.get("country")?.trim().toUpperCase() || null;
+        const city = params.get("city")?.trim().toLowerCase() || null;
+        const language = params.get("language")?.trim().toLowerCase() || null;
+        const online = params.get("online");
+        const format = params.get("format")?.trim().toLowerCase() || null;
+        const topic = params.get("topic")?.trim().toLowerCase() || null;
         if (provider && !["luma", "eventbrite", "meetup"].includes(provider)) {
-          return json(400, {
-            error: "bad_params",
-            detail: "provider must be luma, eventbrite, or meetup",
-          });
+          return apiError(400, "bad_params", "provider must be luma, eventbrite, or meetup");
         }
         const ownedParam = params.get("owned");
         if (ownedParam && !["true", "false"].includes(ownedParam)) {
-          return json(400, { error: "bad_params", detail: "owned must be true or false" });
+          return apiError(400, "bad_params", "owned must be true or false");
+        }
+        if (online && !["true", "false"].includes(online)) {
+          return apiError(400, "bad_params", "online must be true or false");
         }
         const mode = params.get("mode") ?? "canonical";
         if (mode !== "canonical" && mode !== "sources") {
-          return json(400, { error: "bad_params", detail: "mode must be canonical or sources" });
+          return apiError(400, "bad_params", "mode must be canonical or sources");
         }
         const status = params.get("status") ?? "all";
         if (!["all", "upcoming", "ongoing", "past"].includes(status)) {
-          return json(400, {
-            error: "bad_params",
-            detail: "status must be all, upcoming, ongoing, or past",
-          });
+          return apiError(400, "bad_params", "status must be all, upcoming, ongoing, or past");
         }
         const sort = params.get("sort") ?? "upcoming";
         if (!["upcoming", "start_asc", "start_desc"].includes(sort)) {
-          return json(400, {
-            error: "bad_params",
-            detail: "sort must be upcoming, start_asc, or start_desc",
-          });
+          return apiError(400, "bad_params", "sort must be upcoming, start_asc, or start_desc");
         }
         const from = params.get("from");
         const to = params.get("to");
         const at = params.get("at");
         if (isBadDate(from) || isBadDate(to) || isBadDate(at)) {
-          return json(400, { error: "bad_params", detail: "at/from/to must be ISO dates" });
+          return apiError(400, "bad_params", "at/from/to must be ISO dates");
         }
         const limit = clampInt(params.get("limit"), 100, 1, 200);
         const offset = decodeCursor(params.get("cursor"));
-        if (offset === null) return json(400, { error: "bad_params", detail: "invalid cursor" });
+        if (offset === null) return apiError(400, "bad_params", "invalid cursor");
 
         try {
           const { aggregateCanonicalEventsForUser, aggregateEventsForUser } =
@@ -101,6 +116,37 @@ export const Route = createFileRoute("/api/v1/events")({
               return calendarMeta?.provider === provider;
             });
           }
+          if (q) {
+            filtered = filtered.filter((event) =>
+              [event.name, event.description, event.city, event.url]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(q)),
+            );
+          }
+          filtered = filtered.filter((event) => {
+            const enrichment = (
+              "enrichment" in event ? (event.enrichment ?? {}) : {}
+            ) as EventEnrichment;
+            const countryMatch = !country || enrichment.countryCode?.toUpperCase() === country;
+            const cityMatch =
+              !city ||
+              event.city?.toLowerCase().includes(city) ||
+              enrichment.region?.toLowerCase().includes(city);
+            const languageMatch =
+              !language ||
+              enrichment.languageCode?.toLowerCase() === language ||
+              enrichment.languages?.some((item) => item.toLowerCase() === language);
+            const onlineMatch = !online || String(Boolean(enrichment.isOnline)) === online;
+            const formatMatch = !format || enrichment.format?.toLowerCase() === format;
+            const topicMatch =
+              !topic ||
+              enrichment.topics?.some(
+                (item) => item.toLowerCase() === topic || item.toLowerCase().includes(topic),
+              );
+            return (
+              countryMatch && cityMatch && languageMatch && onlineMatch && formatMatch && topicMatch
+            );
+          });
           if (ownedParam) {
             const wanted = ownedParam === "true";
             filtered = filtered.filter((event) => {
@@ -137,48 +183,76 @@ export const Route = createFileRoute("/api/v1/events")({
           const page = filtered.slice(offset, offset + limit);
           const nextCursor = offset + limit < total ? encodeCursor(offset + limit) : null;
 
-          return json(200, {
-            events: page.map((e) => {
-              const sources = "sources" in e ? (e.sources as CanonicalEventSourceDTO[]) : null;
-              const sourceCalendars = [
-                ...new Set(
-                  (sources ?? [])
-                    .map((source) => source.calendarId)
-                    .filter((id): id is string => Boolean(id)),
-                ),
-              ]
-                .map((id) => calById.get(id))
-                .filter(Boolean);
-              const primaryCalendar = (e.calendarId && calById.get(e.calendarId)) || null;
-              return {
-                id: e.id,
-                name: e.name,
-                coverUrl: e.coverUrl,
-                url: e.url,
-                startAt: e.startAt,
-                endAt: e.endAt ?? null,
-                temporalStatus: eventTemporalStatus(e, now),
-                durationMinutes: eventDurationMinutes(e),
-                city: e.city ?? null,
-                description: e.description ?? null,
-                externalIds: "externalIds" in e ? e.externalIds : null,
-                sources,
-                sourceCount: sources?.length ?? 1,
-                sourceCalendars,
-                tags: "tags" in e ? e.tags : [],
-                suggestedTags: "suggestedTags" in e ? e.suggestedTags : [],
-                calendar: primaryCalendar ?? sourceCalendars[0] ?? null,
-              };
-            }),
-            page: { limit, offset, total, nextCursor },
-            mode,
-            filters: { calendar, provider, owned: ownedParam, status, at, from, to },
-            sort,
-            generatedAt: new Date(now).toISOString(),
-          });
+          return json(
+            200,
+            {
+              events: page.map((e) => {
+                const sources = "sources" in e ? (e.sources as CanonicalEventSourceDTO[]) : null;
+                const sourceCalendars = [
+                  ...new Set(
+                    (sources ?? [])
+                      .map((source) => source.calendarId)
+                      .filter((id): id is string => Boolean(id)),
+                  ),
+                ]
+                  .map((id) => calById.get(id))
+                  .filter(Boolean);
+                const primaryCalendar = (e.calendarId && calById.get(e.calendarId)) || null;
+                return {
+                  id: e.id,
+                  name: e.name,
+                  coverUrl: e.coverUrl,
+                  url: e.url,
+                  startAt: e.startAt,
+                  endAt: e.endAt ?? null,
+                  temporalStatus: eventTemporalStatus(e, now),
+                  durationMinutes: eventDurationMinutes(e),
+                  city: e.city ?? null,
+                  description: e.description ?? null,
+                  timezone: "timezone" in e ? (e.timezone ?? null) : null,
+                  enrichment: "enrichment" in e ? (e.enrichment ?? {}) : {},
+                  updatedAt:
+                    "sources" in e
+                      ? ((e.sources as CanonicalEventSourceDTO[])
+                          .map((source) => source.lastSyncedAt)
+                          .sort()
+                          .at(-1) ?? null)
+                      : null,
+                  externalIds: "externalIds" in e ? e.externalIds : null,
+                  sources,
+                  sourceCount: sources?.length ?? 1,
+                  sourceCalendars,
+                  tags: "tags" in e ? e.tags : [],
+                  suggestedTags: "suggestedTags" in e ? e.suggestedTags : [],
+                  calendar: primaryCalendar ?? sourceCalendars[0] ?? null,
+                };
+              }),
+              page: { limit, offset, total, nextCursor },
+              mode,
+              filters: {
+                calendar,
+                provider,
+                owned: ownedParam,
+                status,
+                at,
+                from,
+                to,
+                q,
+                country,
+                city,
+                language,
+                online,
+                format,
+                topic,
+              },
+              sort,
+              generatedAt: new Date(now).toISOString(),
+            },
+            rateLimitHeaders(auth.tokenId),
+          );
         } catch (err) {
           console.error("[/api/v1/events] failed", err);
-          return json(500, { error: "server_error" });
+          return apiError(500, "server_error", "Unable to read events");
         }
       },
     },

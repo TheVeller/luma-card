@@ -42,6 +42,10 @@ Tokens are scoped to the signed-in user that created them. The server stores
 only a SHA-256 hash, so a token cannot be recovered after creation. Revoke a
 token from Settings if it leaks.
 
+Tokens support `events:read`, `calendars:read`, and `changes:read` scopes. The
+default token created by Settings has all three read scopes. Tokens may expire
+and are rate-limited per token.
+
 ## Quick Start
 
 ```bash
@@ -146,33 +150,33 @@ Response:
 
 Calendar fields:
 
-| Field                 | Type                                          | Notes                                                                            |
-| --------------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
-| `id`                  | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                     |
-| `canonicalCalendarId` | `string \| null`                              | Stable Luma `cal-*` identity when it has been resolved.                          |
-| `aliases`             | `string[]`                                    | Permanent legacy IDs, URLs, and slugs accepted anywhere a calendar ID is used.   |
-| `name`                | `string \| null`                              | Display name from Luma or the imported calendar.                                 |
-| `slug`                | `string \| null`                              | Luma slug when available.                                                        |
-| `source`              | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar. |
-| `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).          |
-| `provider`            | `"luma" \| "eventbrite" \| "meetup"`          | Remote event provider.                                                           |
-| `ownership`           | `"connected" \| "external"`                   | Whether the source comes from an authorized organizer connection.                |
-| `isDefault`           | `boolean`                                     | User's default calendar in this app.                                             |
-| `url`                 | `string \| null`                              | Calendar URL when known.                                                         |
-| `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                           |
-| `coverUrl`            | `string \| null`                              | Calendar cover or social image.                                                  |
-| `description`         | `string \| null`                              | Latest public description.                                                       |
-| `color`               | `string \| null`                              | Luma tint color when available.                                                  |
-| `eventCount`          | `number`                                      | Number of imported events currently stored.                                      |
-| `upcomingCount`       | `number`                                      | Upcoming and currently ongoing canonical events for this calendar.               |
-| `pastCount`           | `number`                                      | Canonical events that have already ended or started without an end time.         |
-| `unknownCount`        | `number`                                      | Canonical events without a usable start timestamp.                               |
-| `hasEvents`           | `boolean`                                     | Convenience flag derived from `eventCount`.                                      |
-| `group`               | `object \| null`                              | User-defined group and its display order.                                        |
-| `order`               | `number`                                      | Calendar order inside its group.                                                 |
-| `curatedName`         | `string \| null`                              | User-controlled display label, preserved across syncs.                           |
-| `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                    |
-| `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                             |
+| Field                 | Type                                          | Notes                                                                                   |
+| --------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `id`                  | `string`                                      | Pass this as `calendar` to `/api/v1/events`.                                            |
+| `canonicalCalendarId` | `string \| null`                              | Stable Luma `cal-*` identity when it has been resolved.                                 |
+| `aliases`             | `string[]`                                    | Permanent legacy IDs, URLs, and slugs accepted anywhere a calendar ID is used.          |
+| `name`                | `string \| null`                              | Display name from Luma or the imported calendar.                                        |
+| `slug`                | `string \| null`                              | Luma slug when available.                                                               |
+| `source`              | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar.        |
+| `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).                 |
+| `provider`            | `"luma" \| "eventbrite" \| "meetup"`          | Remote event provider.                                                                  |
+| `ownership`           | `"connected" \| "external"`                   | Whether the source comes from an authorized organizer connection.                       |
+| `isDefault`           | `boolean`                                     | User's default calendar in this app.                                                    |
+| `url`                 | `string \| null`                              | Calendar URL when known.                                                                |
+| `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                                  |
+| `coverUrl`            | `string \| null`                              | Calendar cover or social image.                                                         |
+| `description`         | `string \| null`                              | Latest public description.                                                              |
+| `color`               | `string \| null`                              | Luma tint color when available.                                                         |
+| `eventCount`          | `number`                                      | Number of imported events currently stored.                                             |
+| `upcomingCount`       | `number`                                      | Upcoming and currently ongoing canonical events for this calendar.                      |
+| `pastCount`           | `number`                                      | Canonical events that have already ended or started without an end time.                |
+| `unknownCount`        | `number`                                      | Canonical events without a usable start timestamp.                                      |
+| `hasEvents`           | `boolean`                                     | Convenience flag derived from `eventCount`.                                             |
+| `group`               | `object \| null`                              | User-defined group and its display order.                                               |
+| `order`               | `number`                                      | Calendar order inside its group.                                                        |
+| `curatedName`         | `string \| null`                              | User-controlled display label, preserved across syncs.                                  |
+| `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                           |
+| `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                                    |
 | `sync`                | `object`                                      | Status, counts, last successful/attempted timestamps, scope, and historical completion. |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
@@ -489,4 +493,16 @@ type EventsResponse = {
   sort: "upcoming" | "start_asc" | "start_desc";
   generatedAt: string;
 };
+
+## Incremental indexing
+
+Use `GET /api/v1/events/changes?since=0&limit=500` for the first historical
+load and persist `nextCursor`. Subsequent requests return only canonical event
+upserts and delete tombstones. Apply upserts by `canonicalId` and remove IDs
+listed in `deletes`; never insert changes blindly more than once.
+
+The enriched event response includes normalized location, language, online or
+in-person mode, format, topics, audience, organizer, confidence, and field
+provenance when available. See [openapi.yaml](./openapi.yaml) for the machine-
+readable contract.
 ```

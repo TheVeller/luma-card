@@ -93,7 +93,7 @@ async function collectEventSourceInputsForUser(
     const { data, error } = await supabaseAdmin
       .from("event_sources" as never)
       .select(
-        "calendar_row_id,calendar_public_id,calendar_name,source_type,provider,source_url,external_event_id,provider_event_id,host_name,payload,last_synced_at,canonical_events!inner(id,luma_event_id,name,url,cover_url,start_at,end_at,city,description)",
+        "calendar_row_id,calendar_public_id,calendar_name,source_type,provider,source_url,external_event_id,provider_event_id,host_name,payload,last_synced_at,canonical_events!inner(id,luma_event_id,name,url,cover_url,start_at,end_at,city,description,timezone,language_code,country_code,region,venue_name,venue_address,latitude,longitude,is_online,event_format,topics,audience,level,enrichment)",
       )
       .eq("user_id", userId)
       .in("calendar_row_id", selectedRowIds);
@@ -123,6 +123,20 @@ async function collectEventSourceInputsForUser(
             end_at: string | null;
             city: string | null;
             description: string | null;
+            timezone: string | null;
+            language_code: string | null;
+            country_code: string | null;
+            region: string | null;
+            venue_name: string | null;
+            venue_address: string | null;
+            latitude: number | null;
+            longitude: number | null;
+            is_online: boolean | null;
+            event_format: string | null;
+            topics: string[] | null;
+            audience: string[] | null;
+            level: string | null;
+            enrichment: Record<string, unknown> | null;
           }
         | Array<{
             id: string;
@@ -134,6 +148,20 @@ async function collectEventSourceInputsForUser(
             end_at: string | null;
             city: string | null;
             description: string | null;
+            timezone: string | null;
+            language_code: string | null;
+            country_code: string | null;
+            region: string | null;
+            venue_name: string | null;
+            venue_address: string | null;
+            latitude: number | null;
+            longitude: number | null;
+            is_online: boolean | null;
+            event_format: string | null;
+            topics: string[] | null;
+            audience: string[] | null;
+            level: string | null;
+            enrichment: Record<string, unknown> | null;
           }>;
     };
     for (const source of (data as unknown as PersistedSource[] | null) ?? []) {
@@ -156,6 +184,22 @@ async function collectEventSourceInputsForUser(
           endAt: canonical.end_at ?? undefined,
           city: canonical.city ?? undefined,
           description: canonical.description ?? undefined,
+          timezone: canonical.timezone,
+          enrichment: {
+            ...(canonical.enrichment ?? {}),
+            languageCode: canonical.language_code,
+            countryCode: canonical.country_code,
+            region: canonical.region,
+            venueName: canonical.venue_name,
+            venueAddress: canonical.venue_address,
+            latitude: canonical.latitude,
+            longitude: canonical.longitude,
+            isOnline: canonical.is_online,
+            format: canonical.event_format,
+            topics: canonical.topics ?? [],
+            audience: canonical.audience ?? [],
+            level: canonical.level,
+          },
           calendarId: row.calendar_id,
           calendarName: row.calendar_name ?? undefined,
         },

@@ -9,6 +9,25 @@ export type EventSourceType =
   | "meetup_api"
   | "meetup_public";
 
+export type EventEnrichment = {
+  languageCode?: string | null;
+  languages?: string[];
+  countryCode?: string | null;
+  region?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  isOnline?: boolean | null;
+  format?: string | null;
+  topics?: string[];
+  audience?: string[];
+  level?: string | null;
+  organizer?: string | null;
+  confidence?: number | null;
+  sources?: Record<string, string>;
+};
+
 export type CanonicalBaseEvent = {
   id: string;
   name: string;
@@ -20,6 +39,8 @@ export type CanonicalBaseEvent = {
   description?: string;
   calendarId?: string;
   calendarName?: string;
+  timezone?: string | null;
+  enrichment?: EventEnrichment;
 };
 
 export type CanonicalEventSourceDTO = {
@@ -44,6 +65,8 @@ export type CanonicalEventDTO = CanonicalBaseEvent & {
   sources: CanonicalEventSourceDTO[];
   tags: string[];
   suggestedTags: string[];
+  timezone?: string | null;
+  enrichment?: EventEnrichment;
 };
 
 export type SourceEventInput = {
@@ -139,6 +162,8 @@ function preferEvent(base: CanonicalEventDTO, next: CanonicalBaseEvent): Canonic
     endAt: base.endAt ?? next.endAt,
     city: base.city ?? next.city,
     description: base.description ?? next.description,
+    timezone: base.timezone ?? next.timezone,
+    enrichment: { ...(next.enrichment ?? {}), ...(base.enrichment ?? {}) },
   };
 }
 
