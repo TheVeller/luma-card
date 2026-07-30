@@ -175,6 +175,14 @@ export type SavedEventViewFilters = {
   provider?: string;
   online?: string;
   tag?: string;
+  formats?: string[];
+  topics?: string[];
+  audiences?: string[];
+  cities?: string[];
+  countries?: string[];
+  languages?: string[];
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export const listSavedEventViews = createServerFn({ method: "GET" })
@@ -218,6 +226,14 @@ export const saveEventView = createServerFn({ method: "POST" })
           provider: z.string().optional(),
           online: z.string().optional(),
           tag: z.string().optional(),
+          formats: z.array(z.string()).optional(),
+          topics: z.array(z.string()).optional(),
+          audiences: z.array(z.string()).optional(),
+          cities: z.array(z.string()).optional(),
+          countries: z.array(z.string()).optional(),
+          languages: z.array(z.string()).optional(),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
         }),
         sortMode: z.string().max(30),
         viewMode: z.string().max(30),
