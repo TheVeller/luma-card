@@ -185,7 +185,16 @@ bun run lint         # ESLint
 bun run format       # Prettier
 ```
 
-The browser needs Supabase publishable values. Server-only secrets such as `SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, and AI gateway keys are injected by the Cloudflare/Lovable runtime. See [.env.example](.env.example).
+The browser needs the publishable Supabase values listed in [.env.example](.env.example).
+For Lovable deployments, configure `SUPABASE_URL`, `SUPABASE_PROJECT_ID`,
+`SUPABASE_PUBLISHABLE_KEY`, and their `VITE_*` equivalents in the project
+environment before publishing. They are public client configuration, but they
+still belong in the environment rather than a tracked `.env`.
+
+Server-only values—including `SUPABASE_SECRET_KEY` or
+`SUPABASE_SERVICE_ROLE_KEY`, `APP_ENCRYPTION_KEY`, provider OAuth credentials,
+Firecrawl, and AI gateway keys—must exist only in Lovable/Cloudflare runtime
+secrets. Never prefix a server secret with `VITE_`.
 
 ## Repository map
 
