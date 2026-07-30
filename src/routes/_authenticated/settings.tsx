@@ -325,43 +325,83 @@ function SettingsPage() {
         .
       </p>
 
-      <section className="mt-8 grid grid-cols-3 overflow-hidden rounded-xl border border-hairline bg-surface/60">
-        {[
-          ["Total", eventStats?.total ?? 0],
-          ["Upcoming", eventStats?.upcoming ?? 0],
-          ["Past", eventStats?.past ?? 0],
-        ].map(([label, value]) => (
-          <div
-            key={label}
-            className="border-r border-hairline px-4 py-4 text-center last:border-r-0"
-          >
-            <div className="font-display text-2xl font-semibold tabular-nums">{value}</div>
-            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-              {label}
-            </div>
-          </div>
-        ))}
-        {(eventStats?.unknown ?? 0) > 0 && (
-          <div className="col-span-3 border-t border-hairline px-3 py-2 text-center font-mono text-[9px] text-muted-foreground">
-            {eventStats?.unknown} events without a known date
-          </div>
-        )}
-        <div className="col-span-3 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-hairline px-4 py-3 font-mono text-[10px] text-muted-foreground sm:grid-cols-3">
-          {[
-            ["Active calendars", eventStats?.library.activeCalendars ?? 0],
-            ["Luma connected", eventStats?.library.lumaConnected ?? 0],
-            ["Luma external", eventStats?.library.lumaExternal ?? 0],
-            ["Meetup groups", eventStats?.library.meetupExternal ?? 0],
-            ["Merged / hidden", eventStats?.library.mergedHidden ?? 0],
-            ["Sources with errors", eventStats?.library.erroredSources ?? 0],
-          ].map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between gap-2">
-              <span className="uppercase tracking-[0.14em]">{label}</span>
-              <span className="tabular-nums text-foreground">{value}</span>
+      <section className="mt-8 overflow-hidden rounded-xl border border-hairline bg-surface/60">
+        <div className="grid grid-cols-2 sm:grid-cols-4">
+          {(
+            [
+              ["Calendars", eventStats?.library.activeCalendars ?? 0],
+              ["Events", eventStats?.total ?? 0],
+              ["Upcoming", eventStats?.upcoming ?? 0],
+              ["Past", eventStats?.past ?? 0],
+            ] as const
+          ).map(([label, value]) => (
+            <div
+              key={label}
+              className="border-b border-r border-hairline px-4 py-4 text-center last:border-r-0 sm:border-b-0"
+            >
+              <div className="font-display text-2xl font-semibold tabular-nums">{value}</div>
+              <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                {label}
+              </div>
             </div>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setStatsOpen((open) => !open)}
+          className="w-full border-t border-hairline px-4 py-2 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground"
+        >
+          {statsOpen ? "Hide details" : "Details"}
+        </button>
+
+        {statsOpen && (
+          <div className="grid gap-x-6 gap-y-1 border-t border-hairline px-4 py-3 font-mono text-[10px] text-muted-foreground sm:grid-cols-2">
+            <div className="space-y-1">
+              <div className="uppercase tracking-[0.18em] text-foreground">Calendars</div>
+              {(
+                [
+                  ["Luma connected", eventStats?.library.lumaConnected ?? 0],
+                  ["Luma external", eventStats?.library.lumaExternal ?? 0],
+                  ["Meetup groups", eventStats?.library.meetupExternal ?? 0],
+                  ["Other providers", eventStats?.library.otherProviders ?? 0],
+                  ["Duplicates collapsed", eventStats?.library.duplicateCalendars ?? 0],
+                  ["Merged / hidden", eventStats?.library.mergedHidden ?? 0],
+                  ["With sync errors", eventStats?.library.erroredSources ?? 0],
+                  ["Rows stored", eventStats?.library.totalCalendars ?? 0],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <span className="uppercase tracking-[0.14em]">{label}</span>
+                  <span className="tabular-nums text-foreground">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <div className="uppercase tracking-[0.18em] text-foreground">Events</div>
+              {(
+                [
+                  ["Luma events", eventStats?.providers?.luma?.total ?? 0],
+                  ["Luma upcoming", eventStats?.providers?.luma?.upcoming ?? 0],
+                  ["Meetup events", eventStats?.providers?.meetup?.total ?? 0],
+                  ["Meetup upcoming", eventStats?.providers?.meetup?.upcoming ?? 0],
+                  ["Without a date", eventStats?.unknown ?? 0],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <span className="uppercase tracking-[0.14em]">{label}</span>
+                  <span className="tabular-nums text-foreground">{value}</span>
+                </div>
+              ))}
+              <div className="pt-1 text-[9px] leading-relaxed">
+                Events are deduplicated across calendars, so provider counts can add up to more than
+                the global total.
+              </div>
+            </div>
+          </div>
+        )}
       </section>
+
 
       <section className="mt-8 border-y border-hairline py-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
