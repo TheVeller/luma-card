@@ -74,7 +74,9 @@ function SettingsPage() {
     queryFn: () => fetchEventStats(),
   });
 
+  const [statsOpen, setStatsOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
