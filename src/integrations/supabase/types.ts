@@ -17,30 +17,36 @@ export type Database = {
       api_tokens: {
         Row: {
           created_at: string
+          expires_at: string | null
           id: string
           last_used_at: string | null
           name: string
           revoked_at: string | null
+          scopes: string[]
           token_hash: string
           token_prefix: string
           user_id: string
         }
         Insert: {
           created_at?: string
+          expires_at?: string | null
           id?: string
           last_used_at?: string | null
           name: string
           revoked_at?: string | null
+          scopes?: string[]
           token_hash: string
           token_prefix: string
           user_id: string
         }
         Update: {
           created_at?: string
+          expires_at?: string | null
           id?: string
           last_used_at?: string | null
           name?: string
           revoked_at?: string | null
+          scopes?: string[]
           token_hash?: string
           token_prefix?: string
           user_id?: string
@@ -160,66 +166,141 @@ export type Database = {
       }
       canonical_events: {
         Row: {
+          audience: string[]
           canonical_key: string
           city: string | null
+          country_code: string | null
           cover_url: string | null
           created_at: string
           description: string | null
           end_at: string | null
+          enriched_at: string | null
+          enrichment: Json
+          enrichment_version: number
+          event_format: string | null
           external_ids: Json
           host_name: string | null
           id: string
           identity_fingerprint: string | null
+          is_online: boolean | null
+          language_code: string | null
+          latitude: number | null
+          level: string | null
+          longitude: number | null
           luma_event_id: string | null
           name: string
           payload: Json
+          region: string | null
           start_at: string | null
           suggested_tags: string[]
           tags: string[]
+          timezone: string | null
+          topics: string[]
           updated_at: string
           url: string
           user_id: string
+          venue_address: string | null
+          venue_name: string | null
         }
         Insert: {
+          audience?: string[]
           canonical_key: string
           city?: string | null
+          country_code?: string | null
           cover_url?: string | null
           created_at?: string
           description?: string | null
           end_at?: string | null
+          enriched_at?: string | null
+          enrichment?: Json
+          enrichment_version?: number
+          event_format?: string | null
           external_ids?: Json
           host_name?: string | null
           id?: string
           identity_fingerprint?: string | null
+          is_online?: boolean | null
+          language_code?: string | null
+          latitude?: number | null
+          level?: string | null
+          longitude?: number | null
           luma_event_id?: string | null
           name: string
           payload?: Json
+          region?: string | null
           start_at?: string | null
           suggested_tags?: string[]
           tags?: string[]
+          timezone?: string | null
+          topics?: string[]
           updated_at?: string
           url: string
           user_id: string
+          venue_address?: string | null
+          venue_name?: string | null
         }
         Update: {
+          audience?: string[]
           canonical_key?: string
           city?: string | null
+          country_code?: string | null
           cover_url?: string | null
           created_at?: string
           description?: string | null
           end_at?: string | null
+          enriched_at?: string | null
+          enrichment?: Json
+          enrichment_version?: number
+          event_format?: string | null
           external_ids?: Json
           host_name?: string | null
           id?: string
           identity_fingerprint?: string | null
+          is_online?: boolean | null
+          language_code?: string | null
+          latitude?: number | null
+          level?: string | null
+          longitude?: number | null
           luma_event_id?: string | null
           name?: string
           payload?: Json
+          region?: string | null
           start_at?: string | null
           suggested_tags?: string[]
           tags?: string[]
+          timezone?: string | null
+          topics?: string[]
           updated_at?: string
           url?: string
+          user_id?: string
+          venue_address?: string | null
+          venue_name?: string | null
+        }
+        Relationships: []
+      }
+      event_change_log: {
+        Row: {
+          canonical_event_id: string | null
+          changed_at: string
+          event_snapshot: Json | null
+          id: number
+          operation: string
+          user_id: string
+        }
+        Insert: {
+          canonical_event_id?: string | null
+          changed_at?: string
+          event_snapshot?: Json | null
+          id?: never
+          operation: string
+          user_id: string
+        }
+        Update: {
+          canonical_event_id?: string | null
+          changed_at?: string
+          event_snapshot?: Json | null
+          id?: never
+          operation?: string
           user_id?: string
         }
         Relationships: []
@@ -788,6 +869,7 @@ export type Database = {
         Args: { p_at?: string; p_user_id: string }
         Returns: Json
       }
+      get_my_event_library_stats: { Args: { p_at?: string }; Returns: Json }
       merge_calendar_rows: {
         Args: {
           p_loser_id: string
