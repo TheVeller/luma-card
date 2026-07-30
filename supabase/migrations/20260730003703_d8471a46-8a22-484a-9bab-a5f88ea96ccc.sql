@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.log_canonical_event_change() FROM PUBLIC, anon, authenticated;
