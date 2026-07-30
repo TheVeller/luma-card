@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Grid3X3, List } from "lucide-react";
+import { CalendarDays, Grid3X3, List, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { listEvents, type EventDTO } from "@/lib/luma.functions";
 import { useActiveCalendar } from "@/hooks/use-active-calendar";
@@ -22,7 +22,24 @@ import {
   parseEventTime,
 } from "@/lib/event-time";
 
+type EventsSearch = {
+  q: string;
+  provider: string;
+  labels: string[];
+};
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return value.split(",").filter(Boolean);
+  return [];
+}
+
 export const Route = createFileRoute("/_authenticated/events")({
+  validateSearch: (search: Record<string, unknown>): EventsSearch => ({
+    q: typeof search.q === "string" ? search.q : "",
+    provider: typeof search.provider === "string" ? search.provider : "all",
+    labels: toStringArray(search.labels),
+  }),
   head: () => ({
     meta: [
       { title: "Your events — Event Router" },
@@ -41,6 +58,7 @@ export const Route = createFileRoute("/_authenticated/events")({
   }),
   component: EventsPage,
 });
+
 
 function formatDate(iso: string) {
   const date = new Date(iso);
@@ -120,10 +138,63 @@ function sourceLabel(ev: EventDTO) {
   return ev.calendarName ?? ev.calendarId ?? "Default calendar";
 }
 
+/**
+ * Events come back either as plain calendar DTOs or as canonical DTOs carrying
+ * tags, enrichment and per-provider sources. Read those optional fields
+ * defensively so both shapes render the same filter chips.
+ */
+type EnrichedEvent = EventDTO & {
+  tags?: string[];
+  suggestedTags?: string[];
+  sources?: Array<{ provider?: string }>;
+  enrichment?: {
+    topics?: string[];
+    audience?: string[];
+    format?: string | null;
+    level?: string | null;
+    isOnline?: boolean | null;
+    languageCode?: string | null;
+    countryCode?: string | null;
+  };
+};
+
+function eventProviders(ev: EventDTO): string[] {
+  const sources = (ev as EnrichedEvent).sources ?? [];
+  const providers = new Set(sources.map((s) => s.provider ?? "luma"));
+  if (providers.size === 0) providers.add("luma");
+  return [...providers];
+}
+
+function eventLabels(ev: EventDTO): string[] {
+  const enriched = ev as EnrichedEvent;
+  const labels = new Set<string>();
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const clean = value.trim().toLowerCase();
+    if (clean) labels.add(clean);
+  };
+  enriched.tags?.forEach(push);
+  enriched.suggestedTags?.forEach(push);
+  enriched.enrichment?.topics?.forEach(push);
+  enriched.enrichment?.audience?.forEach(push);
+  push(enriched.enrichment?.format);
+  push(enriched.enrichment?.level);
+  push(enriched.enrichment?.languageCode);
+  push(enriched.enrichment?.countryCode);
+  if (typeof enriched.enrichment?.isOnline === "boolean") {
+    labels.add(enriched.enrichment.isOnline ? "online" : "in-person");
+  }
+  push(ev.city);
+  return [...labels];
+}
+
+
 function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const runSync = useServerFn(syncEventLibrary);
   const qc = useQueryClient();
+  const navigate = useNavigate({ from: "/events" });
+  const { q, provider, labels: activeLabels }: EventsSearch = Route.useSearch();
   const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
@@ -143,6 +214,18 @@ function EventsPage() {
   const [sortMenu, setSortMenu] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+
+  function patchSearch(patch: Partial<EventsSearch>) {
+    navigate({ search: (prev: EventsSearch) => ({ ...prev, ...patch }) });
+  }
+
+  function toggleLabel(label: string) {
+    patchSearch({
+      labels: activeLabels.includes(label)
+        ? activeLabels.filter((item) => item !== label)
+        : [...activeLabels, label],
+    });
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -175,15 +258,45 @@ function EventsPage() {
     errorMessage.includes("SUPABASE_NOT_CONFIGURED") ||
     errorMessage.includes("Missing Supabase environment variable");
 
+  const labelIndex = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const label of eventLabels(ev)) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [data]);
+
+  const providerOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const name of eventProviders(ev)) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [data]);
+
+  const query = q.trim().toLowerCase();
+
   const filtered = useMemo(() => {
     if (!data) return [];
     return data.filter((ev: EventDTO) => {
       const status = eventTemporalStatus(ev, now);
-      if (filter === "upcoming") return status === "upcoming" || status === "ongoing";
-      if (filter === "past") return status === "past";
+      if (filter === "upcoming" && !(status === "upcoming" || status === "ongoing")) return false;
+      if (filter === "past" && status !== "past") return false;
+      if (provider !== "all" && !eventProviders(ev).includes(provider)) return false;
+      if (activeLabels.length > 0) {
+        const labels = eventLabels(ev);
+        if (!activeLabels.every((label) => labels.includes(label))) return false;
+      }
+      if (query) {
+        const haystack = [ev.name, ev.city, ev.calendarName, ev.description]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
       return true;
     });
-  }, [data, filter, now]);
+  }, [data, filter, now, provider, activeLabels, query]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -192,6 +305,9 @@ function EventsPage() {
     else arr.sort(compareEventName);
     return arr;
   }, [filtered, sortMode, now]);
+
+  const filtersActive = query !== "" || provider !== "all" || activeLabels.length > 0;
+
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
@@ -376,6 +492,71 @@ function EventsPage() {
           </div>
         </div>
       )}
+
+      {data && data.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={q}
+              onChange={(event) => patchSearch({ q: event.target.value })}
+              placeholder="Search events, cities, calendars…"
+              className="h-9 min-w-[220px] flex-1 rounded-full border border-hairline bg-surface/60 px-4 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+              aria-label="Search events"
+            />
+            {providerOptions.length > 1 && (
+              <select
+                value={provider}
+                onChange={(event) => patchSearch({ provider: event.target.value })}
+                className="h-9 rounded-full border border-hairline bg-surface/60 px-3 text-xs font-medium outline-none focus:border-primary"
+                aria-label="Filter by provider"
+              >
+                <option value="all">All providers</option>
+                {providerOptions.map(([name, count]) => (
+                  <option key={name} value={name}>
+                    {name} ({count})
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {sorted.length} of {data.length}
+            </span>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={() => patchSearch({ q: "", provider: "all", labels: [] })}
+                className="inline-flex h-9 items-center gap-1 rounded-full border border-hairline px-3 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+              >
+                <X className="size-3" aria-hidden /> Clear
+              </button>
+            )}
+          </div>
+          {labelIndex.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {labelIndex.slice(0, 24).map(([label, count]) => {
+                const active = activeLabels.includes(label);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleLabel(label)}
+                    className={
+                      "rounded-full border px-3 py-1 text-[11px] font-medium capitalize transition " +
+                      (active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-hairline text-muted-foreground hover:bg-surface hover:text-foreground")
+                    }
+                  >
+                    {label}
+                    <span className="ml-1 opacity-60">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
 
       {isLoading && (
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
