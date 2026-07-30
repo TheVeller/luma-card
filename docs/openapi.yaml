@@ -2,26 +2,46 @@ openapi: 3.1.0
 info:
   title: Luma Card Event Router API
   version: 1.1.0
-  description: Read-only, token-authenticated event catalog for indexed integrations.
+  description: >-
+    Read-only, token-authenticated event catalog for integrations. Merges Luma,
+    Eventbrite, and Meetup sources into canonical events while preserving source
+    lineage, enrichment, taxonomy labels, and sync metadata.
 servers:
   - url: https://your-luma-card-deployment.example
+    description: Deployed application origin
+  - url: http://localhost:3000
+    description: Local development
 security:
   - bearerAuth: []
 paths:
   /api/v1/calendars:
     get:
+      tags: [Calendars]
       operationId: listCalendars
+      summary: List calendars and sync metadata
       responses:
         "200":
           description: Active calendars and sync metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CalendarsResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /api/v1/events:
     get:
+      tags: [Events]
       operationId: listEvents
+      summary: List canonical or source events
+      description: Use mode=canonical for deduplicated events or mode=sources for every source sighting.
       parameters:
         - { $ref: "#/components/parameters/Calendar" }
+        - { $ref: "#/components/parameters/Provider" }
+        - { $ref: "#/components/parameters/Owned" }
+        - { $ref: "#/components/parameters/Mode" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/At" }
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
-        - { name: provider, in: query, schema: { type: string, enum: [luma, eventbrite, meetup] } }
         - { name: q, in: query, schema: { type: string } }
         - { name: country, in: query, schema: { type: string, example: PE } }
         - { name: city, in: query, schema: { type: string } }
@@ -37,24 +57,49 @@ paths:
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
       responses:
-        "200": { description: Paginated canonical or source events. }
+        "200":
+          description: Paginated canonical or source events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventsResponse" }
         "400": { $ref: "#/components/responses/BadParams" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /api/v1/events/changes:
     get:
+      tags: [Changes]
       operationId: listEventChanges
+      summary: Read incremental event changes
       parameters:
         - { name: since, in: query, schema: { type: string, default: "0" } }
-        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/ChangesLimit" }
       responses:
-        "200": { description: Upserts and delete tombstones since the cursor. }
+        "200":
+          description: Upserts and delete tombstones since the cursor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangesResponse" }
+        "400": { $ref: "#/components/responses/BadParams" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /api/v1/events/{canonicalId}:
     get:
+      tags: [Events]
       operationId: getEvent
+      summary: Get one canonical event
       parameters:
-        - { name: canonicalId, in: path, required: true, schema: { type: string } }
+        - { name: canonicalId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: One canonical event. }
+        "200":
+          description: One canonical event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { description: Event not found. }
+        "500": { $ref: "#/components/responses/ServerError" }
 components:
   securitySchemes:
     bearerAuth:
@@ -66,10 +111,36 @@ components:
       name: calendar
       in: query
       schema: { type: string, default: all }
+    Provider:
+      name: provider
+      in: query
+      schema: { type: string, enum: [luma, eventbrite, meetup] }
+    Owned:
+      name: owned
+      in: query
+      description: Restrict results by authorized organizer ownership.
+      schema: { type: boolean }
+    Mode:
+      name: mode
+      in: query
+      schema: { type: string, enum: [canonical, sources], default: canonical }
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [upcoming, start_asc, start_desc], default: upcoming }
+    At:
+      name: at
+      in: query
+      description: Stable ISO instant used for temporal status and ordering across pages.
+      schema: { type: string, format: date-time }
     Limit:
       name: limit
       in: query
-      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+    ChangesLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 500 }
     Cursor:
       name: cursor
       in: query
@@ -81,12 +152,153 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing, invalid, revoked, or expired token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Token rate limit exceeded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: Server-side failure while reading the user's catalog.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
     Error:
       type: object
-      required: [error, message, requestId]
+      required: [error, message]
       properties:
         error: { type: string }
         message: { type: string }
         requestId: { type: string }
         details: { type: object, additionalProperties: true }
+    CalendarGroup:
+      type: object
+      required: [id, name, order]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        order: { type: integer }
+    Calendar:
+      type: object
+      properties:
+        id: { type: string }
+        canonicalCalendarId: { type: string, nullable: true }
+        aliases: { type: array, items: { type: string } }
+        name: { type: string, nullable: true }
+        slug: { type: string, nullable: true }
+        source: { type: string, enum: [api, scrape] }
+        kind: { type: string, enum: [api, calendar, profile, event] }
+        sourceKind: { type: string, enum: [api, calendar, profile, event] }
+        provider: { type: string, enum: [luma, eventbrite, meetup] }
+        ownership: { type: string, enum: [connected, external] }
+        providerSourceId: { type: string, nullable: true }
+        brandKitId: { type: string, format: uuid, nullable: true }
+        isDefault: { type: boolean }
+        url: { type: string, format: uri, nullable: true }
+        avatarUrl: { type: string, format: uri, nullable: true }
+        coverUrl: { type: string, format: uri, nullable: true }
+        description: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        eventCount: { type: integer }
+        upcomingCount: { type: integer }
+        pastCount: { type: integer }
+        unknownCount: { type: integer }
+        hasEvents: { type: boolean }
+        order: { type: integer }
+        group: { allOf: [{ $ref: "#/components/schemas/CalendarGroup" }], nullable: true }
+        curatedName: { type: string, nullable: true }
+        remoteName: { type: string, nullable: true }
+        suggestedGroup: { type: object, nullable: true }
+        sync: { $ref: "#/components/schemas/SyncMetadata" }
+    SyncMetadata:
+      type: object
+      properties:
+        status: { type: string, enum: [idle, queued, running, completed, partial, failed, inaccessible] }
+        error: { type: string, nullable: true }
+        discovered: { type: integer }
+        imported: { type: integer }
+        lastSyncedAt: { type: string, format: date-time, nullable: true }
+        lastAttemptedAt: { type: string, format: date-time, nullable: true }
+        historicalSyncCompletedAt: { type: string, format: date-time, nullable: true }
+        scope: { type: string, nullable: true }
+        nextSyncAt: { type: string, format: date-time, nullable: true }
+    CalendarsResponse:
+      type: object
+      properties:
+        groups: { type: array, items: { $ref: "#/components/schemas/CalendarGroup" } }
+        calendars: { type: array, items: { $ref: "#/components/schemas/Calendar" } }
+    Event:
+      type: object
+      properties:
+        id: { type: string }
+        canonicalId: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+        coverUrl: { type: string, format: uri, nullable: true }
+        url: { type: string, format: uri }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time, nullable: true }
+        temporalStatus: { type: string, enum: [upcoming, ongoing, past, unknown] }
+        durationMinutes: { type: integer, nullable: true }
+        city: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        timezone: { type: string, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        enrichment: { type: object, additionalProperties: true }
+        externalIds: { type: object, nullable: true, additionalProperties: true }
+        sources: { type: array, nullable: true, items: { $ref: "#/components/schemas/EventSource" } }
+        sourceCount: { type: integer }
+        sourceCalendars: { type: array, items: { $ref: "#/components/schemas/Calendar" } }
+        tags: { type: array, items: { type: string } }
+        suggestedTags: { type: array, items: { type: string } }
+        tagDetails: { type: array, items: { $ref: "#/components/schemas/TagDetail" } }
+        calendar: { allOf: [{ $ref: "#/components/schemas/Calendar" }], nullable: true }
+    EventSource:
+      type: object
+      properties:
+        provider: { type: string, enum: [luma, eventbrite, meetup] }
+        sourceType: { type: string }
+        sourceKey: { type: string }
+        calendarId: { type: string, nullable: true }
+        calendarName: { type: string, nullable: true }
+        sourceUrl: { type: string, format: uri }
+        externalEventId: { type: string, nullable: true }
+        hostName: { type: string, nullable: true }
+        lastSyncedAt: { type: string, format: date-time }
+    TagDetail:
+      type: object
+      properties:
+        namespace: { type: string, enum: [format, topic, audience] }
+        slug: { type: string }
+        label: { type: string }
+        origin: { type: string, enum: [system, manual] }
+        state: { type: string, enum: [active, dismissed] }
+        confidence: { type: number, nullable: true }
+        taxonomyVersion: { type: integer }
+    EventsResponse:
+      type: object
+      properties:
+        events: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        page:
+          type: object
+          properties:
+            limit: { type: integer }
+            offset: { type: integer }
+            total: { type: integer }
+            nextCursor: { type: string, nullable: true }
+        mode: { type: string, enum: [canonical, sources] }
+        filters: { type: object, additionalProperties: true }
+        sort: { type: string, enum: [upcoming, start_asc, start_desc] }
+        generatedAt: { type: string, format: date-time }
+    ChangesResponse:
+      type: object
+      properties:
+        upserts: { type: array, items: { type: object, additionalProperties: true } }
+        deletes: { type: array, items: { type: object, additionalProperties: true } }
+        nextCursor: { type: string }
+        hasMore: { type: boolean }
+        generatedAt: { type: string, format: date-time }

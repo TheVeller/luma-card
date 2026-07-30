@@ -1,7 +1,9 @@
-# Luma Badge Studio API
+# Event Router API
 
-This document covers the public integration surface for pulling a user's routed
-Luma calendars and events into another app.
+This document covers the public integration surface for pulling a user's
+canonical calendars and events from Luma Card into another app. The router
+supports Luma, Eventbrite, and Meetup sources while preserving source lineage,
+provider identity, enrichment, taxonomy labels, and sync metadata.
 
 There are two API surfaces:
 
@@ -77,8 +79,9 @@ const { events } = await lumaCardFetch<EventsResponse>("/api/v1/events?calendar=
 
 ### `GET /api/v1/calendars`
 
-Lists the caller's connected calendars. Use this to discover valid
-`calendar` filter values for `/api/v1/events`.
+Lists the caller's connected and imported calendars. Use this to discover valid
+`calendar` filter values, provider identities, groups, branding, event counts,
+and sync status for `/api/v1/events`.
 
 ```bash
 curl -H "Authorization: Bearer luma_sk_..." \
@@ -157,7 +160,7 @@ Calendar fields:
 | `aliases`             | `string[]`                                    | Permanent legacy IDs, URLs, and slugs accepted anywhere a calendar ID is used.          |
 | `name`                | `string \| null`                              | Display name from Luma or the imported calendar.                                        |
 | `slug`                | `string \| null`                              | Luma slug when available.                                                               |
-| `source`              | `"api" \| "scrape"`                           | `api` is a connected Luma API calendar; `scrape` is an imported public calendar.        |
+| `source`              | `"api" \| "scrape"`                           | `api` is a connected provider/API calendar; `scrape` is an imported public calendar.   |
 | `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).                 |
 | `provider`            | `"luma" \| "eventbrite" \| "meetup"`          | Remote event provider.                                                                  |
 | `ownership`           | `"connected" \| "external"`                   | Whether the source comes from an authorized organizer connection.                       |
@@ -177,6 +180,8 @@ Calendar fields:
 | `curatedName`         | `string \| null`                              | User-controlled display label, preserved across syncs.                                  |
 | `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                           |
 | `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                                    |
+| `providerSourceId`     | `string \| null`                              | Provider-specific source/group identifier when available.                               |
+| `brandKitId`           | `string \| null`                              | Associated user-owned brand kit when configured.                                        |
 | `sync`                | `object`                                      | Status, counts, last successful/attempted timestamps, scope, and historical completion. |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
@@ -297,7 +302,7 @@ Event fields:
 | `durationMinutes` | `number \| null`                         | Event duration when both timestamps form a valid interval.                       |
 | `city`            | `string \| null`                         | Human-readable city/location when available.                                     |
 | `description`     | `string \| null`                         | Markdown/text description when available.                                        |
-| `externalIds`     | `object \| null`                         | Canonical mode only: known Luma/scraped ids.                                     |
+| `externalIds`     | `object \| null`                         | Canonical mode only: known provider and scraped IDs.                              |
 | `sources`         | `array \| null`                          | Canonical mode only: calendars/imports/profile sources where the event appeared. |
 | `sourceCount`     | `number`                                 | Number of distinct source sightings merged into this event.                      |
 | `sourceCalendars` | `array`                                  | Every known calendar containing the event, without duplicates.                   |
@@ -374,12 +379,25 @@ Current tools:
 | Tool                       | Purpose                                          |
 | -------------------------- | ------------------------------------------------ |
 | `whoami`                   | Verify the authenticated user id and email.      |
-| `list_calendars`           | List connected Luma calendars.                   |
+| `list_calendars`           | List connected and imported calendars.           |
 | `list_my_badges`           | List generated badges, optionally by `event_id`. |
 | `list_event_style_presets` | List saved AI style presets for an event.        |
 
 Use the REST API for ordinary app integrations. Use MCP when the consumer is an
 agent/client that already speaks MCP and can complete the Supabase OAuth flow.
+
+## Get one canonical event
+
+`GET /api/v1/events/{canonicalId}` returns the current canonical representation
+for one event. The endpoint uses the same Bearer token and `events:read` scope
+as the collection endpoint. Use the `canonicalId` returned by
+`GET /api/v1/events?mode=canonical` rather than a provider-specific event ID.
+
+```bash
+curl \
+  -H "Authorization: Bearer luma_sk_..." \
+  "https://your-luma-card-deployment.example/api/v1/events/00000000-0000-0000-0000-000000000001"
+```
 
 ## TypeScript Types
 
@@ -416,6 +434,8 @@ type CalendarDTO = {
   hasEvents: boolean;
   group: CalendarGroupDTO | null;
   order: number;
+  providerSourceId: string | null;
+  brandKitId: string | null;
 };
 
 type EventCalendarDTO = {
@@ -449,6 +469,7 @@ type EventSourceDTO = {
 
 type EventDTO = {
   id: string;
+  canonicalId: string | null;
   name: string;
   coverUrl: string | null;
   url: string;
@@ -458,8 +479,27 @@ type EventDTO = {
   durationMinutes: number | null;
   city: string | null;
   description: string | null;
+  timezone: string | null;
+  updatedAt: string | null;
+  enrichment: {
+    languageCode: string | null;
+    languages: string[];
+    countryCode: string | null;
+    region: string | null;
+    venueName: string | null;
+    venueAddress: string | null;
+    isOnline: boolean | null;
+    format: string | null;
+    topics: string[];
+    audience: string[];
+    level: string | null;
+    organizer: string | null;
+    confidence: number | null;
+  };
   externalIds: {
     lumaEventId?: string;
+    eventbriteEventId?: string;
+    meetupEventId?: string;
     scrapedEventKeys: string[];
   } | null;
   sources: EventSourceDTO[] | null;
@@ -467,6 +507,15 @@ type EventDTO = {
   sourceCalendars: EventCalendarDTO[];
   tags: string[];
   suggestedTags: string[];
+  tagDetails: Array<{
+    namespace: "format" | "topic" | "audience";
+    slug: string;
+    label: string;
+    origin: "system" | "manual";
+    state: "active" | "dismissed";
+    confidence: number | null;
+    taxonomyVersion: number;
+  }>;
   calendar: EventCalendarDTO | null;
 };
 
@@ -486,6 +535,15 @@ type EventsResponse = {
   mode: "canonical" | "sources";
   filters: {
     calendar: string;
+    provider: "luma" | "eventbrite" | "meetup" | null;
+    owned: "true" | "false" | null;
+    q: string | null;
+    country: string | null;
+    city: string | null;
+    language: string | null;
+    online: "true" | "false" | null;
+    format: string | null;
+    topic: string | null;
     status: "all" | "upcoming" | "ongoing" | "past";
     at: string | null;
     from: string | null;
