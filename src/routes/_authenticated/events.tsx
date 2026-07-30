@@ -193,6 +193,8 @@ function EventsPage() {
   const fetchEvents = useServerFn(listEvents);
   const runSync = useServerFn(syncEventLibrary);
   const qc = useQueryClient();
+  const navigate = useNavigate({ from: "/events" });
+  const { q, provider, labels: activeLabels } = Route.useSearch();
   const { activeCalendarId } = useActiveCalendar();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["luma-events", activeCalendarId ?? "default"],
@@ -212,6 +214,18 @@ function EventsPage() {
   const [sortMenu, setSortMenu] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+
+  function patchSearch(patch: Partial<EventsSearch>) {
+    navigate({ search: (prev) => ({ ...prev, ...patch }) });
+  }
+
+  function toggleLabel(label: string) {
+    patchSearch({
+      labels: activeLabels.includes(label)
+        ? activeLabels.filter((item) => item !== label)
+        : [...activeLabels, label],
+    });
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -244,15 +258,45 @@ function EventsPage() {
     errorMessage.includes("SUPABASE_NOT_CONFIGURED") ||
     errorMessage.includes("Missing Supabase environment variable");
 
+  const labelIndex = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const label of eventLabels(ev)) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [data]);
+
+  const providerOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ev of data ?? []) {
+      for (const name of eventProviders(ev)) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [data]);
+
+  const query = q.trim().toLowerCase();
+
   const filtered = useMemo(() => {
     if (!data) return [];
     return data.filter((ev: EventDTO) => {
       const status = eventTemporalStatus(ev, now);
-      if (filter === "upcoming") return status === "upcoming" || status === "ongoing";
-      if (filter === "past") return status === "past";
+      if (filter === "upcoming" && !(status === "upcoming" || status === "ongoing")) return false;
+      if (filter === "past" && status !== "past") return false;
+      if (provider !== "all" && !eventProviders(ev).includes(provider)) return false;
+      if (activeLabels.length > 0) {
+        const labels = eventLabels(ev);
+        if (!activeLabels.every((label) => labels.includes(label))) return false;
+      }
+      if (query) {
+        const haystack = [ev.name, ev.city, ev.calendarName, ev.description]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
       return true;
     });
-  }, [data, filter, now]);
+  }, [data, filter, now, provider, activeLabels, query]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -261,6 +305,9 @@ function EventsPage() {
     else arr.sort(compareEventName);
     return arr;
   }, [filtered, sortMode, now]);
+
+  const filtersActive = query !== "" || provider !== "all" || activeLabels.length > 0;
+
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
