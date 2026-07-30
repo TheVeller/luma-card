@@ -13,8 +13,17 @@ export type CalendarEventStats = {
   unknown: number;
 };
 
+export type ProviderEventStats = {
+  total: number;
+  upcoming: number;
+  past: number;
+  unknown: number;
+};
+
 export type CalendarLibrarySummary = {
+  totalCalendars: number;
   activeCalendars: number;
+  duplicateCalendars: number;
   lumaConnected: number;
   lumaExternal: number;
   meetupExternal: number;
@@ -30,12 +39,15 @@ export type EventLibraryStats = {
   past: number;
   unknown: number;
   calendars: CalendarEventStats[];
+  providers: Record<string, ProviderEventStats>;
   library: CalendarLibrarySummary;
 };
 
 export function emptyLibrarySummary(): CalendarLibrarySummary {
   return {
+    totalCalendars: 0,
     activeCalendars: 0,
+    duplicateCalendars: 0,
     lumaConnected: 0,
     lumaExternal: 0,
     meetupExternal: 0,
@@ -53,6 +65,7 @@ function emptyStats(): EventLibraryStats {
     past: 0,
     unknown: 0,
     calendars: [],
+    providers: {},
     library: emptyLibrarySummary(),
   };
 }
@@ -68,9 +81,15 @@ type LibraryRow = {
   sync_status: string | null;
 };
 
+/**
+ * Fallback summary used only when the database aggregate is unavailable.
+ * Connected rows always win over an external duplicate of the same calendar,
+ * otherwise a connected Luma calendar disappears from the breakdown.
+ */
 export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySummary {
   const summary = emptyLibrarySummary();
-  const activeIdentities = new Set<string>();
+  summary.totalCalendars = rows.length;
+  const byIdentity = new Map<string, LibraryRow>();
   for (const row of rows) {
     if (row.merged_into_id) {
       summary.mergedHidden++;
@@ -86,9 +105,19 @@ export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySum
           .replace(/\/+$/, "")
       : null;
     const identityValue = row.provider_source_id ?? normalizedUrl ?? row.calendar_id ?? row.id;
-    const identity = identityValue ? `${provider}:${identityValue}` : null;
-    if (identity && activeIdentities.has(identity)) continue;
-    if (identity) activeIdentities.add(identity);
+    const identity = `${provider}:${identityValue ?? Math.random()}`;
+    const existing = byIdentity.get(identity);
+    if (!existing) {
+      byIdentity.set(identity, row);
+      continue;
+    }
+    summary.duplicateCalendars++;
+    if ((existing.ownership ?? "external") !== "connected" && row.ownership === "connected") {
+      byIdentity.set(identity, row);
+    }
+  }
+  for (const row of byIdentity.values()) {
+    const provider = row.provider ?? "luma";
     summary.activeCalendars++;
     const connected = (row.ownership ?? "external") === "connected";
     if (provider === "luma") {
@@ -112,7 +141,9 @@ async function readCalendarLibrarySummary(
     userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
   const { data, error } = await client
     .from("user_luma_calendars" as never)
-    .select("id,calendar_id,calendar_url,provider_source_id,provider,ownership,merged_into_id,sync_status")
+    .select(
+      "id,calendar_id,calendar_url,provider_source_id,provider,ownership,merged_into_id,sync_status",
+    )
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   return summarizeCalendarLibrary((data as unknown as LibraryRow[] | null) ?? []);
@@ -127,6 +158,36 @@ export function invalidateEventLibraryStatsCache(userId: string): void {
 
 type UserSupabaseClient = SupabaseClient<Database>;
 
+function normalizeProviders(value: unknown): Record<string, ProviderEventStats> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, Partial<ProviderEventStats>>).map(([key, stats]) => [
+      key,
+      {
+        total: Number(stats?.total) || 0,
+        upcoming: Number(stats?.upcoming) || 0,
+        past: Number(stats?.past) || 0,
+        unknown: Number(stats?.unknown) || 0,
+      },
+    ]),
+  );
+}
+
+function normalizeLibrary(value: unknown): CalendarLibrarySummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const summary = emptyLibrarySummary();
+  for (const key of Object.keys(summary) as (keyof CalendarLibrarySummary)[]) {
+    summary[key] = Number(raw[key]) || 0;
+  }
+  return summary;
+}
+
+/**
+ * Single source of truth. The database aggregate counts every canonical event
+ * with one query; reading `event_sources` from the client instead silently
+ * truncated the library at the Data API's 1000-row ceiling.
+ */
 async function readPersistedStats(
   userId: string,
   userClient?: UserSupabaseClient,
@@ -142,8 +203,11 @@ async function readPersistedStats(
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const value = data as unknown as Partial<EventLibraryStats>;
+  const library = normalizeLibrary(value.library);
+  if (!library) return null;
   return {
-    library: emptyLibrarySummary(),
+    library,
+    providers: normalizeProviders(value.providers),
     generatedAt:
       typeof value.generatedAt === "string" ? value.generatedAt : new Date().toISOString(),
     total: Number(value.total) || 0,
@@ -160,52 +224,6 @@ async function readPersistedStats(
         }))
       : [],
   };
-}
-
-async function statsNeedLiveFallback(
-  userId: string,
-  persisted: EventLibraryStats | null,
-  userClient?: UserSupabaseClient,
-): Promise<boolean> {
-  if (!persisted) return true;
-  // The authenticated Settings view must reflect the current canonical rows,
-  // not a potentially stale persisted RPC snapshot. The live query deduplicates
-  // by canonical_event_id and is scoped by RLS to the signed-in user.
-  if (userClient) return true;
-  const client =
-    userClient ?? (await import("@/integrations/supabase/client.server")).supabaseAdmin;
-  const { data, error } = await client
-    .from("user_luma_calendars" as never)
-    .select("id,source_kind,imported_count,sync_status,last_synced_at,source_metadata")
-    .eq("user_id", userId)
-    .is("merged_into_id", null);
-  if (error) throw new Error(error.message);
-  const statsByCalendar = new Map(
-    persisted.calendars.map((calendar) => [calendar.calendarRowId, calendar]),
-  );
-  return (
-    (
-      data as Array<{
-        id: string;
-        source_kind: string | null;
-        imported_count: number | null;
-        sync_status: string | null;
-        last_synced_at: string | null;
-        source_metadata: { emptyConfirmed?: boolean } | null;
-      }> | null
-    )?.some((calendar) => {
-      const stats = statsByCalendar.get(calendar.id);
-      if ((calendar.imported_count ?? 0) > (stats?.total ?? 0)) return true;
-      if (
-        calendar.source_kind === "api" &&
-        !calendar.source_metadata?.emptyConfirmed &&
-        (!calendar.last_synced_at || !["completed", "partial"].includes(calendar.sync_status ?? ""))
-      ) {
-        return true;
-      }
-      return false;
-    }) ?? false
-  );
 }
 
 type PersistedTimedSource = {
@@ -241,6 +259,7 @@ export function summarizePersistedEventStats(
   }
   return {
     library: emptyLibrarySummary(),
+    providers: {},
     generatedAt: new Date(now).toISOString(),
     ...summarizeEventCounts([...globalEvents.values()], now),
     calendars: [...eventsByCalendar].map(([calendarRowId, events]) => ({
@@ -250,43 +269,12 @@ export function summarizePersistedEventStats(
   };
 }
 
-async function readAuthenticatedLiveStats(
-  userId: string,
-  client: UserSupabaseClient,
-): Promise<EventLibraryStats> {
-  const { data: calendars, error: calendarError } = await client
-    .from("user_luma_calendars" as never)
-    .select("id")
-    .eq("user_id", userId)
-    .is("merged_into_id", null);
-  if (calendarError) throw new Error(calendarError.message);
-  const calendarRowIds = ((calendars as Array<{ id: string }> | null) ?? []).map(
-    (calendar) => calendar.id,
-  );
-  if (calendarRowIds.length === 0) return emptyStats();
-  const { data, error } = await client
-    .from("event_sources" as never)
-    .select("calendar_row_id,canonical_event_id,canonical_events!inner(id,start_at,end_at)")
-    .eq("user_id", userId)
-    .in("calendar_row_id", calendarRowIds);
-  if (error) throw new Error(error.message);
-  return summarizePersistedEventStats(
-    calendarRowIds,
-    (data as unknown as PersistedTimedSource[] | null) ?? [],
-  );
-}
-
-async function readLiveStats(
-  userId: string,
-  userClient?: UserSupabaseClient,
-): Promise<EventLibraryStats> {
-  if (userClient) return readAuthenticatedLiveStats(userId, userClient);
+async function readLiveStats(userId: string): Promise<EventLibraryStats> {
   const { aggregateCanonicalEventsForUser } = await import("./events-aggregate.server");
   const { sourceRows } = await aggregateCanonicalEventsForUser(userId, {
     calendarId: "__all__",
   });
-  const now = Date.now();
-  return summarizeSourceEventStats(sourceRows, now);
+  return summarizeSourceEventStats(sourceRows, Date.now());
 }
 
 export function summarizeSourceEventStats(
@@ -303,6 +291,7 @@ export function summarizeSourceEventStats(
   }
   return {
     library: emptyLibrarySummary(),
+    providers: {},
     generatedAt: new Date(now).toISOString(),
     ...global,
     calendars: [...inputsByCalendar.entries()].map(([calendarRowId, inputs]) => ({
@@ -316,23 +305,15 @@ async function loadEventLibraryStats(
   userId: string,
   userClient?: UserSupabaseClient,
 ): Promise<EventLibraryStats> {
-  // Library counters and event counters always come from the same load, so the
-  // UI can never show two disagreeing totals.
-  const [library, persisted] = await Promise.all([
-    readCalendarLibrarySummary(userId, userClient),
-    readPersistedStats(userId, userClient),
-  ]);
-  if (!(await statsNeedLiveFallback(userId, persisted, userClient))) {
-    return { ...(persisted ?? emptyStats()), library };
-  }
+  const persisted = await readPersistedStats(userId, userClient);
+  if (persisted) return persisted;
+  // Only reached while the aggregate function is being deployed.
+  const library = await readCalendarLibrarySummary(userId, userClient);
   try {
-    return { ...(await readLiveStats(userId, userClient)), library };
+    return { ...(await readLiveStats(userId)), library };
   } catch (error) {
-    if (persisted) {
-      console.warn("[event-stats] live fallback failed; using persisted counts", error);
-      return { ...persisted, library };
-    }
-    throw error;
+    console.warn("[event-stats] live fallback failed", error);
+    return { ...emptyStats(), library };
   }
 }
 
