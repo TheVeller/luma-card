@@ -216,7 +216,7 @@ function EventsPage() {
   const [now, setNow] = useState(() => Date.now());
 
   function patchSearch(patch: Partial<EventsSearch>) {
-    navigate({ search: (prev) => ({ ...prev, ...patch }) });
+    navigate({ search: (prev: EventsSearch) => ({ ...prev, ...patch }) });
   }
 
   function toggleLabel(label: string) {
