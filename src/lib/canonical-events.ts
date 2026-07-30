@@ -28,8 +28,19 @@ export type EventEnrichment = {
   sources?: Record<string, string>;
 };
 
+export type CanonicalTagDTO = {
+  namespace: "format" | "topic" | "audience";
+  slug: string;
+  label: string;
+  origin: "system" | "manual";
+  state: "active" | "dismissed";
+  confidence: number | null;
+  taxonomyVersion: number;
+};
+
 export type CanonicalBaseEvent = {
   id: string;
+  canonicalId?: string;
   name: string;
   coverUrl: string | null;
   url: string;
@@ -65,6 +76,7 @@ export type CanonicalEventDTO = CanonicalBaseEvent & {
   sources: CanonicalEventSourceDTO[];
   tags: string[];
   suggestedTags: string[];
+  tagDetails?: CanonicalTagDTO[];
   timezone?: string | null;
   enrichment?: EventEnrichment;
 };
@@ -155,6 +167,7 @@ export function sourceDTO(input: SourceEventInput): CanonicalEventSourceDTO {
 function preferEvent(base: CanonicalEventDTO, next: CanonicalBaseEvent): CanonicalEventDTO {
   return {
     ...base,
+    canonicalId: base.canonicalId ?? next.canonicalId,
     name: base.name || next.name,
     coverUrl: base.coverUrl ?? next.coverUrl,
     url: base.url || next.url,

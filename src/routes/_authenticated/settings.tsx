@@ -36,6 +36,7 @@ import {
 import { assignCalendarBrandKit, listBrandKits, saveBrandKit } from "@/lib/brand-kits.functions";
 import { DEFAULT_STYLE_SPEC } from "@/lib/style-spec";
 import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -505,135 +506,150 @@ function SettingsPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          {configured ? "Add another calendar" : "Paste your Luma API key"}
-        </label>
-        <input
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          type="password"
-          placeholder="secret-xxxxxxxxxxxxxxxxxxxx"
-          className="mt-2 w-full rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
-        />
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={onAdd}
-            disabled={busy || !apiKey.trim()}
-            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            {busy ? "Saving…" : "Add calendar"}
-          </button>
-          {ok && <span className="text-xs text-emerald-400">{ok}</span>}
-          {error && <span className="text-xs text-destructive">{error}</span>}
-        </div>
-        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Validated against /calendar/get · Stored encrypted · Tied to your account
-        </p>
-      </div>
+      <Collapsible defaultOpen={!configured} className="mt-6">
+        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-hairline bg-surface/60 px-4 py-3 text-left">
+          <span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Connect calendars
+            </span>
+            <span className="ml-3 text-xs text-muted-foreground">
+              {configured ? `${cals?.length ?? 0} sources connected` : "Add your first source"}
+            </span>
+          </span>
+          <span className="text-xs text-muted-foreground">Expand</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-3 rounded-2xl border border-hairline bg-surface/70 p-6">
+            <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              {configured ? "Add another calendar" : "Paste your Luma API key"}
+            </label>
+            <input
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              type="password"
+              placeholder="secret-xxxxxxxxxxxxxxxxxxxx"
+              className="mt-2 w-full rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
+            />
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={onAdd}
+                disabled={busy || !apiKey.trim()}
+                className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+              >
+                {busy ? "Saving…" : "Add calendar"}
+              </button>
+              {ok && <span className="text-xs text-emerald-400">{ok}</span>}
+              {error && <span className="text-xs text-destructive">{error}</span>}
+            </div>
+            <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Validated against /calendar/get · Stored encrypted · Tied to your account
+            </p>
+          </div>
 
-      {/* Import by link — no API key */}
-      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          Or · Import by link
-        </div>
-        <h2 className="mt-1 font-display text-xl font-semibold">No API key? Paste a link</h2>
-        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Import a public Luma, Eventbrite, or Meetup calendar, organizer, group, or event URL.
-        </p>
-        <EventSourceImporter
-          compact
-          className="mt-4"
-          onImported={async () => {
-            await refetch();
-            await refetchSyncSources();
-          }}
-        />
-      </div>
+          {/* Import by link — no API key */}
+          <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+            <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              Or · Import by link
+            </div>
+            <h2 className="mt-1 font-display text-xl font-semibold">No API key? Paste a link</h2>
+            <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+              Import a public Luma, Eventbrite, or Meetup calendar, organizer, group, or event URL.
+            </p>
+            <EventSourceImporter
+              compact
+              className="mt-4"
+              onImported={async () => {
+                await refetch();
+                await refetchSyncSources();
+              }}
+            />
+          </div>
 
-      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          Event providers
-        </div>
-        <h2 className="mt-1 font-display text-xl font-semibold">Eventbrite and Meetup</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Public links work in the importer below. Add an organizer access token here for
-          authoritative sync and to mark its events as owned.
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-[130px_1fr]">
-          <select
-            value={provider}
-            onChange={(event) => setProvider(event.target.value as "eventbrite" | "meetup")}
-            className="rounded-xl border border-hairline bg-background px-3 py-2.5 text-sm"
-          >
-            <option value="eventbrite">Eventbrite</option>
-            <option value="meetup">Meetup</option>
-          </select>
-          <input
-            value={providerUrl}
-            onChange={(event) => setProviderUrl(event.target.value)}
-            placeholder={
-              provider === "eventbrite"
-                ? "Event, organizer, or organization URL"
-                : "Meetup event or group URL"
-            }
-            className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
-          />
-          {provider === "meetup" && (
-            <>
-              <div />
+          <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+            <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              Event providers
+            </div>
+            <h2 className="mt-1 font-display text-xl font-semibold">Eventbrite and Meetup</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Public links work in the importer below. Add an organizer access token here for
+              authoritative sync and to mark its events as owned.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[130px_1fr]">
+              <select
+                value={provider}
+                onChange={(event) => setProvider(event.target.value as "eventbrite" | "meetup")}
+                className="rounded-xl border border-hairline bg-background px-3 py-2.5 text-sm"
+              >
+                <option value="eventbrite">Eventbrite</option>
+                <option value="meetup">Meetup</option>
+              </select>
               <input
-                value={providerRefreshToken}
-                onChange={(event) => setProviderRefreshToken(event.target.value)}
-                type="password"
-                placeholder="Meetup refresh token (optional)"
+                value={providerUrl}
+                onChange={(event) => setProviderUrl(event.target.value)}
+                placeholder={
+                  provider === "eventbrite"
+                    ? "Event, organizer, or organization URL"
+                    : "Meetup event or group URL"
+                }
                 className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
               />
-            </>
-          )}
-          <div />
-          <input
-            value={providerToken}
-            onChange={(event) => setProviderToken(event.target.value)}
-            type="password"
-            placeholder={`${provider} access token`}
-            className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
-          />
-        </div>
-        <button
-          onClick={() => providerMut.mutate()}
-          disabled={providerMut.isPending || !providerUrl.trim() || !providerToken.trim()}
-          className="mt-3 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-        >
-          {providerMut.isPending ? "Connecting…" : `Connect ${provider}`}
-        </button>
-        {providerMut.isError && (
-          <p className="mt-2 text-xs text-destructive">{providerMut.error.message}</p>
-        )}
-        {providerConnections.length > 0 && (
-          <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
-            {providerConnections.map((connection) => (
-              <li key={connection.id} className="flex items-center gap-3 py-3">
-                <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase">
-                  {connection.provider}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {connection.name}
-                </span>
-                <button
-                  onClick={async () => {
-                    await deleteProviderConnection({ data: { id: connection.id } });
-                    await Promise.all([refetchProviderConnections(), refetch()]);
-                  }}
-                  className="text-xs text-destructive"
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              {provider === "meetup" && (
+                <>
+                  <div />
+                  <input
+                    value={providerRefreshToken}
+                    onChange={(event) => setProviderRefreshToken(event.target.value)}
+                    type="password"
+                    placeholder="Meetup refresh token (optional)"
+                    className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
+                  />
+                </>
+              )}
+              <div />
+              <input
+                value={providerToken}
+                onChange={(event) => setProviderToken(event.target.value)}
+                type="password"
+                placeholder={`${provider} access token`}
+                className="rounded-xl border border-hairline bg-background px-4 py-2.5 font-mono text-sm"
+              />
+            </div>
+            <button
+              onClick={() => providerMut.mutate()}
+              disabled={providerMut.isPending || !providerUrl.trim() || !providerToken.trim()}
+              className="mt-3 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+            >
+              {providerMut.isPending ? "Connecting…" : `Connect ${provider}`}
+            </button>
+            {providerMut.isError && (
+              <p className="mt-2 text-xs text-destructive">{providerMut.error.message}</p>
+            )}
+            {providerConnections.length > 0 && (
+              <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
+                {providerConnections.map((connection) => (
+                  <li key={connection.id} className="flex items-center gap-3 py-3">
+                    <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase">
+                      {connection.provider}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {connection.name}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        await deleteProviderConnection({ data: { id: connection.id } });
+                        await Promise.all([refetchProviderConnections(), refetch()]);
+                      }}
+                      className="text-xs text-destructive"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
         <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
@@ -896,200 +912,213 @@ function CalendarOrganizer({
 
       <div className="mt-4 space-y-5">
         {buckets.map((bucket) => (
-          <section
-            key={bucket.id ?? "ungrouped"}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (draggedId) moveCalendar(draggedId, bucket.id);
-              setDraggedId(null);
-            }}
-          >
-            <div className="flex items-center justify-between border-b border-hairline pb-2">
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                {bucket.name} · {bucket.calendars.length}
-              </div>
-              {bucket.id && (
-                <button
-                  onClick={async () => {
-                    await deleteGroup({ data: { id: bucket.id! } });
-                    await refresh();
-                  }}
-                  className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-destructive"
-                  title={`Delete ${bucket.name}`}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="divide-y divide-hairline">
-              {bucket.calendars.map((calendar) => (
-                <div
-                  key={calendar.id}
-                  draggable
-                  onDragStart={() => setDraggedId(calendar.id)}
-                  onDragEnd={() => setDraggedId(null)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.stopPropagation();
-                    if (draggedId && draggedId !== calendar.id) {
-                      moveCalendar(draggedId, bucket.id, calendar.id);
-                    }
-                    setDraggedId(null);
-                  }}
-                  className="grid grid-cols-[auto_40px_minmax(0,1fr)] items-center gap-2 py-3 sm:grid-cols-[auto_40px_minmax(0,1fr)_auto]"
-                >
-                  <GripVertical
-                    className="size-4 cursor-grab text-muted-foreground"
-                    aria-label={`Drag ${calendar.name}`}
-                  />
-                  {calendar.avatarUrl ? (
-                    <img
-                      src={calendar.avatarUrl}
-                      alt=""
-                      className="size-10 rounded-md border border-hairline object-cover"
-                    />
-                  ) : (
-                    <div className="grid size-10 place-items-center rounded-md bg-surface-2 text-xs font-semibold">
-                      {(calendar.name[0] ?? "?").toUpperCase()}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold">{calendar.name}</span>
-                      {calendar.isDefault && (
-                        <span className="font-mono text-[9px] uppercase text-accent">default</span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      <span className="rounded-full border border-hairline bg-surface-2 px-2 py-0.5 font-mono text-[9px] uppercase text-foreground">
-                        {calendar.provider}
-                      </span>
-                      {calendar.hasApiConnection && (
-                        <span
-                          className={`rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase ${
-                            calendar.apiConnectionStatus === "needs_attention"
-                              ? "border-destructive/40 text-destructive"
-                              : "border-emerald-500/30 text-emerald-400"
-                          }`}
-                        >
-                          {calendar.provider} API{" "}
-                          {calendar.apiConnectionStatus === "needs_attention"
-                            ? "needs attention"
-                            : "connected"}
-                        </span>
-                      )}
-                      {calendar.hasPublicLink && (
-                        <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
-                          Public link available
-                        </span>
-                      )}
-                      <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
-                        {calendar.syncStatus === "completed"
-                          ? "Synced"
-                          : calendar.syncStatus === "partial"
-                            ? "Partial"
-                            : calendar.syncStatus === "failed"
-                              ? "Sync failed"
-                              : calendar.syncStatus}
-                      </span>
-                    </div>
-                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {calendar.eventCount > 0
-                        ? `${calendar.eventCount} events`
-                        : "No published events"}
-                      {calendar.lastSyncedAt
-                        ? ` · last success ${new Date(calendar.lastSyncedAt).toLocaleString()}`
-                        : " · no successful sync yet"}
-                      {calendar.lastSyncScope ? ` · ${calendar.lastSyncScope}` : ""}
-                    </div>
-                    {calendar.syncError && (
-                      <div className="mt-1 text-[11px] text-destructive">{calendar.syncError}</div>
-                    )}
-                    {calendar.suggestedGroupName && !calendar.groupId && (
-                      <button
-                        onClick={async () => {
-                          await acceptSuggestion({ data: { calendarId: calendar.id } });
-                          await refresh();
-                        }}
-                        className="mt-1 text-[11px] font-medium text-accent hover:underline"
-                        title={calendar.suggestedGroupReason ?? undefined}
-                      >
-                        Move to {calendar.suggestedGroupName}
-                      </button>
-                    )}
+          <Collapsible key={bucket.id ?? "ungrouped"} defaultOpen={bucket.calendars.length > 0}>
+            <section
+              key={bucket.id ?? "ungrouped"}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggedId) moveCalendar(draggedId, bucket.id);
+                setDraggedId(null);
+              }}
+            >
+              <CollapsibleTrigger asChild>
+                <div className="flex w-full items-center justify-between border-b border-hairline pb-2 text-left">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                    {bucket.name} · {bucket.calendars.length}
                   </div>
-                  <div className="col-span-3 flex flex-wrap items-center justify-end gap-1 sm:col-span-1">
+                  {bucket.id && (
                     <button
-                      onClick={() => onSync(calendar.id, "auto")}
-                      disabled={busy || saving || syncing || calendar.syncStatus === "running"}
-                      className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
-                      title="Sync upcoming events and the last 7 days"
-                    >
-                      Sync now
-                    </button>
-                    <button
-                      onClick={() => onSync(calendar.id, "full")}
-                      disabled={busy || saving || syncing || calendar.syncStatus === "running"}
-                      className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
-                      title="Reconcile the complete event history"
-                    >
-                      Full resync
-                    </button>
-                    {calendar.ownership === "connected" && brandKits.length > 0 && (
-                      <select
-                        value={calendar.brandKitId ?? ""}
-                        onChange={(event) =>
-                          onAssignBrandKit(calendar.id, event.target.value || null)
-                        }
-                        className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
-                        aria-label={`Brand kit for ${calendar.name}`}
-                      >
-                        <option value="">Default kit</option>
-                        {brandKits.map((kit) => (
-                          <option key={kit.id} value={kit.id}>
-                            {kit.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <select
-                      value={calendar.groupId ?? ""}
-                      onChange={(event) => moveCalendar(calendar.id, event.target.value || null)}
-                      className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
-                      aria-label={`Group for ${calendar.name}`}
-                    >
-                      <option value="">Ungrouped</option>
-                      {groups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {group.name}
-                        </option>
-                      ))}
-                    </select>
-                    {!calendar.isDefault && (
-                      <button
-                        onClick={() => onSetDefault(calendar.id)}
-                        disabled={busy || saving}
-                        className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
-                      >
-                        Default
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onRemove(calendar.id, calendar.name)}
-                      disabled={busy || saving}
-                      className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-40"
-                      title={`Remove ${calendar.name}`}
+                      onClick={async (event) => {
+                        event.stopPropagation();
+                        await deleteGroup({ data: { id: bucket.id! } });
+                        await refresh();
+                      }}
+                      className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-destructive"
+                      title={`Delete ${bucket.name}`}
                     >
                       <Trash2 className="size-3.5" />
                     </button>
-                  </div>
+                  )}
                 </div>
-              ))}
-              {bucket.calendars.length === 0 && (
-                <div className="py-4 text-xs text-muted-foreground">Drop calendars here.</div>
-              )}
-            </div>
-          </section>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="divide-y divide-hairline">
+                  {bucket.calendars.map((calendar) => (
+                    <div
+                      key={calendar.id}
+                      draggable
+                      onDragStart={() => setDraggedId(calendar.id)}
+                      onDragEnd={() => setDraggedId(null)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.stopPropagation();
+                        if (draggedId && draggedId !== calendar.id) {
+                          moveCalendar(draggedId, bucket.id, calendar.id);
+                        }
+                        setDraggedId(null);
+                      }}
+                      className="grid grid-cols-[auto_40px_minmax(0,1fr)] items-center gap-2 py-3 sm:grid-cols-[auto_40px_minmax(0,1fr)_auto]"
+                    >
+                      <GripVertical
+                        className="size-4 cursor-grab text-muted-foreground"
+                        aria-label={`Drag ${calendar.name}`}
+                      />
+                      {calendar.avatarUrl ? (
+                        <img
+                          src={calendar.avatarUrl}
+                          alt=""
+                          className="size-10 rounded-md border border-hairline object-cover"
+                        />
+                      ) : (
+                        <div className="grid size-10 place-items-center rounded-md bg-surface-2 text-xs font-semibold">
+                          {(calendar.name[0] ?? "?").toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold">{calendar.name}</span>
+                          {calendar.isDefault && (
+                            <span className="font-mono text-[9px] uppercase text-accent">
+                              default
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="rounded-full border border-hairline bg-surface-2 px-2 py-0.5 font-mono text-[9px] uppercase text-foreground">
+                            {calendar.provider}
+                          </span>
+                          {calendar.hasApiConnection && (
+                            <span
+                              className={`rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase ${
+                                calendar.apiConnectionStatus === "needs_attention"
+                                  ? "border-destructive/40 text-destructive"
+                                  : "border-emerald-500/30 text-emerald-400"
+                              }`}
+                            >
+                              {calendar.provider} API{" "}
+                              {calendar.apiConnectionStatus === "needs_attention"
+                                ? "needs attention"
+                                : "connected"}
+                            </span>
+                          )}
+                          {calendar.hasPublicLink && (
+                            <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
+                              Public link available
+                            </span>
+                          )}
+                          <span className="rounded-full border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
+                            {calendar.syncStatus === "completed"
+                              ? "Synced"
+                              : calendar.syncStatus === "partial"
+                                ? "Partial"
+                                : calendar.syncStatus === "failed"
+                                  ? "Sync failed"
+                                  : calendar.syncStatus}
+                          </span>
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          {calendar.eventCount > 0
+                            ? `${calendar.eventCount} events`
+                            : "No published events"}
+                          {calendar.lastSyncedAt
+                            ? ` · last success ${new Date(calendar.lastSyncedAt).toLocaleString()}`
+                            : " · no successful sync yet"}
+                          {calendar.lastSyncScope ? ` · ${calendar.lastSyncScope}` : ""}
+                        </div>
+                        {calendar.syncError && (
+                          <div className="mt-1 text-[11px] text-destructive">
+                            {calendar.syncError}
+                          </div>
+                        )}
+                        {calendar.suggestedGroupName && !calendar.groupId && (
+                          <button
+                            onClick={async () => {
+                              await acceptSuggestion({ data: { calendarId: calendar.id } });
+                              await refresh();
+                            }}
+                            className="mt-1 text-[11px] font-medium text-accent hover:underline"
+                            title={calendar.suggestedGroupReason ?? undefined}
+                          >
+                            Move to {calendar.suggestedGroupName}
+                          </button>
+                        )}
+                      </div>
+                      <div className="col-span-3 flex flex-wrap items-center justify-end gap-1 sm:col-span-1">
+                        <button
+                          onClick={() => onSync(calendar.id, "auto")}
+                          disabled={busy || saving || syncing || calendar.syncStatus === "running"}
+                          className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
+                          title="Sync upcoming events and the last 7 days"
+                        >
+                          Sync now
+                        </button>
+                        <button
+                          onClick={() => onSync(calendar.id, "full")}
+                          disabled={busy || saving || syncing || calendar.syncStatus === "running"}
+                          className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
+                          title="Reconcile the complete event history"
+                        >
+                          Full resync
+                        </button>
+                        {calendar.ownership === "connected" && brandKits.length > 0 && (
+                          <select
+                            value={calendar.brandKitId ?? ""}
+                            onChange={(event) =>
+                              onAssignBrandKit(calendar.id, event.target.value || null)
+                            }
+                            className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
+                            aria-label={`Brand kit for ${calendar.name}`}
+                          >
+                            <option value="">Default kit</option>
+                            {brandKits.map((kit) => (
+                              <option key={kit.id} value={kit.id}>
+                                {kit.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <select
+                          value={calendar.groupId ?? ""}
+                          onChange={(event) =>
+                            moveCalendar(calendar.id, event.target.value || null)
+                          }
+                          className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
+                          aria-label={`Group for ${calendar.name}`}
+                        >
+                          <option value="">Ungrouped</option>
+                          {groups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </select>
+                        {!calendar.isDefault && (
+                          <button
+                            onClick={() => onSetDefault(calendar.id)}
+                            disabled={busy || saving}
+                            className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
+                          >
+                            Default
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onRemove(calendar.id, calendar.name)}
+                          disabled={busy || saving}
+                          className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-40"
+                          title={`Remove ${calendar.name}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {bucket.calendars.length === 0 && (
+                    <div className="py-4 text-xs text-muted-foreground">Drop calendars here.</div>
+                  )}
+                </div>
+              </CollapsibleContent>
+            </section>
+          </Collapsible>
         ))}
       </div>
     </div>

@@ -12,13 +12,17 @@ import { readUserCalendars } from "./user-luma-calendars.functions";
 import { readScrapedEventsForCalendar } from "./luma-scrape.functions";
 import {
   canonicalizeEvents,
+  type CanonicalTagDTO,
+  type CanonicalEventSourceDTO,
   type CanonicalEventDTO,
+  type EventEnrichment,
   type SourceEventInput,
 } from "./canonical-events";
 import { compareEventsUpcomingFirst } from "./event-time";
 
 export type EventDTO = {
   id: string;
+  canonicalId?: string;
   name: string;
   coverUrl: string | null;
   url: string;
@@ -28,6 +32,12 @@ export type EventDTO = {
   description?: string;
   calendarId?: string;
   calendarName?: string;
+  timezone?: string | null;
+  enrichment?: EventEnrichment;
+  tags?: string[];
+  suggestedTags?: string[];
+  tagDetails?: CanonicalTagDTO[];
+  sources?: CanonicalEventSourceDTO[];
 };
 
 export function toDTO(e: LumaEvent, calendarId?: string, calendarName?: string): EventDTO {
@@ -172,6 +182,7 @@ async function collectEventSourceInputsForUser(
       if (!canonical?.start_at || !row) continue;
       canonicalInputs.push({
         event: {
+          canonicalId: canonical.id,
           id:
             source.provider_event_id ??
             source.external_event_id ??
@@ -295,6 +306,54 @@ export async function aggregateCanonicalEventsForUser(
 }> {
   const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
   const events = canonicalizeEvents(inputs);
+  const canonicalIds = events
+    .map((event) => event.canonicalId)
+    .filter((id): id is string => Boolean(id));
+  if (canonicalIds.length > 0) {
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data } = await supabaseAdmin
+        .from("canonical_event_tags" as never)
+        .select(
+          "canonical_event_id,tag_id,origin,state,confidence,classifier_version,event_tag_definitions(namespace,slug,label,taxonomy_version)",
+        )
+        .eq("user_id", userId)
+        .in("canonical_event_id", canonicalIds);
+      const byEvent = new Map<string, CanonicalTagDTO[]>();
+      for (const row of (data as Array<Record<string, unknown>> | null) ?? []) {
+        const definition = Array.isArray(row.event_tag_definitions)
+          ? (row.event_tag_definitions[0] as Record<string, unknown> | undefined)
+          : (row.event_tag_definitions as Record<string, unknown> | null);
+        if (!definition) continue;
+        const detail: CanonicalTagDTO = {
+          namespace: String(definition.namespace) as CanonicalTagDTO["namespace"],
+          slug: String(definition.slug),
+          label: String(definition.label),
+          origin: String(row.origin) as CanonicalTagDTO["origin"],
+          state: String(row.state) as CanonicalTagDTO["state"],
+          confidence: typeof row.confidence === "number" ? row.confidence : null,
+          taxonomyVersion: Number(definition.taxonomy_version ?? row.classifier_version ?? 1),
+        };
+        const current = byEvent.get(String(row.canonical_event_id)) ?? [];
+        current.push(detail);
+        byEvent.set(String(row.canonical_event_id), current);
+      }
+      for (const event of events) {
+        const details = event.canonicalId ? (byEvent.get(event.canonicalId) ?? []) : [];
+        event.tagDetails = details;
+        event.tags = details.filter((tag) => tag.state === "active").map((tag) => tag.label);
+        event.suggestedTags = details
+          .filter((tag) => tag.state === "dismissed" && tag.origin === "system")
+          .map((tag) => tag.label);
+      }
+    } catch (error) {
+      if (
+        !/schema cache|does not exist/i.test(error instanceof Error ? error.message : String(error))
+      ) {
+        throw error;
+      }
+    }
+  }
   const now = Date.now();
   events.sort((a, b) => compareEventsUpcomingFirst(a, b, now));
   return { events, calendars: rows.map(metaFor), sourceRows: inputs };

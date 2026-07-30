@@ -78,6 +78,43 @@ export const getEvent = createServerFn({ method: "GET" })
     return data;
   })
   .handler(async ({ data, context }) => {
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: source } = await supabaseAdmin
+        .from("event_sources" as never)
+        .select("canonical_event_id")
+        .eq("user_id", context.userId)
+        .or(`external_event_id.eq.${data.id},provider_event_id.eq.${data.id}`)
+        .limit(1)
+        .maybeSingle();
+      const canonicalId = (source as { canonical_event_id?: string } | null)?.canonical_event_id;
+      if (canonicalId) {
+        const { data: canonical } = await supabaseAdmin
+          .from("canonical_events" as never)
+          .select("id,name,cover_url,url,start_at,end_at,city,description,timezone,enrichment")
+          .eq("id", canonicalId)
+          .eq("user_id", context.userId)
+          .maybeSingle();
+        if (canonical) {
+          const row = canonical as Record<string, unknown>;
+          return {
+            id: data.id,
+            canonicalId,
+            name: String(row.name ?? data.id),
+            coverUrl: (row.cover_url as string | null) ?? null,
+            url: String(row.url ?? ""),
+            startAt: String(row.start_at ?? new Date().toISOString()),
+            endAt: (row.end_at as string | null) ?? undefined,
+            city: (row.city as string | null) ?? undefined,
+            description: (row.description as string | null) ?? undefined,
+            timezone: (row.timezone as string | null) ?? null,
+            enrichment: (row.enrichment as EventDTO["enrichment"]) ?? {},
+          };
+        }
+      }
+    } catch {
+      // Canonical tables are additive; retain the provider fallback below.
+    }
     // Every imported provider is stored locally. Try it first; provider event
     // IDs are intentionally not required to use Luma's `scr-` prefix.
     const imported = await readScrapedEventById(context.userId, data.id);

@@ -301,8 +301,9 @@ Event fields:
 | `sources`         | `array \| null`                          | Canonical mode only: calendars/imports/profile sources where the event appeared. |
 | `sourceCount`     | `number`                                 | Number of distinct source sightings merged into this event.                      |
 | `sourceCalendars` | `array`                                  | Every known calendar containing the event, without duplicates.                   |
-| `tags`            | `string[]`                               | Approved tags. Empty until tagging is configured.                                |
-| `suggestedTags`   | `string[]`                               | Suggested but not yet approved tags.                                             |
+| `tags`            | `string[]`                               | Active labels from the controlled format/topic/audience taxonomy.                |
+| `suggestedTags`   | `string[]`                               | Lower-confidence system labels awaiting confirmation.                            |
+| `tagDetails`      | `object[]`                               | Label namespace, origin, confidence, state, and taxonomy version.                |
 | `calendar`        | `object \| null`                         | Source calendar metadata.                                                        |
 
 Use `mode=sources` when your integration needs one row per calendar/source

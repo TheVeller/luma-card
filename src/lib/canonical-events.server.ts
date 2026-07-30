@@ -142,6 +142,13 @@ export async function upsertCanonicalEventSource(
     sourceError = retry.error;
   }
   if (sourceError) throw new Error(sourceError.message);
+  try {
+    const { refreshCanonicalEventTags } = await import("./event-tags.server");
+    await refreshCanonicalEventTags(userId, canonicalEventId);
+  } catch (error) {
+    // Tagging is additive; an unavailable taxonomy must not make provider sync fail.
+    console.warn("[event-tags] unable to refresh canonical event tags", error);
+  }
   return { canonicalEventId };
 }
 

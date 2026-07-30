@@ -200,6 +200,7 @@ export const Route = createFileRoute("/api/v1/events")({
                 const primaryCalendar = (e.calendarId && calById.get(e.calendarId)) || null;
                 return {
                   id: e.id,
+                  canonicalId: "canonicalId" in e ? (e.canonicalId ?? null) : null,
                   name: e.name,
                   coverUrl: e.coverUrl,
                   url: e.url,
@@ -224,6 +225,7 @@ export const Route = createFileRoute("/api/v1/events")({
                   sourceCalendars,
                   tags: "tags" in e ? e.tags : [],
                   suggestedTags: "suggestedTags" in e ? e.suggestedTags : [],
+                  tagDetails: "tagDetails" in e ? (e.tagDetails ?? []) : [],
                   calendar: primaryCalendar ?? sourceCalendars[0] ?? null,
                 };
               }),
