@@ -638,6 +638,23 @@ function EventImage({ ev, className }: { ev: EventDTO; className: string }) {
   );
 }
 
+function EventLabelChips({ event }: { event: EventDTO }) {
+  const labels = eventLabels(event).slice(0, 3);
+  if (labels.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {labels.map((label) => (
+        <span
+          key={label}
+          className="rounded-full border border-hairline bg-surface-2 px-2 py-0.5 text-[9px] font-medium capitalize text-muted-foreground"
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function GalleryView({
   events,
   showCalendarName,
@@ -674,6 +691,7 @@ function GalleryView({
             <h3 className="line-clamp-2 font-display text-lg font-semibold leading-tight">
               {ev.name}
             </h3>
+            <EventLabelChips event={ev} />
             <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent">
               Generate badge <span aria-hidden>→</span>
             </div>
@@ -706,6 +724,7 @@ function ListView({ events, showCalendarName }: { events: EventDTO[]; showCalend
             <h3 className="mt-1 line-clamp-2 font-display text-lg font-semibold leading-tight">
               {ev.name}
             </h3>
+            <EventLabelChips event={ev} />
             {ev.description && (
               <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                 {ev.description}
