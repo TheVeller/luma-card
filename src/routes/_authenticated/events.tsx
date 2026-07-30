@@ -493,6 +493,71 @@ function EventsPage() {
         </div>
       )}
 
+      {data && data.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={q}
+              onChange={(event) => patchSearch({ q: event.target.value })}
+              placeholder="Search events, cities, calendars…"
+              className="h-9 min-w-[220px] flex-1 rounded-full border border-hairline bg-surface/60 px-4 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+              aria-label="Search events"
+            />
+            {providerOptions.length > 1 && (
+              <select
+                value={provider}
+                onChange={(event) => patchSearch({ provider: event.target.value })}
+                className="h-9 rounded-full border border-hairline bg-surface/60 px-3 text-xs font-medium outline-none focus:border-primary"
+                aria-label="Filter by provider"
+              >
+                <option value="all">All providers</option>
+                {providerOptions.map(([name, count]) => (
+                  <option key={name} value={name}>
+                    {name} ({count})
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {sorted.length} of {data.length}
+            </span>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={() => patchSearch({ q: "", provider: "all", labels: [] })}
+                className="inline-flex h-9 items-center gap-1 rounded-full border border-hairline px-3 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+              >
+                <X className="size-3" aria-hidden /> Clear
+              </button>
+            )}
+          </div>
+          {labelIndex.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {labelIndex.slice(0, 24).map(([label, count]) => {
+                const active = activeLabels.includes(label);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleLabel(label)}
+                    className={
+                      "rounded-full border px-3 py-1 text-[11px] font-medium capitalize transition " +
+                      (active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-hairline text-muted-foreground hover:bg-surface hover:text-foreground")
+                    }
+                  >
+                    {label}
+                    <span className="ml-1 opacity-60">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+
       {isLoading && (
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
