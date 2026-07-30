@@ -25,6 +25,20 @@ In local development this is usually:
 http://localhost:3000
 ```
 
+For integrations running outside Lovable, use a **published deployment with
+public access** (`*.lovable.app` or a custom domain). Lovable preview and
+sandbox hosts (`*.lovableproject.com`) can be protected by the Lovable auth
+gateway and return an HTTP 302 to login before the API route runs. That is a
+hosting-gateway redirect, not an API response. The published app still keeps
+event data protected with the Bearer token described below.
+
+Verify the origin before configuring a client:
+
+```bash
+curl -i "https://your-luma-card-deployment.example/api/v1/health"
+# {"ok":true,"service":"luma-card-event-router","apiVersion":"v1"}
+```
+
 ## Authentication
 
 Create an external API token in the app:
@@ -76,6 +90,16 @@ const { events } = await lumaCardFetch<EventsResponse>("/api/v1/events?calendar=
 ```
 
 ## REST Endpoints
+
+### `GET /api/v1/health`
+
+Unauthenticated liveness check for deployment and integration setup. It never
+redirects in the application and returns CORS headers with `Cache-Control:
+no-store`.
+
+```json
+{"ok":true,"service":"luma-card-event-router","apiVersion":"v1"}
+```
 
 ### `GET /api/v1/calendars`
 

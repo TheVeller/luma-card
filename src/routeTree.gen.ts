@@ -22,6 +22,7 @@ import { Route as AuthenticatedGalleryRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
+import { Route as ApiV1HealthRouteImport } from './routes/api/v1/health'
 import { Route as ApiV1EventsRouteImport } from './routes/api/v1/events'
 import { Route as ApiV1CalendarsRouteImport } from './routes/api/v1/calendars'
 import { Route as ApiPublicImageRouteImport } from './routes/api/public/image'
@@ -97,6 +98,11 @@ const Char91DotmcpChar93ListToolsRoute =
     path: '/.mcp/list-tools',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1HealthRoute = ApiV1HealthRouteImport.update({
+  id: '/api/v1/health',
+  path: '/api/v1/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1EventsRoute = ApiV1EventsRouteImport.update({
   id: '/api/v1/events',
   path: '/api/v1/events',
@@ -158,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
   '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/health': typeof ApiV1HealthRoute
   '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
   '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
   '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/health': typeof ApiV1HealthRoute
   '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
   '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
@@ -204,6 +212,7 @@ export interface FileRoutesById {
   '/api/public/image': typeof ApiPublicImageRoute
   '/api/v1/calendars': typeof ApiV1CalendarsRoute
   '/api/v1/events': typeof ApiV1EventsRouteWithChildren
+  '/api/v1/health': typeof ApiV1HealthRoute
   '/api/v1/events/$canonicalId': typeof ApiV1EventsCanonicalIdRoute
   '/api/v1/events/changes': typeof ApiV1EventsChangesRoute
 }
@@ -228,6 +237,7 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/health'
     | '/api/v1/events/$canonicalId'
     | '/api/v1/events/changes'
   fileRoutesByTo: FileRoutesByTo
@@ -250,6 +260,7 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/health'
     | '/api/v1/events/$canonicalId'
     | '/api/v1/events/changes'
   id:
@@ -273,6 +284,7 @@ export interface FileRouteTypes {
     | '/api/public/image'
     | '/api/v1/calendars'
     | '/api/v1/events'
+    | '/api/v1/health'
     | '/api/v1/events/$canonicalId'
     | '/api/v1/events/changes'
   fileRoutesById: FileRoutesById
@@ -291,6 +303,7 @@ export interface RootRouteChildren {
   ApiPublicImageRoute: typeof ApiPublicImageRoute
   ApiV1CalendarsRoute: typeof ApiV1CalendarsRoute
   ApiV1EventsRoute: typeof ApiV1EventsRouteWithChildren
+  ApiV1HealthRoute: typeof ApiV1HealthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -384,6 +397,13 @@ declare module '@tanstack/react-router' {
       path: '/.mcp/list-tools'
       fullPath: '/.mcp/list-tools'
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/health': {
+      id: '/api/v1/health'
+      path: '/api/v1/health'
+      fullPath: '/api/v1/health'
+      preLoaderRoute: typeof ApiV1HealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/events': {
@@ -495,6 +515,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicImageRoute: ApiPublicImageRoute,
   ApiV1CalendarsRoute: ApiV1CalendarsRoute,
   ApiV1EventsRoute: ApiV1EventsRouteWithChildren,
+  ApiV1HealthRoute: ApiV1HealthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

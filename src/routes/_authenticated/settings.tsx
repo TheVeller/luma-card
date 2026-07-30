@@ -157,6 +157,8 @@ function SettingsPage() {
     },
   });
   const apiOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const apiIsPreview =
+    typeof window !== "undefined" && window.location.hostname.endsWith(".lovableproject.com");
   const fetchProviderConnections = useServerFn(listProviderConnections);
   const addProviderConnection = useServerFn(connectProvider);
   const deleteProviderConnection = useServerFn(removeProviderConnection);
@@ -736,6 +738,32 @@ function SettingsPage() {
           calendars, tags every event with its source, and supports calendar filters, ISO date
           ranges, and cursor pagination.
         </p>
+        <div
+          className={`mt-4 rounded-xl border p-3 text-xs ${
+            apiIsPreview
+              ? "border-amber-400/40 bg-amber-400/10 text-amber-100"
+              : "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+          }`}
+        >
+          <div className="font-semibold">API base URL</div>
+          <code className="mt-1 block break-all font-mono text-[11px]">{apiOrigin || "(deployed origin)"}</code>
+          {apiIsPreview ? (
+            <p className="mt-2 text-amber-100/80">
+              This Lovable preview/sandbox URL may redirect external requests to the Lovable login.
+              Publish with public access and use its <code>lovable.app</code> or custom-domain URL.
+            </p>
+          ) : (
+            <p className="mt-2 text-emerald-100/80">Use this published origin in your integration.</p>
+          )}
+          <a
+            className="mt-2 inline-block underline underline-offset-2"
+            href={`${apiOrigin}/api/v1/health`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Test health endpoint →
+          </a>
+        </div>
 
         {newToken && (
           <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4">
@@ -809,6 +837,7 @@ function SettingsPage() {
         {tokenErr && <p className="mt-2 text-xs text-destructive">{tokenErr}</p>}
 
         <div className="mt-5 overflow-x-auto rounded-xl border border-hairline bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <div className="text-foreground">GET {apiOrigin}/api/v1/health <span className="text-muted-foreground">(public)</span></div>
           <div className="text-foreground">GET {apiOrigin}/api/v1/events?calendar=all</div>
           <div className="text-foreground">GET {apiOrigin}/api/v1/calendars</div>
           <div className="mt-2 whitespace-pre">

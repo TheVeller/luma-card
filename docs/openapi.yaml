@@ -14,6 +14,19 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /api/v1/health:
+    get:
+      tags: [System]
+      operationId: healthCheck
+      summary: Check API availability
+      description: Public liveness endpoint; no Bearer token is required.
+      security: []
+      responses:
+        "200":
+          description: API is available.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
   /api/v1/calendars:
     get:
       tags: [Calendars]
@@ -168,6 +181,13 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    HealthResponse:
+      type: object
+      required: [ok, service, apiVersion]
+      properties:
+        ok: { type: boolean, example: true }
+        service: { type: string, example: luma-card-event-router }
+        apiVersion: { type: string, example: v1 }
     Error:
       type: object
       required: [error, message]

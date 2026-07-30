@@ -103,6 +103,11 @@ curl \
   "https://your-deployment.example/api/v1/events?calendar=all&status=upcoming&limit=50"
 ```
 
+Use a published public deployment (`*.lovable.app` or a custom domain) for
+external clients. Lovable preview/sandbox URLs (`*.lovableproject.com`) may
+redirect to the Lovable login before requests reach the API. Verify the origin
+first with `GET /api/v1/health` (no token required).
+
 The response is designed for integrations:
 
 ```json
@@ -127,6 +132,7 @@ The response is designed for integrations:
 
 | Endpoint | Purpose |
 | --- | --- |
+| `GET /api/v1/health` | Public liveness check for deployment verification. |
 | `GET /api/v1/calendars` | Calendars, groups, provider identity, branding, counts, and sync health. |
 | `GET /api/v1/events` | Canonical or source-level events with filtering and opaque cursor pagination. |
 | `GET /api/v1/events/{canonicalId}` | Fetch one canonical event by stable identity. |

@@ -32,6 +32,16 @@ export function json(
   });
 }
 
+/** Public, unauthenticated liveness response for integration checks. */
+export function healthResponse(): Response {
+  const requestId = `req_${crypto.randomUUID()}`;
+  return json(
+    200,
+    { ok: true, service: "luma-card-event-router", apiVersion: "v1" },
+    { "x-request-id": requestId },
+  );
+}
+
 export function apiError(
   status: number,
   error: string,
