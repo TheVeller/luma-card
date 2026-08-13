@@ -838,12 +838,24 @@ function EventsPage() {
       )}
 
       {sorted.length > 0 && viewMode === "gallery" && (
-        <GalleryView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
+        <GalleryView events={visible} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "list" && (
-        <ListView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
+        <ListView events={visible} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "calendar" && <CalendarView events={sorted} />}
+      {viewMode !== "calendar" && sorted.length > visible.length && (
+        <div className="mt-8 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((value) => value + PAGE_SIZE)}
+            className="rounded-full border border-hairline px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          >
+            Load more · {sorted.length - visible.length} left
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }
