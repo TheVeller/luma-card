@@ -45,3 +45,7 @@ El filtrado y la paginación pasan a hacerse en la base de datos en lugar de en 
 ## Fuera de alcance
 
 Sin cambios de diseño visual ni de la lógica de generación de badges.
+
+## Paso 0: arreglar el error de compilación actual
+
+El tipo `EventsSearch` en `src/routes/_authenticated/events.tsx` no incluye `status`, aunque el esquema de la URL sí lo valida. Se agrega `status: "all" | "upcoming" | "past"` al tipo, lo que resuelve los 4 errores de TypeScript actuales.
