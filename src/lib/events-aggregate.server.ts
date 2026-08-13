@@ -328,7 +328,7 @@ export async function aggregateEventsForUser(
 
 export async function aggregateCanonicalEventsForUser(
   userId: string,
-  opts: { calendarId?: string } = {},
+  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
 ): Promise<{
   events: CanonicalEventDTO[];
   calendars: CalendarMeta[];
