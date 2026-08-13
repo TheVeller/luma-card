@@ -69,6 +69,7 @@ type EventsSearch = {
   languages: string[];
   dateFrom: string;
   dateTo: string;
+  status: "all" | "upcoming" | "past";
 };
 
 function toStringArray(value: unknown): string[] {
