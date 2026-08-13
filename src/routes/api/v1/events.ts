@@ -97,8 +97,15 @@ export const Route = createFileRoute("/api/v1/events")({
           } = await import("@/lib/event-time");
           const { events, calendars } =
             mode === "sources"
-              ? await aggregateEventsForUser(auth.userId, { calendarId: calendar })
-              : await aggregateCanonicalEventsForUser(auth.userId, { calendarId: calendar });
+              ? await aggregateEventsForUser(auth.userId, {
+                  calendarId: calendar,
+                  includePayload: false,
+                })
+              : await aggregateCanonicalEventsForUser(auth.userId, {
+                  calendarId: calendar,
+                  includePayload: false,
+                });
+
           const calById = new Map(calendars.map((c) => [c.calendarId, c]));
           const now = at ? Date.parse(at) : Date.now();
 

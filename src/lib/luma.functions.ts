@@ -53,6 +53,8 @@ export const listEvents = createServerFn({ method: "GET" })
       if (allRows.length === 0) return [];
       const { events } = await aggregateCanonicalEventsForUser(context.userId, {
         calendarId: "__all__",
+        includePayload: false,
+        slimDescription: true,
       });
       return events;
     }
@@ -67,9 +69,12 @@ export const listEvents = createServerFn({ method: "GET" })
     if (!row) throw new NoLumaKeyError();
     const { events } = await aggregateCanonicalEventsForUser(context.userId, {
       calendarId: row.calendar_id,
+      includePayload: false,
+      slimDescription: true,
     });
     return events;
   });
+
 
 export const getEvent = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])

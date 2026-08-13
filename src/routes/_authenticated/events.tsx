@@ -69,6 +69,7 @@ type EventsSearch = {
   languages: string[];
   dateFrom: string;
   dateTo: string;
+  status: "all" | "upcoming" | "past";
 };
 
 function toStringArray(value: unknown): string[] {
@@ -76,6 +77,11 @@ function toStringArray(value: unknown): string[] {
   if (typeof value === "string" && value.trim()) return value.split(",").filter(Boolean);
   return [];
 }
+
+/** How many cards are mounted before "Load more". Keeps the DOM small on 4k+ libraries. */
+const PAGE_SIZE = 60;
+
+
 
 export const Route = createFileRoute("/_authenticated/events")({
   validateSearch: z.object({
@@ -223,6 +229,11 @@ function EventsPage() {
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  // Typing used to rewrite the URL on every keystroke and re-filter thousands of
+  // events synchronously. Keep the input local and push it through debounced.
+  const [qInput, setQInput] = useState(q);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
 
   const fetchSavedViews = useServerFn(listSavedEventViews);
   const saveView = useServerFn(saveEventView);
@@ -347,6 +358,23 @@ function EventsPage() {
     }
   }, []);
 
+  // URL stays the source of truth; the input just leads it by 250ms.
+  useEffect(() => {
+    if (qInput === q) return;
+    const timer = window.setTimeout(() => patchSearch({ q: qInput }), 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qInput, q]);
+
+  useEffect(() => {
+    setQInput(q);
+  }, [q]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filters, sortMode, viewMode, activeCalendarId]);
+
+
   useEffect(() => {
     const refreshNow = () => setNow(Date.now());
     window.addEventListener("focus", refreshNow);
@@ -395,6 +423,8 @@ function EventsPage() {
   }, [filtered, sortMode, now]);
 
   const filtersActive = filtersAreActive(filters);
+  const visible = useMemo(() => sorted.slice(0, visibleCount), [sorted, visibleCount]);
+
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
@@ -584,8 +614,9 @@ function EventsPage() {
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <input
-              value={q}
-              onChange={(event) => patchSearch({ q: event.target.value })}
+              value={qInput}
+              onChange={(event) => setQInput(event.target.value)}
+
               placeholder="Search events, cities, calendars…"
               className="h-10 min-w-[220px] flex-1 rounded-xl border border-hairline bg-surface/60 px-4 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
               aria-label="Search events"
@@ -807,12 +838,24 @@ function EventsPage() {
       )}
 
       {sorted.length > 0 && viewMode === "gallery" && (
-        <GalleryView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
+        <GalleryView events={visible} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "list" && (
-        <ListView events={sorted} showCalendarName={activeCalendarId === "__all__"} />
+        <ListView events={visible} showCalendarName={activeCalendarId === "__all__"} />
       )}
       {sorted.length > 0 && viewMode === "calendar" && <CalendarView events={sorted} />}
+      {viewMode !== "calendar" && sorted.length > visible.length && (
+        <div className="mt-8 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((value) => value + PAGE_SIZE)}
+            className="rounded-full border border-hairline px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          >
+            Load more · {sorted.length - visible.length} left
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }

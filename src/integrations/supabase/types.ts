@@ -478,6 +478,39 @@ export type Database = {
           },
         ]
       }
+      saved_event_views: {
+        Row: {
+          created_at: string
+          filters: Json
+          id: string
+          name: string
+          sort_mode: string
+          updated_at: string
+          user_id: string
+          view_mode: string
+        }
+        Insert: {
+          created_at?: string
+          filters?: Json
+          id?: string
+          name: string
+          sort_mode?: string
+          updated_at?: string
+          user_id: string
+          view_mode?: string
+        }
+        Update: {
+          created_at?: string
+          filters?: Json
+          id?: string
+          name?: string
+          sort_mode?: string
+          updated_at?: string
+          user_id?: string
+          view_mode?: string
+        }
+        Relationships: []
+      }
       scraped_events: {
         Row: {
           calendar_id: string | null
