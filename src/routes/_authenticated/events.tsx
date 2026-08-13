@@ -406,6 +406,8 @@ function EventsPage() {
   }, [filtered, sortMode, now]);
 
   const filtersActive = filtersAreActive(filters);
+  const visible = useMemo(() => sorted.slice(0, visibleCount), [sorted, visibleCount]);
+
 
   function exportDataset(kind: "json" | "csv") {
     if (!data) return;
