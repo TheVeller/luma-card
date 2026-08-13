@@ -86,7 +86,7 @@ export type AggregateResult = { events: EventDTO[]; calendars: CalendarMeta[] };
 
 async function collectEventSourceInputsForUser(
   userId: string,
-  opts: { calendarId?: string } = {},
+  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
 ): Promise<{ inputs: SourceEventInput[]; rows: CalendarRow[] }> {
   const allRows = await readUserCalendars(userId);
   const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
@@ -101,15 +101,33 @@ async function collectEventSourceInputsForUser(
   const canonicalInputs: SourceEventInput[] = [];
   if (selectedRowIds.length > 0) {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin
-      .from("event_sources" as never)
-      .select(
-        "calendar_row_id,calendar_public_id,calendar_name,source_type,provider,source_url,external_event_id,provider_event_id,host_name,payload,last_synced_at,canonical_events!inner(id,luma_event_id,name,url,cover_url,start_at,end_at,city,description,timezone,language_code,country_code,region,venue_name,venue_address,latitude,longitude,is_online,event_format,topics,audience,level,enrichment)",
-      )
-      .eq("user_id", userId)
-      .in("calendar_row_id", selectedRowIds);
-    if (error && !/schema cache|does not exist/i.test(error.message)) {
-      throw new Error(error.message);
+    // `payload` is a fat jsonb blob only the sync/upsert path needs. List reads
+    // skip it — it was the bulk of the bytes moved for 4k+ events.
+    const withPayload = opts.includePayload !== false;
+    const select =
+      `calendar_row_id,calendar_public_id,calendar_name,source_type,provider,source_url,external_event_id,provider_event_id,host_name,${withPayload ? "payload," : ""}last_synced_at,` +
+      "canonical_events!inner(id,luma_event_id,name,url,cover_url,start_at,end_at,city,description,timezone,language_code,country_code,region,venue_name,venue_address,latitude,longitude,is_online,event_format,topics,audience,level,enrichment)";
+    // PostgREST caps a single response at 1000 rows; page explicitly so large
+    // libraries are not silently truncated.
+    const PAGE = 1000;
+    const data: unknown[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data: page, error } = await supabaseAdmin
+        .from("event_sources" as never)
+        .select(select)
+        .eq("user_id", userId)
+        .in("calendar_row_id", selectedRowIds)
+        .order("id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) {
+        if (/schema cache|does not exist/i.test(error.message)) break;
+        throw new Error(error.message);
+      }
+      const rowsPage = (page as unknown[] | null) ?? [];
+      data.push(...rowsPage);
+      if (rowsPage.length < PAGE) break;
+    }
+
     }
     type PersistedSource = {
       calendar_row_id: string;
