@@ -213,7 +213,11 @@ async function collectEventSourceInputsForUser(
           startAt: canonical.start_at,
           endAt: canonical.end_at ?? undefined,
           city: canonical.city ?? undefined,
-          description: canonical.description ?? undefined,
+          description:
+            opts.slimDescription && canonical.description && canonical.description.length > 400
+              ? `${canonical.description.slice(0, 400)}…`
+              : (canonical.description ?? undefined),
+
           timezone: canonical.timezone,
           enrichment: {
             ...(canonical.enrichment ?? {}),
