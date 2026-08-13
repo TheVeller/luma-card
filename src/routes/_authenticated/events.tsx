@@ -224,6 +224,11 @@ function EventsPage() {
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  // Typing used to rewrite the URL on every keystroke and re-filter thousands of
+  // events synchronously. Keep the input local and push it through debounced.
+  const [qInput, setQInput] = useState(q);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
 
   const fetchSavedViews = useServerFn(listSavedEventViews);
   const saveView = useServerFn(saveEventView);
