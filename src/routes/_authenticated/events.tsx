@@ -358,6 +358,23 @@ function EventsPage() {
     }
   }, []);
 
+  // URL stays the source of truth; the input just leads it by 250ms.
+  useEffect(() => {
+    if (qInput === q) return;
+    const timer = window.setTimeout(() => patchSearch({ q: qInput }), 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qInput, q]);
+
+  useEffect(() => {
+    setQInput(q);
+  }, [q]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filters, sortMode, viewMode, activeCalendarId]);
+
+
   useEffect(() => {
     const refreshNow = () => setNow(Date.now());
     window.addEventListener("focus", refreshNow);
