@@ -1,56 +1,51 @@
+# Optimizar carga y API de eventos
 
-# Solidificar contabilidad, migración pendiente y filtros por etiquetas
+## Qué está pasando hoy
 
-## Lo que confirmé en la base de datos (no supuesto)
+Cada vez que se abre la página de eventos, el servidor:
 
-| Dato | Realidad en DB | Lo que muestra la UI |
-|---|---|---|
-| Eventos canónicos | **4.136** (1.223 Luma + 2.913 Meetup) | 985 |
-| Filas de calendario | **144**, todas activas (0 fusionadas) | 141 activos |
-| Luma conectados | **3** (con API key) | 0 |
-| Luma externos | 58 | 61 |
-| Meetup | 80 | 80 |
+1. Lee todos los calendarios del usuario (144).
+2. Trae todas las fuentes de eventos en una sola consulta, incluyendo el `payload` JSON completo de cada evento (muy pesado) — y esa consulta se corta en 1000 filas, así que la lista puede quedar incompleta.
+3. Reagrupa y deduplica los ~4.275 eventos en memoria, consulta sus etiquetas y manda la lista entera al navegador.
+4. El navegador recibe varios MB, y solo después filtra, ordena y muestra.
 
-Causas confirmadas:
+El resultado es una primera carga lenta, filtros que se sienten pesados y resultados potencialmente truncados.
 
-1. **Techo de 1.000 filas**: la vista autenticada de Settings lee `event_sources` fila por fila desde el navegador; PostgREST corta en 1.000 filas → 985 eventos únicos. No es un problema de datos, es la consulta.
-2. **La RPC `get_my_event_library_stats` no existe** en la base (`to_regproc` = null), así que nunca se usa el camino rápido del servidor.
-3. **Luma conectados = 0**: el resumen deduplica por identidad y descarta la fila conectada cuando ya vio una externa equivalente, en vez de preferir la conectada.
-4. **La migración `20260729180000_api_enrichment_change_log.sql` nunca se aplicó**: faltan `topics`, `audience`, `language_code`, `country_code`, `is_online`, `event_format`, `enrichment`, `timezone`, la tabla `event_change_log` y `api_tokens.scopes/expires_at`. Por eso hay 23 sync jobs fallidos con `column canonical_events.external_ids does not exist` y las etiquetas (`tags`, `suggested_tags`) están 100% vacías (0 de 4.136).
-5. Las otras causas históricas de fallo (constraint global de `scraped_events`, `finalize_scoped_calendar_sync`, `source_type` check) **ya están reparadas**; esos 932 jobs `failed` son antiguos. Lo que sigue vivo es "Calendar is not publicly accessible" (596 intentos, calendarios Luma públicos que Luma bloquea).
+## Qué vamos a hacer
 
-Sobre "muchas dbs con eventos": no son bases distintas, son 4 tablas de una misma base con roles distintos — `event_sources` (6.5k = una fila por avistamiento de un evento en un calendario), `scraped_events` (5.6k = caché crudo del scraper), `canonical_events` (4.1k = la verdad deduplicada), `event_sync_jobs` (1.1k = historial de jobs). La jerarquía es correcta; lo que falta es limpieza de caché y que **todos los contadores salgan solo de `canonical_events`**.
+### 1. Lectura paginada y filtrada en el servidor
+Nueva función de servidor que consulta directamente la tabla canónica con filtros (búsqueda, proveedor, ciudad, país, idioma, formato, online, rango de fechas, estado temporal), orden y paginación reales, devolviendo solo la página visible más el total. La página de eventos pasa a pedir páginas de 60 eventos con scroll/paginación en lugar de la biblioteca completa.
 
-## Plan
+### 2. Payload liviano
+Se dejan de traer los campos pesados (`payload`, descripciones largas) en las listas. La descripción completa y las fuentes se cargan solo al abrir el detalle del evento. Esto reduce drásticamente el peso de la respuesta.
 
-### 1. Migración (backend nativo de Lovable)
-- Aplicar la migración de enriquecimiento pendiente (columnas de `canonical_events`, `event_change_log`, `api_tokens.scopes/expires_at`) de forma idempotente.
-- Crear una única RPC canónica `get_my_event_library_stats()` (SECURITY DEFINER, scoped a `auth.uid()`) que devuelva en **una sola consulta**: total de calendarios, activos, Luma conectados, Luma externos, Meetup, otros, fusionados/ocultos, fuentes con error, y total / upcoming / past / sin fecha de eventos — global y por proveedor, contando `DISTINCT canonical_event_id`.
-- Retención de caché: purgar `scraped_events` de calendarios ya consolidados y jobs `failed` de más de 7 días, para que las tablas dejen de crecer sin control.
+### 3. Sin truncados silenciosos
+Los caminos que sí necesitan la biblioteca completa (sincronización, exportación de dataset, `/api/v1/events`) leen en lotes de 1000 con paginación explícita, para que nunca falte información.
 
-### 2. Contabilidad en el servidor
-- `event-library-stats.functions.ts`: usar la RPC como única fuente; eliminar el fallback que pagina `event_sources` desde el cliente (origen del techo de 1.000).
-- Corregir el resumen de biblioteca para que una fila conectada gane siempre sobre su duplicada externa (Luma conectados debe dar 3, no 0).
+### 4. Índices de base de datos
+Agregar los índices que faltan para los filtros nuevos (proveedor, ciudad/país, búsqueda por texto sobre nombre) de modo que la consulta paginada responda rápido con 4k+ eventos.
 
-### 3. Settings — panel principal + detalle plegable
-- Fila principal simétrica de 4: **Calendarios · Eventos · Upcoming · Past**.
-- Debajo, un toggle ("Details") que despliega una rejilla alineada por columna:
-  - bajo Calendarios: Luma conectados / Luma externos / Meetup / fusionados / con error;
-  - bajo Eventos: eventos Luma / eventos Meetup / sin fecha.
-- Colapsado por defecto para no ocupar espacio.
+### 5. Cachés y experiencia de carga
+- Reutilizar resultados previos mientras llega la página nueva (sin pantallas en blanco).
+- Búsqueda con retardo corto para no disparar una consulta por cada tecla.
+- Metadatos de calendarios y estadísticas con caché de sesión, en lugar de recalcularse en cada navegación.
 
-### 4. Etiquetas y filtros avanzados en Events
-- Derivar etiquetas de los campos ya definidos por la API (`tags`, `suggested_tags`, `topics`, `audience`, `format`, `level`, `city`, `country`, `language`, `online`).
-- UI de Events: barra de filtros con chips de etiquetas multi-selección, selects de proveedor / ciudad / idioma / formato / online, búsqueda, y los toggles de estado y orden ya existentes; contador de resultados, chips removibles y "Clear all".
-- Estado de filtros en la URL (search params) para que sea compartible, sin romper el orden por defecto (más cercano primero).
+### 6. API externa `/api/v1/events`
+El filtrado y la paginación pasan a hacerse en la base de datos en lugar de en memoria, respetando los mismos parámetros públicos actuales (sin cambios incompatibles para quien ya consuma la API).
 
-### 5. API v1
-- Verificar `?tag=`/`?topic=`/`?format=`/`?online=`/`?language=` contra las nuevas columnas y que `scopes`/`expires_at` de tokens se apliquen; actualizar `docs/api.md` y `docs/openapi.yaml` si difieren.
+## Detalles técnicos
 
-### 6. Verificación final
-- Confirmar por SQL que Settings muestra 144 calendarios y 4.136 eventos (o el valor real tras resync), Luma conectados = 3.
-- Reencolar los calendarios Luma que fallaron por enrichment y reportar los que siguen inaccesibles con su motivo.
-- Tests + typecheck + build.
+- Nueva `listEventsPage` en `src/lib/luma.functions.ts` (validada con Zod: `calendarId`, `q`, `provider`, `status`, `sort`, `from`/`to`, `city`, `country`, `language`, `online`, `format`, `topics`, `limit`, `offset`) que llama a un nuevo `queryCanonicalEventsPage` en `src/lib/events-aggregate.server.ts` usando `select(..., { count: "exact" })` + `.range()` y `.or(name.ilike...)` para la búsqueda.
+- `collectEventSourceInputsForUser` mantiene el camino "full library" pero con paginación por lotes (`.range(offset, offset+999)` en bucle) y sin `payload` salvo cuando el llamador lo pida (`includePayload`), que sí lo necesita la sincronización.
+- Migración con `CREATE INDEX IF NOT EXISTS` sobre `canonical_events (user_id, event_format)`, `(user_id, country_code)`, `(user_id, lower(city))`, índice `gin` trigram para `name`, y `event_sources (user_id, provider, canonical_event_id)`.
+- `src/routes/_authenticated/events.tsx`: la query pasa a `keepPreviousData`, incluye los filtros en la `queryKey`, aplica `useDebouncedValue` de 250 ms a la búsqueda; los chips de tags/topics con conteos se alimentan de las facetas devueltas por el servidor.
+- `src/routes/api/v1/events.ts` delega filtros/orden/cursor a `queryCanonicalEventsPage`; el cursor opaco sigue codificando el offset.
+- Tests: extender `src/lib/__tests__/event-filtering.test.ts` y `api-v1.test.ts` para cubrir paginación, conteo total y equivalencia de filtros con la lógica anterior.
 
-## Nota
-No borro ni reseteo datos existentes; solo caché (`scraped_events`) y jobs antiguos, que se regeneran.
+## Fuera de alcance
+
+Sin cambios de diseño visual ni de la lógica de generación de badges.
+
+## Paso 0: arreglar el error de compilación actual
+
+El tipo `EventsSearch` en `src/routes/_authenticated/events.tsx` no incluye `status`, aunque el esquema de la URL sí lo valida. Se agrega `status: "all" | "upcoming" | "past"` al tipo, lo que resuelve los 4 errores de TypeScript actuales.
