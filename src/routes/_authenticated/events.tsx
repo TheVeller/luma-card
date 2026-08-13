@@ -78,6 +78,11 @@ function toStringArray(value: unknown): string[] {
   return [];
 }
 
+/** How many cards are mounted before "Load more". Keeps the DOM small on 4k+ libraries. */
+const PAGE_SIZE = 60;
+
+
+
 export const Route = createFileRoute("/_authenticated/events")({
   validateSearch: z.object({
     q: z.string().catch(""),
