@@ -299,7 +299,8 @@ async function collectEventSourceInputsForUser(
  */
 export async function aggregateEventsForUser(
   userId: string,
-  opts: { calendarId?: string } = {},
+  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
+
 ): Promise<AggregateResult> {
   const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
 
