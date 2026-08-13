@@ -925,8 +925,6 @@ export type Database = {
         Args: { p_identifier: string; p_user_id: string }
         Returns: string
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never
