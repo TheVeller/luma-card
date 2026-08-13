@@ -128,7 +128,7 @@ async function collectEventSourceInputsForUser(
       if (rowsPage.length < PAGE) break;
     }
 
-    }
+
     type PersistedSource = {
       calendar_row_id: string;
       calendar_public_id: string | null;
