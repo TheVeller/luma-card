@@ -597,8 +597,9 @@ function EventsPage() {
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <input
-              value={q}
-              onChange={(event) => patchSearch({ q: event.target.value })}
+              value={qInput}
+              onChange={(event) => setQInput(event.target.value)}
+
               placeholder="Search events, cities, calendars…"
               className="h-10 min-w-[220px] flex-1 rounded-xl border border-hairline bg-surface/60 px-4 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
               aria-label="Search events"
