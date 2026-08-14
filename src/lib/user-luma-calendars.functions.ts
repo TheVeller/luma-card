@@ -308,6 +308,7 @@ export const addCalendar = createServerFn({ method: "POST" })
       provider: "luma",
       provider_source_id: cal.id,
       ownership: "connected",
+      is_mine: true,
       sync_error: null,
       source_metadata: {
         ...(existingCanonical?.source_metadata ?? {}),
@@ -402,4 +403,41 @@ export const setDefaultCalendar = createServerFn({ method: "POST" })
       .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+/** Flags/unflags a calendar as "mine" (owned by the signed-in user). */
+export const setCalendarMine = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), isMine: z.boolean() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .update({ is_mine: data.isMine, updated_at: new Date().toISOString() } as never)
+      .eq("id", data.id)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
+    return { ok: true, isMine: data.isMine };
+  });
+
+/** Bulk helper: mark every API-connected calendar as mine. */
+export const markConnectedCalendarsMine = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .update({ is_mine: true, updated_at: new Date().toISOString() } as never)
+      .eq("user_id", context.userId)
+      .eq("ownership", "connected")
+      .is("merged_into_id", null)
+      .select("id");
+    if (error) throw new Error(error.message);
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
+    return { updated: ((data as unknown[] | null) ?? []).length };
   });
