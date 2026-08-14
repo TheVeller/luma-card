@@ -908,6 +908,10 @@ function CalendarOrganizer({
   const [groupName, setGroupName] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<OwnershipTab>("all");
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [pendingMine, setPendingMine] = useState<Record<string, boolean>>({});
 
   async function refresh() {
     await Promise.all([onChanged(), refetchGroups()]);
