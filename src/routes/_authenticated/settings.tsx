@@ -872,6 +872,8 @@ function SettingsPage() {
   );
 }
 
+type OwnershipTab = "all" | "mine" | "connected" | "not_mine";
+
 function CalendarOrganizer({
   calendars,
   brandKits,
