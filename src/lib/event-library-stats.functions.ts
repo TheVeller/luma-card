@@ -24,6 +24,7 @@ export type CalendarLibrarySummary = {
   totalCalendars: number;
   activeCalendars: number;
   duplicateCalendars: number;
+  mineCalendars: number;
   lumaConnected: number;
   lumaExternal: number;
   meetupExternal: number;
@@ -38,6 +39,7 @@ export type EventLibraryStats = {
   upcoming: number;
   past: number;
   unknown: number;
+  mine: ProviderEventStats;
   calendars: CalendarEventStats[];
   providers: Record<string, ProviderEventStats>;
   library: CalendarLibrarySummary;
@@ -48,6 +50,7 @@ export function emptyLibrarySummary(): CalendarLibrarySummary {
     totalCalendars: 0,
     activeCalendars: 0,
     duplicateCalendars: 0,
+    mineCalendars: 0,
     lumaConnected: 0,
     lumaExternal: 0,
     meetupExternal: 0,
@@ -64,6 +67,7 @@ function emptyStats(): EventLibraryStats {
     upcoming: 0,
     past: 0,
     unknown: 0,
+    mine: { total: 0, upcoming: 0, past: 0, unknown: 0 },
     calendars: [],
     providers: {},
     library: emptyLibrarySummary(),
@@ -77,6 +81,7 @@ type LibraryRow = {
   provider_source_id?: string | null;
   provider: string | null;
   ownership: string | null;
+  is_mine?: boolean | null;
   merged_into_id: string | null;
   sync_status: string | null;
 };
@@ -128,6 +133,7 @@ export function summarizeCalendarLibrary(rows: LibraryRow[]): CalendarLibrarySum
     } else {
       summary.otherProviders++;
     }
+    if (row.is_mine ?? connected) summary.mineCalendars++;
     if (["failed", "inaccessible"].includes(row.sync_status ?? "")) summary.erroredSources++;
   }
   return summary;
@@ -142,7 +148,7 @@ async function readCalendarLibrarySummary(
   const { data, error } = await client
     .from("user_luma_calendars" as never)
     .select(
-      "id,calendar_id,calendar_url,provider_source_id,provider,ownership,merged_into_id,sync_status",
+      "id,calendar_id,calendar_url,provider_source_id,provider,ownership,is_mine,merged_into_id,sync_status",
     )
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
@@ -218,6 +224,12 @@ async function readPersistedStats(
     upcoming: Number(value.upcoming) || 0,
     past: Number(value.past) || 0,
     unknown: Number(value.unknown) || 0,
+    mine: {
+      total: Number(value.mine?.total) || 0,
+      upcoming: Number(value.mine?.upcoming) || 0,
+      past: Number(value.mine?.past) || 0,
+      unknown: Number(value.mine?.unknown) || 0,
+    },
     calendars: Array.isArray(value.calendars)
       ? value.calendars.map((calendar) => ({
           calendarRowId: String(calendar.calendarRowId),
@@ -264,6 +276,7 @@ export function summarizePersistedEventStats(
   return {
     library: emptyLibrarySummary(),
     providers: {},
+    mine: { total: 0, upcoming: 0, past: 0, unknown: 0 },
     generatedAt: new Date(now).toISOString(),
     ...summarizeEventCounts([...globalEvents.values()], now),
     calendars: [...eventsByCalendar].map(([calendarRowId, events]) => ({
@@ -296,6 +309,7 @@ export function summarizeSourceEventStats(
   return {
     library: emptyLibrarySummary(),
     providers: {},
+    mine: { total: 0, upcoming: 0, past: 0, unknown: 0 },
     generatedAt: new Date(now).toISOString(),
     ...global,
     calendars: [...inputsByCalendar.entries()].map(([calendarRowId, inputs]) => ({

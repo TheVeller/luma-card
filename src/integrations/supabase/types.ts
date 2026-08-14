@@ -53,6 +53,33 @@ export type Database = {
         }
         Relationships: []
       }
+      app_user_connections: {
+        Row: {
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          connection_key_ciphertext?: string
+          connector_id?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       badges: {
         Row: {
           created_at: string
@@ -478,6 +505,92 @@ export type Database = {
           },
         ]
       }
+      notion_event_pages: {
+        Row: {
+          canonical_event_id: string
+          content_hash: string | null
+          created_at: string
+          database_id: string
+          id: string
+          last_synced_at: string
+          notion_page_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          canonical_event_id: string
+          content_hash?: string | null
+          created_at?: string
+          database_id: string
+          id?: string
+          last_synced_at?: string
+          notion_page_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          canonical_event_id?: string
+          content_hash?: string | null
+          created_at?: string
+          database_id?: string
+          id?: string
+          last_synced_at?: string
+          notion_page_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notion_event_pages_canonical_event_id_fkey"
+            columns: ["canonical_event_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notion_sync_settings: {
+        Row: {
+          auto_sync: boolean
+          created_at: string
+          database_id: string | null
+          database_title: string | null
+          last_error: string | null
+          last_result: Json
+          last_run_at: string | null
+          last_status: string | null
+          parent_page_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_sync?: boolean
+          created_at?: string
+          database_id?: string | null
+          database_title?: string | null
+          last_error?: string | null
+          last_result?: Json
+          last_run_at?: string | null
+          last_status?: string | null
+          parent_page_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_sync?: boolean
+          created_at?: string
+          database_id?: string | null
+          database_title?: string | null
+          last_error?: string | null
+          last_result?: Json
+          last_run_at?: string | null
+          last_status?: string | null
+          parent_page_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       saved_event_views: {
         Row: {
           created_at: string
@@ -671,6 +784,7 @@ export type Database = {
           id: string
           imported_count: number
           is_default: boolean
+          is_mine: boolean
           last_sync_attempted_at: string | null
           last_sync_scope: string | null
           last_synced_at: string | null
@@ -717,6 +831,7 @@ export type Database = {
           id?: string
           imported_count?: number
           is_default?: boolean
+          is_mine?: boolean
           last_sync_attempted_at?: string | null
           last_sync_scope?: string | null
           last_synced_at?: string | null
@@ -763,6 +878,7 @@ export type Database = {
           id?: string
           imported_count?: number
           is_default?: boolean
+          is_mine?: boolean
           last_sync_attempted_at?: string | null
           last_sync_scope?: string | null
           last_synced_at?: string | null

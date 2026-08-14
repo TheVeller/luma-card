@@ -43,16 +43,18 @@ export const listEvents = createServerFn({ method: "GET" })
     }
     const { resolveCanonicalCalendarRowId } = await import("./calendar-identity.server");
     const resolvedRowId =
-      calendarId && calendarId !== "__all__"
+      calendarId && calendarId !== "__all__" && calendarId !== "__mine__"
         ? await resolveCanonicalCalendarRowId(context.userId, calendarId)
         : null;
 
     // Combined view: fan out across every linked calendar + scraped ones.
     // Shared with the external /api/v1/events route via aggregateEventsForUser.
-    if (calendarId === "__all__") {
+    // "__mine__" is the same fan-out restricted to calendars flagged as mine.
+    if (calendarId === "__all__" || calendarId === "__mine__") {
       if (allRows.length === 0) return [];
       const { events } = await aggregateCanonicalEventsForUser(context.userId, {
         calendarId: "__all__",
+        ownership: calendarId === "__mine__" ? "mine" : "all",
         includePayload: false,
         slimDescription: true,
       });

@@ -8,7 +8,9 @@ import { getLumaConfig } from "@/lib/user-luma-key.functions";
 import {
   addCalendar,
   listCalendars,
+  markConnectedCalendarsMine,
   removeCalendar,
+  setCalendarMine,
   setDefaultCalendar,
   type UserCalendarDTO,
 } from "@/lib/user-luma-calendars.functions";
@@ -376,6 +378,7 @@ function SettingsPage() {
                   ["Duplicates collapsed", eventStats?.library.duplicateCalendars ?? 0],
                   ["Merged / hidden", eventStats?.library.mergedHidden ?? 0],
                   ["With sync errors", eventStats?.library.erroredSources ?? 0],
+                  ["Mine", eventStats?.library.mineCalendars ?? 0],
                   ["Rows stored", eventStats?.library.totalCalendars ?? 0],
                 ] as const
               ).map(([label, value]) => (
@@ -393,6 +396,8 @@ function SettingsPage() {
                   ["Luma upcoming", eventStats?.providers?.luma?.upcoming ?? 0],
                   ["Meetup events", eventStats?.providers?.meetup?.total ?? 0],
                   ["Meetup upcoming", eventStats?.providers?.meetup?.upcoming ?? 0],
+                  ["My events", eventStats?.mine?.total ?? 0],
+                  ["My upcoming", eventStats?.mine?.upcoming ?? 0],
                   ["Without a date", eventStats?.unknown ?? 0],
                 ] as const
               ).map(([label, value]) => (
@@ -882,6 +887,8 @@ function CalendarOrganizer({
   const createGroup = useServerFn(createCalendarGroup);
   const deleteGroup = useServerFn(deleteCalendarGroup);
   const saveOrganization = useServerFn(saveCalendarOrganization);
+  const toggleMine = useServerFn(setCalendarMine);
+  const claimConnected = useServerFn(markConnectedCalendarsMine);
   const acceptSuggestion = useServerFn(acceptCalendarGroupSuggestion);
   const { data: groups = [], refetch: refetchGroups } = useQuery({
     queryKey: ["calendar-groups"],
@@ -983,6 +990,23 @@ function CalendarOrganizer({
         >
           <Plus className="size-4" />
         </button>
+        <button
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await claimConnected({});
+              await refresh();
+              qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving}
+          className="h-9 whitespace-nowrap rounded-md border border-hairline px-3 text-[11px] font-semibold disabled:opacity-40"
+          title="Mark every API-connected calendar as mine"
+        >
+          Claim connected
+        </button>
       </div>
 
       <div className="mt-4 space-y-5">
@@ -1057,6 +1081,11 @@ function CalendarOrganizer({
                               default
                             </span>
                           )}
+                          {calendar.isMine && (
+                            <span className="font-mono text-[9px] uppercase text-emerald-400">
+                              mine
+                            </span>
+                          )}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1">
                           <span className="rounded-full border border-hairline bg-surface-2 px-2 py-0.5 font-mono text-[9px] uppercase text-foreground">
@@ -1119,6 +1148,24 @@ function CalendarOrganizer({
                         )}
                       </div>
                       <div className="col-span-3 flex flex-wrap items-center justify-end gap-1 sm:col-span-1">
+                        <button
+                          onClick={async () => {
+                            await toggleMine({
+                              data: { id: calendar.id, isMine: !calendar.isMine },
+                            });
+                            await refresh();
+                            qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+                          }}
+                          disabled={busy || saving}
+                          className={`h-8 rounded-md border px-2 text-[11px] font-semibold disabled:opacity-40 ${
+                            calendar.isMine
+                              ? "border-emerald-500/40 text-emerald-400"
+                              : "border-hairline text-muted-foreground"
+                          }`}
+                          title={calendar.isMine ? "Unmark as mine" : "Mark as mine"}
+                        >
+                          {calendar.isMine ? "Mine ✓" : "Mine"}
+                        </button>
                         <button
                           onClick={() => onSync(calendar.id, "auto")}
                           disabled={busy || saving || syncing || calendar.syncStatus === "running"}

@@ -43,6 +43,7 @@ export type UserCalendarDTO = {
   organizationManual: boolean;
   provider: "luma" | "eventbrite" | "meetup";
   ownership: "connected" | "external";
+  isMine: boolean;
   providerSourceId: string | null;
   brandKitId: string | null;
   syncAllEvents: boolean;
@@ -87,6 +88,7 @@ export type Row = {
   provider_source_id?: string | null;
   provider_connection_id?: string | null;
   ownership?: "connected" | "external" | null;
+  is_mine?: boolean | null;
   sync_all_events?: boolean | null;
   brand_kit_id?: string | null;
 };
@@ -154,6 +156,7 @@ function toDTO(
     organizationManual: r.organization_manual ?? false,
     provider: r.provider ?? "luma",
     ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
+    isMine: r.is_mine ?? (r.ownership ?? (r.source === "api" ? "connected" : "external")) === "connected",
     providerSourceId: r.provider_source_id ?? null,
     brandKitId: r.brand_kit_id ?? null,
     syncAllEvents: r.sync_all_events ?? false,
@@ -165,7 +168,7 @@ export async function readUserCalendars(userId: string): Promise<Row[]> {
   const { data } = await supabaseAdmin
     .from("user_luma_calendars" as never)
     .select(
-      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, last_sync_attempted_at, historical_sync_completed_at, last_sync_scope, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id, provider, provider_source_id, provider_connection_id, ownership, sync_all_events, brand_kit_id",
+      "id, user_id, calendar_id, calendar_name, calendar_slug, calendar_avatar_url, calendar_url, api_key_ciphertext, is_default, source, source_kind, curated_name, remote_name, sync_status, sync_error, discovered_count, imported_count, last_synced_at, last_sync_attempted_at, historical_sync_completed_at, last_sync_scope, next_sync_at, calendar_cover_url, calendar_description, calendar_tint_color, metadata_version, group_id, sort_order, suggested_group_name, suggested_group_reason, source_metadata, organization_manual, luma_calendar_id, merged_into_id, provider, provider_source_id, provider_connection_id, ownership, is_mine, sync_all_events, brand_kit_id",
     )
     .eq("user_id", userId)
     .is("merged_into_id", null)
@@ -305,6 +308,7 @@ export const addCalendar = createServerFn({ method: "POST" })
       provider: "luma",
       provider_source_id: cal.id,
       ownership: "connected",
+      is_mine: true,
       sync_error: null,
       source_metadata: {
         ...(existingCanonical?.source_metadata ?? {}),
@@ -399,4 +403,41 @@ export const setDefaultCalendar = createServerFn({ method: "POST" })
       .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+/** Flags/unflags a calendar as "mine" (owned by the signed-in user). */
+export const setCalendarMine = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), isMine: z.boolean() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .update({ is_mine: data.isMine, updated_at: new Date().toISOString() } as never)
+      .eq("id", data.id)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
+    return { ok: true, isMine: data.isMine };
+  });
+
+/** Bulk helper: mark every API-connected calendar as mine. */
+export const markConnectedCalendarsMine = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("user_luma_calendars" as never)
+      .update({ is_mine: true, updated_at: new Date().toISOString() } as never)
+      .eq("user_id", context.userId)
+      .eq("ownership", "connected")
+      .is("merged_into_id", null)
+      .select("id");
+    if (error) throw new Error(error.message);
+    const { invalidateEventLibraryStatsCache } = await import("./event-library-stats.functions");
+    invalidateEventLibraryStatsCache(context.userId);
+    return { updated: ((data as unknown[] | null) ?? []).length };
   });

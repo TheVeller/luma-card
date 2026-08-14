@@ -67,7 +67,16 @@ export type CalendarMeta = {
   sourceKind: "api" | "calendar" | "profile" | "event";
   provider: "luma" | "eventbrite" | "meetup";
   ownership: "connected" | "external";
+  isMine: boolean;
 };
+
+export type OwnershipFilter = "all" | "mine" | "not_mine";
+
+function isMineRow(r: CalendarRow): boolean {
+  return (
+    r.is_mine ?? (r.ownership ?? (r.source === "api" ? "connected" : "external")) === "connected"
+  );
+}
 
 function metaFor(r: CalendarRow): CalendarMeta {
   return {
@@ -79,14 +88,23 @@ function metaFor(r: CalendarRow): CalendarMeta {
     sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
     provider: r.provider ?? "luma",
     ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
+    isMine: isMineRow(r),
   };
 }
 
 export type AggregateResult = { events: EventDTO[]; calendars: CalendarMeta[] };
 
+export type AggregateOptions = {
+  calendarId?: string;
+  includePayload?: boolean;
+  slimDescription?: boolean;
+  /** Restrict to calendars the user flagged as theirs (or explicitly not theirs). */
+  ownership?: OwnershipFilter;
+};
+
 async function collectEventSourceInputsForUser(
   userId: string,
-  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
+  opts: AggregateOptions = {},
 ): Promise<{ inputs: SourceEventInput[]; rows: CalendarRow[] }> {
   const allRows = await readUserCalendars(userId);
   const wantAll = !opts.calendarId || opts.calendarId === "all" || opts.calendarId === "__all__";
@@ -94,7 +112,12 @@ async function collectEventSourceInputsForUser(
   const resolvedRowId = wantAll
     ? null
     : await resolveCanonicalCalendarRowId(userId, opts.calendarId);
-  const rows = wantAll ? allRows : allRows.filter((r) => r.id === resolvedRowId);
+  const scoped = wantAll ? allRows : allRows.filter((r) => r.id === resolvedRowId);
+  const ownership = opts.ownership ?? "all";
+  const rows =
+    ownership === "all"
+      ? scoped
+      : scoped.filter((r) => (ownership === "mine" ? isMineRow(r) : !isMineRow(r)));
 
   const rowById = new Map(rows.map((row) => [row.id, row]));
   const selectedRowIds = [...rowById.keys()];
@@ -299,7 +322,7 @@ async function collectEventSourceInputsForUser(
  */
 export async function aggregateEventsForUser(
   userId: string,
-  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
+  opts: AggregateOptions = {},
 
 ): Promise<AggregateResult> {
   const { inputs, rows } = await collectEventSourceInputsForUser(userId, opts);
@@ -328,7 +351,7 @@ export async function aggregateEventsForUser(
 
 export async function aggregateCanonicalEventsForUser(
   userId: string,
-  opts: { calendarId?: string; includePayload?: boolean; slimDescription?: boolean } = {},
+  opts: AggregateOptions = {},
 ): Promise<{
   events: CanonicalEventDTO[];
   calendars: CalendarMeta[];

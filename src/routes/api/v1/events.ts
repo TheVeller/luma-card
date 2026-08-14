@@ -56,6 +56,10 @@ export const Route = createFileRoute("/api/v1/events")({
         if (provider && !["luma", "eventbrite", "meetup"].includes(provider)) {
           return apiError(400, "bad_params", "provider must be luma, eventbrite, or meetup");
         }
+        const mineParam = params.get("mine");
+        if (mineParam && !["true", "false"].includes(mineParam)) {
+          return apiError(400, "bad_params", "mine must be true or false");
+        }
         const ownedParam = params.get("owned");
         if (ownedParam && !["true", "false"].includes(ownedParam)) {
           return apiError(400, "bad_params", "owned must be true or false");
@@ -85,6 +89,9 @@ export const Route = createFileRoute("/api/v1/events")({
         const offset = decodeCursor(params.get("cursor"));
         if (offset === null) return apiError(400, "bad_params", "invalid cursor");
 
+        const mineOwnership =
+          mineParam === "true" ? "mine" : mineParam === "false" ? "not_mine" : "all";
+
         try {
           const { aggregateCanonicalEventsForUser, aggregateEventsForUser } =
             await import("@/lib/events-aggregate.server");
@@ -99,10 +106,12 @@ export const Route = createFileRoute("/api/v1/events")({
             mode === "sources"
               ? await aggregateEventsForUser(auth.userId, {
                   calendarId: calendar,
+                  ownership: mineOwnership,
                   includePayload: false,
                 })
               : await aggregateCanonicalEventsForUser(auth.userId, {
                   calendarId: calendar,
+                  ownership: mineOwnership,
                   includePayload: false,
                 });
 
@@ -241,6 +250,7 @@ export const Route = createFileRoute("/api/v1/events")({
               filters: {
                 calendar,
                 provider,
+                mine: mineParam,
                 owned: ownedParam,
                 status,
                 at,
