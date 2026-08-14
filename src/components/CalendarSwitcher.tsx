@@ -100,6 +100,24 @@ export function CalendarSwitcher() {
                 </button>
               </li>
             )}
+            {(cals?.filter((c) => c.isMine).length ?? 0) > 0 && (
+              <li>
+                <button
+                  onClick={() => pick("__mine__")}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2 ${
+                    activeCalendarId === "__mine__" ? "bg-surface-2" : ""
+                  }`}
+                >
+                  <div className="grid h-7 w-7 place-items-center rounded-md border border-hairline text-xs">
+                    ★
+                  </div>
+                  <span className="text-sm font-medium">My calendars</span>
+                  <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {eventStats?.mine?.upcoming ?? 0}/{eventStats?.mine?.total ?? 0}
+                  </span>
+                </button>
+              </li>
+            )}
             {grouped.map((group) => (
               <li key={group.id}>
                 <div className="px-3 pb-1 pt-2 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -206,6 +224,7 @@ function pickActive(
   activeId: string | null,
 ): { name: string; avatarUrl: string | null; badge: string } {
   if (activeId === "__all__") return { name: "All calendars", avatarUrl: null, badge: "∞" };
+  if (activeId === "__mine__") return { name: "My calendars", avatarUrl: null, badge: "★" };
   if (!cals || cals.length === 0) return { name: "Setup required", avatarUrl: null, badge: "?" };
   const picked =
     (activeId && cals.find((c) => c.calendarId === activeId)) ||
