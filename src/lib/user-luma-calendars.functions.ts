@@ -43,6 +43,7 @@ export type UserCalendarDTO = {
   organizationManual: boolean;
   provider: "luma" | "eventbrite" | "meetup";
   ownership: "connected" | "external";
+  isMine: boolean;
   providerSourceId: string | null;
   brandKitId: string | null;
   syncAllEvents: boolean;
