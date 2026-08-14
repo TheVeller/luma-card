@@ -143,6 +143,7 @@ describe("library summary", () => {
       otherProviders: 0,
       mergedHidden: 1,
       erroredSources: 1,
+      mineCalendars: 1,
     });
   });
 });
