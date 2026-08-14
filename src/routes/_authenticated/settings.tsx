@@ -968,22 +968,201 @@ function CalendarOrganizer({
     await persist(rest);
   }
 
+  const counts = useMemo(
+    () => ({
+      all: calendars.length,
+      mine: calendars.filter((calendar) => calendar.isMine).length,
+      connected: calendars.filter((calendar) => calendar.ownership === "connected").length,
+      not_mine: calendars.filter((calendar) => !calendar.isMine).length,
+    }),
+    [calendars],
+  );
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return calendars.filter((calendar) => {
+      if (needle && !`${calendar.name} ${calendar.provider}`.toLowerCase().includes(needle))
+        return false;
+      if (tab === "mine") return calendar.isMine;
+      if (tab === "not_mine") return !calendar.isMine;
+      if (tab === "connected") return calendar.ownership === "connected";
+      return true;
+    });
+  }, [calendars, query, tab]);
+
   const buckets = [
     ...groups.map((group) => ({
       id: group.id as string | null,
       name: group.name,
-      calendars: calendars.filter((calendar) => calendar.groupId === group.id),
+      calendars: visible.filter((calendar) => calendar.groupId === group.id),
     })),
     {
       id: null,
       name: "Ungrouped",
-      calendars: calendars.filter((calendar) => !calendar.groupId),
+      calendars: visible.filter((calendar) => !calendar.groupId),
     },
+  ].filter((bucket) => bucket.calendars.length > 0 || (!query.trim() && tab === "all"));
+
+  function bucketKey(id: string | null) {
+    return id ?? "__ungrouped__";
+  }
+
+  function isBucketOpen(bucket: { id: string | null; calendars: UserCalendarDTO[] }) {
+    const override = openGroups[bucketKey(bucket.id)];
+    if (typeof override === "boolean") return override;
+    if (query.trim() || tab !== "all") return true;
+    return bucket.calendars.some((calendar) => calendar.isMine);
+  }
+
+  async function setMine(calendar: UserCalendarDTO, next: boolean) {
+    setPendingMine((current) => ({ ...current, [calendar.id]: true }));
+    try {
+      await toggleMine({ data: { id: calendar.id, isMine: next } });
+      await refresh();
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+      toast.success(next ? `${calendar.name} marked as mine` : `${calendar.name} unmarked`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update ownership");
+    } finally {
+      setPendingMine((current) => {
+        const next2 = { ...current };
+        delete next2[calendar.id];
+        return next2;
+      });
+    }
+  }
+
+  async function bulkSetMine(next: boolean) {
+    const targets = visible.filter((calendar) => calendar.isMine !== next);
+    if (targets.length === 0) {
+      toast.info("Nothing to update in the current view");
+      return;
+    }
+    setSaving(true);
+    try {
+      const queue = [...targets];
+      const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+        while (queue.length > 0) {
+          const calendar = queue.shift();
+          if (!calendar) return;
+          await toggleMine({ data: { id: calendar.id, isMine: next } });
+        }
+      });
+      await Promise.all(workers);
+      await refresh();
+      qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+      toast.success(
+        `${targets.length} calendar${targets.length === 1 ? "" : "s"} ${next ? "marked as mine" : "unmarked"}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bulk update failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const tabs: Array<{ id: OwnershipTab; label: string; count: number }> = [
+    { id: "all", label: "All", count: counts.all },
+    { id: "mine", label: "Mine", count: counts.mine },
+    { id: "connected", label: "Connected", count: counts.connected },
+    { id: "not_mine", label: "Not mine", count: counts.not_mine },
   ];
 
   return (
     <div className="mt-4">
-      <div className="flex gap-2">
+      <p className="text-xs text-muted-foreground">
+        Turn on the <span className="font-semibold text-foreground">Mine</span> switch for the
+        calendars you own. “My calendars” in Events and the Notion sync only use these.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search calendars"
+            className="w-full rounded-md border border-hairline bg-background py-2 pl-8 pr-3 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center rounded-md border border-hairline p-0.5">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id)}
+              className={`h-8 rounded px-2.5 text-[11px] font-semibold transition ${
+                tab === item.id
+                  ? "bg-surface-2 text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {item.label}
+              <span className="ml-1 font-mono tabular-nums opacity-70">{item.count}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => bulkSetMine(true)}
+          disabled={saving || busy}
+          className="h-8 rounded-md border border-emerald-500/40 px-2.5 text-[11px] font-semibold text-emerald-400 disabled:opacity-40"
+          title="Mark every calendar in the current view as mine"
+        >
+          Mark visible as mine
+        </button>
+        <button
+          onClick={() => bulkSetMine(false)}
+          disabled={saving || busy}
+          className="h-8 rounded-md border border-hairline px-2.5 text-[11px] font-semibold text-muted-foreground disabled:opacity-40"
+          title="Unmark every calendar in the current view"
+        >
+          Unmark visible
+        </button>
+        <button
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await claimConnected({});
+              await refresh();
+              qc.invalidateQueries({ queryKey: ["event-library-stats"] });
+              toast.success("All API-connected calendars are marked as mine");
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving || busy}
+          className="h-8 whitespace-nowrap rounded-md border border-hairline px-2.5 text-[11px] font-semibold disabled:opacity-40"
+          title="Mark every API-connected calendar as mine"
+        >
+          Claim connected
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() =>
+              setOpenGroups(
+                Object.fromEntries(buckets.map((bucket) => [bucketKey(bucket.id), true])),
+              )
+            }
+            className="h-8 rounded-md border border-hairline px-2.5 text-[11px] text-muted-foreground"
+          >
+            Expand all
+          </button>
+          <button
+            onClick={() =>
+              setOpenGroups(
+                Object.fromEntries(buckets.map((bucket) => [bucketKey(bucket.id), false])),
+              )
+            }
+            className="h-8 rounded-md border border-hairline px-2.5 text-[11px] text-muted-foreground"
+          >
+            Collapse all
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex gap-2">
         <input
           value={groupName}
           onChange={(event) => setGroupName(event.target.value)}
@@ -1001,30 +1180,18 @@ function CalendarOrganizer({
         >
           <Plus className="size-4" />
         </button>
-        <button
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await claimConnected({});
-              await refresh();
-              qc.invalidateQueries({ queryKey: ["event-library-stats"] });
-            } finally {
-              setSaving(false);
-            }
-          }}
-          disabled={saving}
-          className="h-9 whitespace-nowrap rounded-md border border-hairline px-3 text-[11px] font-semibold disabled:opacity-40"
-          title="Mark every API-connected calendar as mine"
-        >
-          Claim connected
-        </button>
       </div>
 
       <div className="mt-4 space-y-5">
         {buckets.map((bucket) => (
-          <Collapsible key={bucket.id ?? "ungrouped"} defaultOpen={bucket.calendars.length > 0}>
+          <Collapsible
+            key={bucketKey(bucket.id)}
+            open={isBucketOpen(bucket)}
+            onOpenChange={(open) =>
+              setOpenGroups((current) => ({ ...current, [bucketKey(bucket.id)]: open }))
+            }
+          >
             <section
-              key={bucket.id ?? "ungrouped"}
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => {
                 if (draggedId) moveCalendar(draggedId, bucket.id);
@@ -1032,9 +1199,12 @@ function CalendarOrganizer({
               }}
             >
               <CollapsibleTrigger asChild>
-                <div className="flex w-full items-center justify-between border-b border-hairline pb-2 text-left">
+                <div className="flex w-full cursor-pointer items-center justify-between border-b border-hairline pb-2 text-left">
                   <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    {bucket.name} · {bucket.calendars.length}
+                    {bucket.name} · {bucket.calendars.length} calendars ·{" "}
+                    <span className="text-emerald-400">
+                      {bucket.calendars.filter((calendar) => calendar.isMine).length} mine
+                    </span>
                   </div>
                   {bucket.id && (
                     <button
@@ -1067,7 +1237,9 @@ function CalendarOrganizer({
                         }
                         setDraggedId(null);
                       }}
-                      className="grid grid-cols-[auto_40px_minmax(0,1fr)] items-center gap-2 py-3 sm:grid-cols-[auto_40px_minmax(0,1fr)_auto]"
+                      className={`grid grid-cols-[auto_40px_minmax(0,1fr)] items-center gap-2 py-3 pl-2 sm:grid-cols-[auto_40px_minmax(0,1fr)_auto] ${
+                        calendar.isMine ? "border-l-2 border-emerald-500/60 bg-emerald-500/[0.03]" : ""
+                      }`}
                     >
                       <GripVertical
                         className="size-4 cursor-grab text-muted-foreground"
@@ -1090,11 +1262,6 @@ function CalendarOrganizer({
                           {calendar.isDefault && (
                             <span className="font-mono text-[9px] uppercase text-accent">
                               default
-                            </span>
-                          )}
-                          {calendar.isMine && (
-                            <span className="font-mono text-[9px] uppercase text-emerald-400">
-                              mine
                             </span>
                           )}
                         </div>
@@ -1158,25 +1325,25 @@ function CalendarOrganizer({
                           </button>
                         )}
                       </div>
-                      <div className="col-span-3 flex flex-wrap items-center justify-end gap-1 sm:col-span-1">
-                        <button
-                          onClick={async () => {
-                            await toggleMine({
-                              data: { id: calendar.id, isMine: !calendar.isMine },
-                            });
-                            await refresh();
-                            qc.invalidateQueries({ queryKey: ["event-library-stats"] });
-                          }}
-                          disabled={busy || saving}
-                          className={`h-8 rounded-md border px-2 text-[11px] font-semibold disabled:opacity-40 ${
-                            calendar.isMine
-                              ? "border-emerald-500/40 text-emerald-400"
-                              : "border-hairline text-muted-foreground"
-                          }`}
+                      <div className="col-span-3 flex flex-wrap items-center justify-end gap-2 sm:col-span-1">
+                        <label
+                          className="flex items-center gap-2 rounded-md border border-hairline px-2 py-1.5"
                           title={calendar.isMine ? "Unmark as mine" : "Mark as mine"}
                         >
-                          {calendar.isMine ? "Mine ✓" : "Mine"}
-                        </button>
+                          <Switch
+                            checked={calendar.isMine}
+                            disabled={busy || saving || !!pendingMine[calendar.id]}
+                            onCheckedChange={(next) => setMine(calendar, next)}
+                            aria-label={`Mark ${calendar.name} as mine`}
+                          />
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              calendar.isMine ? "text-emerald-400" : "text-muted-foreground"
+                            }`}
+                          >
+                            Mine
+                          </span>
+                        </label>
                         <button
                           onClick={() => onSync(calendar.id, "auto")}
                           disabled={busy || saving || syncing || calendar.syncStatus === "running"}
@@ -1185,63 +1352,82 @@ function CalendarOrganizer({
                         >
                           Sync now
                         </button>
-                        <button
-                          onClick={() => onSync(calendar.id, "full")}
-                          disabled={busy || saving || syncing || calendar.syncStatus === "running"}
-                          className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
-                          title="Reconcile the complete event history"
-                        >
-                          Full resync
-                        </button>
-                        {calendar.ownership === "connected" && brandKits.length > 0 && (
-                          <select
-                            value={calendar.brandKitId ?? ""}
-                            onChange={(event) =>
-                              onAssignBrandKit(calendar.id, event.target.value || null)
-                            }
-                            className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
-                            aria-label={`Brand kit for ${calendar.name}`}
-                          >
-                            <option value="">Default kit</option>
-                            {brandKits.map((kit) => (
-                              <option key={kit.id} value={kit.id}>
-                                {kit.name}
-                              </option>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="inline-flex size-8 items-center justify-center rounded-md border border-hairline text-muted-foreground hover:text-foreground"
+                              title={`More actions for ${calendar.name}`}
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem
+                              disabled={busy || saving || syncing}
+                              onSelect={() => onSync(calendar.id, "full")}
+                            >
+                              Full resync
+                            </DropdownMenuItem>
+                            {!calendar.isDefault && (
+                              <DropdownMenuItem
+                                disabled={busy || saving}
+                                onSelect={() => onSetDefault(calendar.id)}
+                              >
+                                Make default
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              Group
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onSelect={() => moveCalendar(calendar.id, null)}
+                              disabled={!calendar.groupId}
+                            >
+                              Ungrouped
+                            </DropdownMenuItem>
+                            {groups.map((group) => (
+                              <DropdownMenuItem
+                                key={group.id}
+                                onSelect={() => moveCalendar(calendar.id, group.id)}
+                                disabled={calendar.groupId === group.id}
+                              >
+                                {group.name}
+                              </DropdownMenuItem>
                             ))}
-                          </select>
-                        )}
-                        <select
-                          value={calendar.groupId ?? ""}
-                          onChange={(event) =>
-                            moveCalendar(calendar.id, event.target.value || null)
-                          }
-                          className="h-8 max-w-32 rounded-md border border-hairline bg-background px-2 text-[11px]"
-                          aria-label={`Group for ${calendar.name}`}
-                        >
-                          <option value="">Ungrouped</option>
-                          {groups.map((group) => (
-                            <option key={group.id} value={group.id}>
-                              {group.name}
-                            </option>
-                          ))}
-                        </select>
-                        {!calendar.isDefault && (
-                          <button
-                            onClick={() => onSetDefault(calendar.id)}
-                            disabled={busy || saving}
-                            className="h-8 rounded-md border border-hairline px-2 text-[11px] font-semibold disabled:opacity-40"
-                          >
-                            Default
-                          </button>
-                        )}
-                        <button
-                          onClick={() => onRemove(calendar.id, calendar.name)}
-                          disabled={busy || saving}
-                          className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-40"
-                          title={`Remove ${calendar.name}`}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                            {calendar.ownership === "connected" && brandKits.length > 0 && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  Brand kit
+                                </DropdownMenuLabel>
+                                <DropdownMenuItem
+                                  onSelect={() => onAssignBrandKit(calendar.id, null)}
+                                  disabled={!calendar.brandKitId}
+                                >
+                                  Default kit
+                                </DropdownMenuItem>
+                                {brandKits.map((kit) => (
+                                  <DropdownMenuItem
+                                    key={kit.id}
+                                    onSelect={() => onAssignBrandKit(calendar.id, kit.id)}
+                                    disabled={calendar.brandKitId === kit.id}
+                                  >
+                                    {kit.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              </>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              disabled={busy || saving}
+                              onSelect={() => onRemove(calendar.id, calendar.name)}
+                            >
+                              Remove calendar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                   ))}
@@ -1253,7 +1439,13 @@ function CalendarOrganizer({
             </section>
           </Collapsible>
         ))}
+        {buckets.length === 0 && (
+          <div className="py-6 text-center text-xs text-muted-foreground">
+            No calendars match this filter.
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
