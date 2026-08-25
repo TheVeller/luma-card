@@ -32,6 +32,8 @@ paths:
       tags: [Calendars]
       operationId: listCalendars
       summary: List calendars and sync metadata
+      parameters:
+        - { $ref: "#/components/parameters/Mine" }
       responses:
         "200":
           description: Active calendars and sync metadata.
@@ -50,6 +52,7 @@ paths:
         - { $ref: "#/components/parameters/Calendar" }
         - { $ref: "#/components/parameters/Provider" }
         - { $ref: "#/components/parameters/Owned" }
+        - { $ref: "#/components/parameters/Mine" }
         - { $ref: "#/components/parameters/Mode" }
         - { $ref: "#/components/parameters/Sort" }
         - { $ref: "#/components/parameters/At" }
@@ -132,6 +135,11 @@ components:
       name: owned
       in: query
       description: Restrict results by authorized organizer ownership.
+      schema: { type: boolean }
+    Mine:
+      name: mine
+      in: query
+      description: Restrict to calendars marked as the user's own (true) or not (false).
       schema: { type: boolean }
     Mode:
       name: mode
@@ -219,6 +227,7 @@ components:
         providerSourceId: { type: string, nullable: true }
         brandKitId: { type: string, format: uuid, nullable: true }
         isDefault: { type: boolean }
+        isMine: { type: boolean }
         url: { type: string, format: uri, nullable: true }
         avatarUrl: { type: string, format: uri, nullable: true }
         coverUrl: { type: string, format: uri, nullable: true }
