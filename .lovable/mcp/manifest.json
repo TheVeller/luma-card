@@ -35,7 +35,7 @@
       {
         "name": "list_calendars",
         "title": "List my Luma calendars",
-        "description": "List the signed-in user's connected Luma calendars (API-linked or scraped).",
+        "description": "List the signed-in user's connected calendars (Luma API-linked, Eventbrite, Meetup, or scraped). Use mine=true to only get calendars marked as the user's own.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -44,7 +44,12 @@
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
           "type": "object",
-          "properties": {}
+          "properties": {
+            "mine": {
+              "description": "Filter to calendars marked as the user's own (true) or not (false).",
+              "type": "boolean"
+            }
+          }
         },
         "outputSchema": null
       },
