@@ -25,6 +25,11 @@ export const Route = createFileRoute("/api/v1/calendars")({
         const scopeError = requireScope(auth, "calendars:read");
         if (scopeError) return scopeError;
 
+        const mineParam = new URL(request.url).searchParams.get("mine");
+        if (mineParam && !["true", "false"].includes(mineParam)) {
+          return apiError(400, "bad_params", "mine must be true or false");
+        }
+
         try {
           const { ensureOwnerCuratedCatalog } = await import("@/lib/calendar-sync.server");
           await ensureOwnerCuratedCatalog(auth.userId);
@@ -52,6 +57,14 @@ export const Route = createFileRoute("/api/v1/calendars")({
                 order: group.sort_order,
               })),
               calendars: rows
+                .filter((r) => {
+                  if (!mineParam) return true;
+                  const isMine =
+                    r.is_mine ??
+                    (r.ownership ?? (r.source === "api" ? "connected" : "external")) ===
+                      "connected";
+                  return mineParam === "true" ? isMine : !isMine;
+                })
                 .map((r) => {
                   const group = r.group_id ? groupById.get(r.group_id) : null;
                   const calendarStats = eventStatsByCalendar.get(r.id);
@@ -67,6 +80,10 @@ export const Route = createFileRoute("/api/v1/calendars")({
                     sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
                     provider: r.provider ?? "luma",
                     ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
+                    isMine:
+                      r.is_mine ??
+                      (r.ownership ?? (r.source === "api" ? "connected" : "external")) ===
+                        "connected",
                     providerSourceId: r.provider_source_id ?? null,
                     brandKitId: r.brand_kit_id ?? null,
                     isDefault: r.is_default,

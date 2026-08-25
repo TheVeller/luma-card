@@ -72,7 +72,9 @@ export type CalendarMeta = {
 
 export type OwnershipFilter = "all" | "mine" | "not_mine";
 
-function isMineRow(r: CalendarRow): boolean {
+export function isMineRow(
+  r: Pick<CalendarRow, "is_mine" | "ownership" | "source">,
+): boolean {
   return (
     r.is_mine ?? (r.ownership ?? (r.source === "api" ? "connected" : "external")) === "connected"
   );

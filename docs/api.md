@@ -188,6 +188,7 @@ Calendar fields:
 | `kind` / `sourceKind` | `"api" \| "calendar" \| "profile" \| "event"` | The logical source type (`sourceKind` is the explicit canonical field).                 |
 | `provider`            | `"luma" \| "eventbrite" \| "meetup"`          | Remote event provider.                                                                  |
 | `ownership`           | `"connected" \| "external"`                   | Whether the source comes from an authorized organizer connection.                       |
+| `isMine`              | `boolean`                                     | Whether the user marked this calendar as their own. Filter the list with `?mine=true\|false`. |
 | `isDefault`           | `boolean`                                     | User's default calendar in this app.                                                    |
 | `url`                 | `string \| null`                              | Calendar URL when known.                                                                |
 | `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                                  |
@@ -226,6 +227,7 @@ Query parameters:
 | `calendar` | `string`                              | `all`       | Use `all`, omit it, or pass a current `id`, `canonicalCalendarId`, or any alias returned by `/api/v1/calendars`. |
 | `provider` | `luma \| eventbrite \| meetup`        | —           | Restrict results to one provider.                                                                                |
 | `owned`    | `true \| false`                       | —           | Restrict results by authorized organizer ownership.                                                              |
+| `mine`     | `true \| false`                       | —           | Restrict results to calendars the user marked as their own (`true`) or not (`false`).                            |
 | `mode`     | `canonical \| sources`                | `canonical` | `canonical` returns unique events with `sources`; `sources` returns one row per source/calendar sighting.        |
 | `status`   | `all \| upcoming \| ongoing \| past`  | `all`       | `upcoming` includes events currently in progress; use `ongoing` to return only those events.                     |
 | `sort`     | `upcoming \| start_asc \| start_desc` | `upcoming`  | `upcoming` orders ongoing events first, future events nearest-first, then past events newest-first.              |
@@ -561,6 +563,7 @@ type EventsResponse = {
     calendar: string;
     provider: "luma" | "eventbrite" | "meetup" | null;
     owned: "true" | "false" | null;
+    mine: "true" | "false" | null;
     q: string | null;
     country: string | null;
     city: string | null;
