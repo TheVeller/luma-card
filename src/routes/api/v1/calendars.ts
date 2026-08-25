@@ -57,6 +57,14 @@ export const Route = createFileRoute("/api/v1/calendars")({
                 order: group.sort_order,
               })),
               calendars: rows
+                .filter((r) => {
+                  if (!mineParam) return true;
+                  const isMine =
+                    r.is_mine ??
+                    (r.ownership ?? (r.source === "api" ? "connected" : "external")) ===
+                      "connected";
+                  return mineParam === "true" ? isMine : !isMine;
+                })
                 .map((r) => {
                   const group = r.group_id ? groupById.get(r.group_id) : null;
                   const calendarStats = eventStatsByCalendar.get(r.id);
