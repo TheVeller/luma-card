@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "luma-badge-studio-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "title": "Luma Badge Studio"
     },
     "tools": [
@@ -48,6 +48,47 @@
             "mine": {
               "description": "Filter to calendars marked as the user's own (true) or not (false).",
               "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_events",
+        "title": "List my events",
+        "description": "List the signed-in user's consolidated (canonical) events across all connected calendars. Filter by mine (only events from calendars marked as the user's own), calendar_id, or temporal status.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "mine": {
+              "description": "true = only events from calendars marked as mine; false = only from calendars not marked as mine.",
+              "type": "boolean"
+            },
+            "calendar_id": {
+              "description": "Restrict to a single calendar (its public calendar_id from list_calendars).",
+              "type": "string"
+            },
+            "status": {
+              "description": "Temporal status filter (default all).",
+              "type": "string",
+              "enum": [
+                "all",
+                "upcoming",
+                "ongoing",
+                "past"
+              ]
+            },
+            "limit": {
+              "description": "Max events (default 25).",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
             }
           }
         },
