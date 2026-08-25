@@ -1,14 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { Database } from "@/integrations/supabase/types";
-
-function userClient(token: string) {
-  return createClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { supabaseForUser } from "../supabase";
 
 export default defineTool({
   name: "list_event_style_presets",
@@ -22,7 +14,7 @@ export default defineTool({
   handler: async ({ event_id }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const sb = userClient(ctx.getToken() ?? "");
+    const sb = supabaseForUser(ctx);
     const { data, error } = await sb
       .from("event_style_presets")
       .select("id, label, style_spec, created_at")
