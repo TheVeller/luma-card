@@ -72,6 +72,10 @@ export const Route = createFileRoute("/api/v1/calendars")({
                     sourceKind: r.source_kind ?? (r.source === "api" ? "api" : "calendar"),
                     provider: r.provider ?? "luma",
                     ownership: r.ownership ?? (r.source === "api" ? "connected" : "external"),
+                    isMine:
+                      r.is_mine ??
+                      (r.ownership ?? (r.source === "api" ? "connected" : "external")) ===
+                        "connected",
                     providerSourceId: r.provider_source_id ?? null,
                     brandKitId: r.brand_kit_id ?? null,
                     isDefault: r.is_default,
