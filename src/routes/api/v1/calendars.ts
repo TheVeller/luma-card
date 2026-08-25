@@ -25,6 +25,11 @@ export const Route = createFileRoute("/api/v1/calendars")({
         const scopeError = requireScope(auth, "calendars:read");
         if (scopeError) return scopeError;
 
+        const mineParam = new URL(request.url).searchParams.get("mine");
+        if (mineParam && !["true", "false"].includes(mineParam)) {
+          return apiError(400, "bad_params", "mine must be true or false");
+        }
+
         try {
           const { ensureOwnerCuratedCatalog } = await import("@/lib/calendar-sync.server");
           await ensureOwnerCuratedCatalog(auth.userId);
