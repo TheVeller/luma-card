@@ -563,6 +563,7 @@ type EventsResponse = {
     calendar: string;
     provider: "luma" | "eventbrite" | "meetup" | null;
     owned: "true" | "false" | null;
+    mine: "true" | "false" | null;
     q: string | null;
     country: string | null;
     city: string | null;
