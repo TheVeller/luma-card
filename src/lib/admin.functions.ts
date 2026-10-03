@@ -16,7 +16,7 @@ async function adminSession() {
     password,
     name: "ea-admin",
     maxAge: MAX_AGE,
-    cookie: { httpOnly: true, secure: true, sameSite: "lax", path: "/" },
+    cookie: { httpOnly: true, secure: true, sameSite: "none", path: "/", partitioned: true } as any,
   });
 }
 
