@@ -3,6 +3,7 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getAdminStatus } from "@/lib/admin.functions";
+import { getAdminToken } from "@/lib/admin-token";
 import { supabase } from "@/integrations/supabase/client";
 import { CalendarSwitcher } from "@/components/CalendarSwitcher";
 import { ThemeToggle } from "@/components/ThemeProvider";
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AdminLink() {
   const fn = useServerFn(getAdminStatus);
-  const { data } = useQuery({ queryKey: ["admin-status"], queryFn: () => fn(), staleTime: 300_000 });
+  const { data } = useQuery({ queryKey: ["admin-status"], queryFn: () => fn({ data: { token: getAdminToken() } }), staleTime: 300_000 });
   if (!data?.isAdmin) return null;
   return (
     <Link

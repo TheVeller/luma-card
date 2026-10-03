@@ -9,10 +9,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   getAdminStatus,
   unlockAdmin,
-  lockAdmin,
   getAdminCatalog,
   type AdminEvent,
 } from "@/lib/admin.functions";
+import { getAdminToken, setAdminToken } from "@/lib/admin-token";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -41,7 +41,7 @@ function placeOf(e: AdminEvent) {
 
 function AdminPage() {
   const statusFn = useServerFn(getAdminStatus);
-  const status = useQuery({ queryKey: ["admin-status"], queryFn: () => statusFn() });
+  const status = useQuery({ queryKey: ["admin-status"], queryFn: () => statusFn({ data: { token: getAdminToken() } }) });
   if (status.isLoading) return <Shell>Checking access…</Shell>;
   if (!status.data?.isAdmin)
     return (
@@ -72,8 +72,10 @@ function Unlock() {
           setBusy(true);
           try {
             const r = await fn({ data: { password: pw } });
-            if (r.ok) await qc.invalidateQueries({ queryKey: ["admin-status"] });
-            else toast.error("Incorrect password");
+            if (r.ok) {
+              setAdminToken(r.token);
+              await qc.invalidateQueries({ queryKey: ["admin-status"] });
+            } else toast.error("Incorrect password");
           } catch (err) {
             toast.error(err instanceof Error ? err.message : "Could not unlock");
           } finally {
@@ -92,9 +94,8 @@ function Unlock() {
 
 function Catalog() {
   const fn = useServerFn(getAdminCatalog);
-  const lock = useServerFn(lockAdmin);
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["admin-catalog"], queryFn: () => fn(), staleTime: 60_000 });
+  const q = useQuery({ queryKey: ["admin-catalog"], queryFn: () => fn({ data: { token: getAdminToken() } }), staleTime: 60_000 });
   const [tab, setTab] = useState<"calendars" | "events">("calendars");
   const [search, setSearch] = useState("");
   const [onlyNew, setOnlyNew] = useState(false);
@@ -142,7 +143,7 @@ function Catalog() {
             variant="outline"
             size="sm"
             onClick={async () => {
-              await lock();
+              setAdminToken(null);
               qc.removeQueries({ queryKey: ["admin-catalog"] });
               await qc.invalidateQueries({ queryKey: ["admin-status"] });
             }}

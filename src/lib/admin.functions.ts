@@ -81,10 +81,11 @@ export type AdminEvent = {
   contributors: string[];
 };
 
-export const getAdminCatalog = createServerFn({ method: "GET" })
+export const getAdminCatalog = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    if (!(await isAdmin(context)) || !(await isUnlocked(context.userId))) {
+  .inputValidator(tokenInput)
+  .handler(async ({ data: input, context }) => {
+    if (!(await isAdmin(context)) || !(await isUnlocked(context.userId, input.token))) {
       throw new Error("Forbidden");
     }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
