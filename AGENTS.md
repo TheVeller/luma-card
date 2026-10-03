@@ -8,4 +8,4 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
-- Admin mode is password-gated (ADMIN_PASSWORD) on top of the user_roles admin role; unlock is an encrypted 8h cookie session bound to the user id. Why: role alone isn't enough for the sensitive global catalog.
+- Admin mode is password-gated (ADMIN_PASSWORD) on top of the user_roles admin role; unlock is an 8h HMAC token bound to the user id, kept in sessionStorage (cookies fail in the embedded preview). Why: role alone isn't enough for the sensitive global catalog.
