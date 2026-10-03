@@ -1,6 +1,8 @@
 // Auth gate for the whole authenticated app.
 import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getAdminStatus } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { CalendarSwitcher } from "@/components/CalendarSwitcher";
 import { ThemeToggle } from "@/components/ThemeProvider";
@@ -14,6 +16,20 @@ export const Route = createFileRoute("/_authenticated")({
   },
   component: AuthedShell,
 });
+
+function AdminLink() {
+  const fn = useServerFn(getAdminStatus);
+  const { data } = useQuery({ queryKey: ["admin-status"], queryFn: () => fn(), staleTime: 300_000 });
+  if (!data?.isAdmin) return null;
+  return (
+    <Link
+      to="/admin"
+      className="rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+    >
+      {data.unlocked ? "Admin ●" : "Admin"}
+    </Link>
+  );
+}
 
 function AuthedShell() {
   const { user } = Route.useRouteContext() as {
@@ -61,6 +77,7 @@ function AuthedShell() {
             >
               Settings
             </Link>
+            <AdminLink />
             <ThemeToggle className="ml-1" />
             <div className="ml-2 flex items-center gap-2 rounded-full border border-hairline bg-surface/70 py-1 pl-1 pr-3">
               {user.user_metadata?.avatar_url ? (
