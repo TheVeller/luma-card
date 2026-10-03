@@ -3,21 +3,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-type AdminSession = { unlockedFor?: string; at?: number };
-const MAX_AGE = 60 * 60 * 8; // 8h
+// Unlock = short-lived HMAC token bound to the user id (kept in the browser's
+// sessionStorage). Cookies are unreliable inside the embedded preview.
+const MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
-async function adminSession() {
-  const { useSession } = await import("@tanstack/react-start/server");
-  const { createHash } = await import("node:crypto");
+async function sign(userId: string, exp: number) {
+  const { createHmac } = await import("node:crypto");
   const raw = process.env["APP_ENCRYPTION_KEY"];
   if (!raw) throw new Error("APP_ENCRYPTION_KEY is not set");
-  const password = createHash("sha256").update(`admin-session:${raw}`).digest("hex");
-  return useSession<AdminSession>({
-    password,
-    name: "ea-admin",
-    maxAge: MAX_AGE,
-    cookie: { httpOnly: true, secure: true, sameSite: "none", path: "/", partitioned: true } as any,
-  });
+  return createHmac("sha256", `admin-token:${raw}`).update(`${userId}.${exp}`).digest("hex");
 }
 
 async function isAdmin(ctx: { supabase: any; userId: string }) {
@@ -25,40 +19,42 @@ async function isAdmin(ctx: { supabase: any; userId: string }) {
   return data === true;
 }
 
-async function isUnlocked(userId: string) {
-  const s = await adminSession();
-  return s.data.unlockedFor === userId && !!s.data.at && Date.now() - s.data.at < MAX_AGE * 1000;
+async function isUnlocked(userId: string, token: string | undefined) {
+  if (!token) return false;
+  const [expStr, sig] = token.split(".");
+  const exp = Number(expStr);
+  if (!exp || !sig || exp < Date.now()) return false;
+  const { timingSafeEqual } = await import("node:crypto");
+  const expected = Buffer.from(await sign(userId, exp));
+  const got = Buffer.from(sig);
+  return got.length === expected.length && timingSafeEqual(got, expected);
 }
 
-export const getAdminStatus = createServerFn({ method: "GET" })
+const tokenInput = (d: { token?: string } | undefined) => ({
+  token: typeof d?.token === "string" ? d.token.slice(0, 200) : undefined,
+});
+
+export const getAdminStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator(tokenInput)
+  .handler(async ({ data, context }) => {
     const admin = await isAdmin(context);
-    return { isAdmin: admin, unlocked: admin ? await isUnlocked(context.userId) : false };
+    return { isAdmin: admin, unlocked: admin ? await isUnlocked(context.userId, data.token) : false };
   });
 
 export const unlockAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { password: string }) => ({ password: String(d?.password ?? "").slice(0, 200) }))
   .handler(async ({ data, context }) => {
-    if (!(await isAdmin(context))) return { ok: false as const };
+    if (!(await isAdmin(context))) return { ok: false as const, token: null };
     const expected = process.env["ADMIN_PASSWORD"];
     if (!expected) throw new Error("Admin password is not configured");
     const { createHash, timingSafeEqual } = await import("node:crypto");
-    const a = createHash("sha256").update(data.password).digest();
-    const b = createHash("sha256").update(expected).digest();
-    if (!timingSafeEqual(a, b)) return { ok: false as const };
-    const s = await adminSession();
-    await s.update({ unlockedFor: context.userId, at: Date.now() });
-    return { ok: true as const };
-  });
-
-export const lockAdmin = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    const s = await adminSession();
-    await s.clear();
-    return { ok: true };
+    const a = createHash("sha256").update(data.password.trim()).digest();
+    const b = createHash("sha256").update(expected.trim()).digest();
+    if (!timingSafeEqual(a, b)) return { ok: false as const, token: null };
+    const exp = Date.now() + MAX_AGE_MS;
+    return { ok: true as const, token: `${exp}.${await sign(context.userId, exp)}` };
   });
 
 export type AdminCalendar = {
