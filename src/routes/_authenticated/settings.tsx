@@ -55,9 +55,17 @@ export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
       { title: "Settings — Event Aggregator" },
-      { name: "description", content: "Manage your Luma calendars and API keys." },
+      {
+        name: "description",
+        content:
+          "Manage event calendars, sync sources, API keys, and MCP access in Event Aggregator.",
+      },
       { property: "og:title", content: "Settings — Event Aggregator" },
-      { property: "og:description", content: "Configure the Luma calendars powering your badges." },
+      {
+        property: "og:description",
+        content:
+          "Manage event calendars, sync sources, API keys, and MCP access in Event Aggregator.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
