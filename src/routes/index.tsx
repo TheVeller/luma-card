@@ -10,13 +10,13 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "Luma Badge Studio — Personalized event cards" },
+      { title: "Event Aggregator — Discover events & branded badges" },
       {
         name: "description",
         content:
           "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
       },
-      { property: "og:title", content: "Luma Badge Studio — Personalized event cards" },
+      { property: "og:title", content: "Event Aggregator — Discover events & branded badges" },
       {
         property: "og:description",
         content:
@@ -37,7 +37,7 @@ function Landing() {
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-md bg-accent" />
             <span className="font-display text-sm font-semibold tracking-tight">
-              Luma Badge Studio
+              Event Aggregator
             </span>
           </div>
           <Link
@@ -115,7 +115,7 @@ function Landing() {
 
       <footer className="border-t border-hairline">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 text-xs text-muted-foreground">
-          <span>Luma Badge Studio</span>
+          <span>Event Aggregator</span>
           <span className="font-mono tracking-[0.24em]">· BREW · SHIP · SHARE ·</span>
         </div>
       </footer>

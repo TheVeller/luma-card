@@ -80,9 +80,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Luma Badge Studio — Personalized event cards" },
-      { property: "og:title", content: "Luma Badge Studio — Personalized event cards" },
-      { name: "twitter:title", content: "Luma Badge Studio — Personalized event cards" },
+      { title: "Event Aggregator — Discover events & branded badges" },
+      { property: "og:title", content: "Event Aggregator — Discover events & branded badges" },
+      { name: "twitter:title", content: "Event Aggregator — Discover events & branded badges" },
       { name: "description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
       { property: "og:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
       { name: "twitter:description", content: "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design." },
