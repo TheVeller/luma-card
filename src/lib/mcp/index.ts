@@ -8,11 +8,11 @@ import whoami from "./tools/whoami";
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
 export default defineMcp({
-  name: "luma-badge-studio-mcp",
-  title: "Luma Badge Studio",
+  name: "event-aggregator-mcp",
+  title: "Event Aggregator",
   version: "0.2.0",
   instructions:
-    "Tools for Luma Badge Studio. Read the signed-in user's connected calendars (Luma, Eventbrite, Meetup), their consolidated events, generated badges, and saved AI style presets. Calendars and events can be filtered with `mine` to only the calendars the user marked as their own. Use `whoami` to verify connectivity.",
+    "Tools for Event Aggregator. Read the signed-in user's connected calendars (Luma, Eventbrite, Meetup), their consolidated events, generated badges, and saved AI style presets. Calendars and events can be filtered with `mine` to only the calendars the user marked as their own. Use `whoami` to verify connectivity.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated",
