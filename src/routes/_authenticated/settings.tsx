@@ -54,10 +54,18 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — Luma Badge Studio" },
-      { name: "description", content: "Manage your Luma calendars and API keys." },
-      { property: "og:title", content: "Settings — Luma Badge Studio" },
-      { property: "og:description", content: "Configure the Luma calendars powering your badges." },
+      { title: "Settings — Event Aggregator" },
+      {
+        name: "description",
+        content:
+          "Manage event calendars, sync sources, API keys, and MCP access in Event Aggregator.",
+      },
+      { property: "og:title", content: "Settings — Event Aggregator" },
+      {
+        property: "og:description",
+        content:
+          "Manage event calendars, sync sources, API keys, and MCP access in Event Aggregator.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -426,6 +434,134 @@ function SettingsPage() {
         )}
       </section>
 
+      {/* External API tokens */}
+      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+          API keys · MCP · {tokens?.length ?? 0} tokens
+        </div>
+        <h2 className="mt-1 font-display text-xl font-semibold">API and MCP access</h2>
+        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+          Connect Event Aggregator to agents, automations, and other apps. Create an API key for
+          REST requests, or use the MCP server for authenticated access to calendars, events,
+          badges, and style presets.
+        </p>
+        <div
+          className={`mt-4 rounded-xl border p-3 text-xs ${
+            apiIsPreview
+              ? "border-amber-400/40 bg-amber-400/10 text-amber-100"
+              : "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+          }`}
+        >
+          <div className="font-semibold">API and MCP URLs</div>
+          <code className="mt-1 block break-all font-mono text-[11px]">
+            REST · {apiOrigin || "(deployed origin)"}/api/v1
+          </code>
+          <code className="mt-1 block break-all font-mono text-[11px]">
+            MCP · {apiOrigin || "(deployed origin)"}/mcp
+          </code>
+          {apiIsPreview ? (
+            <p className="mt-2 text-amber-100/80">
+              This Lovable preview/sandbox URL may redirect external requests to the Lovable login.
+              Publish with public access and use its <code>lovable.app</code> or custom-domain URL.
+            </p>
+          ) : (
+            <p className="mt-2 text-emerald-100/80">Use this published origin in your integration.</p>
+          )}
+          <a
+            className="mt-2 inline-block underline underline-offset-2"
+            href={`${apiOrigin}/api/v1/health`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Test health endpoint →
+          </a>
+        </div>
+
+        {newToken && (
+          <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+              Copy now — shown only once
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-lg border border-hairline bg-background px-3 py-2 font-mono text-xs">
+                {newToken}
+              </code>
+              <button
+                onClick={onCopyToken}
+                className="shrink-0 rounded-full border border-hairline px-3 py-2 text-[11px] font-semibold hover:bg-surface"
+              >
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(tokens?.length ?? 0) > 0 && (
+          <ul className="mt-4 space-y-2">
+            {tokens!.map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-display text-sm font-semibold">{t.name}</span>
+                    {t.revokedAt && (
+                      <span className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-destructive">
+                        revoked
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {t.prefix}… ·{" "}
+                    {t.lastUsedAt ? `used ${t.lastUsedAt.slice(0, 10)}` : "never used"}
+                  </div>
+                </div>
+                {!t.revokedAt && (
+                  <button
+                    onClick={() => onRevokeToken(t.id, t.name)}
+                    disabled={tokenBusy}
+                    className="shrink-0 rounded-full border border-destructive/40 px-3 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <input
+            value={tokenName}
+            onChange={(e) => setTokenName(e.target.value)}
+            placeholder="Token name (e.g. n8n workflow)"
+            className="min-w-0 flex-1 rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
+          />
+          <button
+            onClick={onCreateToken}
+            disabled={tokenBusy || !tokenName.trim()}
+            className="shrink-0 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {tokenBusy ? "…" : "Create token"}
+          </button>
+        </div>
+        {tokenErr && <p className="mt-2 text-xs text-destructive">{tokenErr}</p>}
+
+        <div className="mt-5 overflow-x-auto rounded-xl border border-hairline bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <div className="text-foreground">GET {apiOrigin}/api/v1/health <span className="text-muted-foreground">(public)</span></div>
+          <div className="text-foreground">GET {apiOrigin}/api/v1/events?calendar=all</div>
+          <div className="text-foreground">GET {apiOrigin}/api/v1/calendars</div>
+          <div className="mt-2 whitespace-pre">
+            {`curl -H "Authorization: Bearer luma_sk_..." \\
+  "${apiOrigin}/api/v1/events?calendar=all&from=2026-07-01T00:00:00Z&limit=50"`}
+          </div>
+          <div className="mt-2">
+            Params: calendar, from, to, limit, cursor. Full integration guide: docs/api.md
+          </div>
+        </div>
+      </div>
+
       <section className="mt-8 border-y border-hairline py-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -746,128 +882,7 @@ function SettingsPage() {
         )}
       </div>
 
-      {/* External API tokens */}
-      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          External API · Tokens · {tokens?.length ?? 0}
-        </div>
-        <h2 className="mt-1 font-display text-xl font-semibold">Calendar router API</h2>
-        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Pull routed Luma events into another app. The API combines connected and imported
-          calendars, tags every event with its source, and supports calendar filters, ISO date
-          ranges, and cursor pagination.
-        </p>
-        <div
-          className={`mt-4 rounded-xl border p-3 text-xs ${
-            apiIsPreview
-              ? "border-amber-400/40 bg-amber-400/10 text-amber-100"
-              : "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-          }`}
-        >
-          <div className="font-semibold">API base URL</div>
-          <code className="mt-1 block break-all font-mono text-[11px]">{apiOrigin || "(deployed origin)"}</code>
-          {apiIsPreview ? (
-            <p className="mt-2 text-amber-100/80">
-              This Lovable preview/sandbox URL may redirect external requests to the Lovable login.
-              Publish with public access and use its <code>lovable.app</code> or custom-domain URL.
-            </p>
-          ) : (
-            <p className="mt-2 text-emerald-100/80">Use this published origin in your integration.</p>
-          )}
-          <a
-            className="mt-2 inline-block underline underline-offset-2"
-            href={`${apiOrigin}/api/v1/health`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Test health endpoint →
-          </a>
-        </div>
 
-        {newToken && (
-          <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
-              Copy now — shown only once
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-lg border border-hairline bg-background px-3 py-2 font-mono text-xs">
-                {newToken}
-              </code>
-              <button
-                onClick={onCopyToken}
-                className="shrink-0 rounded-full border border-hairline px-3 py-2 text-[11px] font-semibold hover:bg-surface"
-              >
-                {copied ? "Copied ✓" : "Copy"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(tokens?.length ?? 0) > 0 && (
-          <ul className="mt-4 space-y-2">
-            {tokens!.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-3 rounded-xl border border-hairline bg-background/50 p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-display text-sm font-semibold">{t.name}</span>
-                    {t.revokedAt && (
-                      <span className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-destructive">
-                        revoked
-                      </span>
-                    )}
-                  </div>
-                  <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {t.prefix}… ·{" "}
-                    {t.lastUsedAt ? `used ${t.lastUsedAt.slice(0, 10)}` : "never used"}
-                  </div>
-                </div>
-                {!t.revokedAt && (
-                  <button
-                    onClick={() => onRevokeToken(t.id, t.name)}
-                    disabled={tokenBusy}
-                    className="shrink-0 rounded-full border border-destructive/40 px-3 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
-                  >
-                    Revoke
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-4 flex items-center gap-3">
-          <input
-            value={tokenName}
-            onChange={(e) => setTokenName(e.target.value)}
-            placeholder="Token name (e.g. n8n workflow)"
-            className="min-w-0 flex-1 rounded-xl border border-hairline bg-background px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-white/30 focus:outline-none"
-          />
-          <button
-            onClick={onCreateToken}
-            disabled={tokenBusy || !tokenName.trim()}
-            className="shrink-0 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-          >
-            {tokenBusy ? "…" : "Create token"}
-          </button>
-        </div>
-        {tokenErr && <p className="mt-2 text-xs text-destructive">{tokenErr}</p>}
-
-        <div className="mt-5 overflow-x-auto rounded-xl border border-hairline bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-          <div className="text-foreground">GET {apiOrigin}/api/v1/health <span className="text-muted-foreground">(public)</span></div>
-          <div className="text-foreground">GET {apiOrigin}/api/v1/events?calendar=all</div>
-          <div className="text-foreground">GET {apiOrigin}/api/v1/calendars</div>
-          <div className="mt-2 whitespace-pre">
-            {`curl -H "Authorization: Bearer luma_sk_..." \\
-  "${apiOrigin}/api/v1/events?calendar=all&from=2026-07-01T00:00:00Z&limit=50"`}
-          </div>
-          <div className="mt-2">
-            Params: calendar, from, to, limit, cursor. Full integration guide: docs/api.md
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

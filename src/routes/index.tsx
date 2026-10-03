@@ -14,13 +14,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
+          "Aggregate events from Luma, Meetup, and Eventbrite, organize your calendars, and create shareable, on-brand badges with AI.",
       },
       { property: "og:title", content: "Event Aggregator — Discover events & branded badges" },
       {
         property: "og:description",
         content:
-          "Turn any Luma event into a branded, shareable badge. Bring your own Luma API key — every event gets its own AI-crafted design.",
+          "Aggregate events from Luma, Meetup, and Eventbrite, organize your calendars, and create shareable, on-brand badges with AI.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
