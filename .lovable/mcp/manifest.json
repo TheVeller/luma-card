@@ -11,9 +11,9 @@
   },
   "mcp": {
     "server": {
-      "name": "luma-badge-studio-mcp",
+      "name": "event-aggregator-mcp",
       "version": "0.2.0",
-      "title": "Luma Badge Studio"
+      "title": "Event Aggregator"
     },
     "tools": [
       {
