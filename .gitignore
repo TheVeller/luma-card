@@ -16,12 +16,11 @@ dist-ssr
 .nitro
 *.local
 
-# Env — .env holds the publishable Supabase keys the build inlines (VITE_*), so
-# it MUST stay tracked: Lovable/Vite read it at build time to bake VITE_* into
-# the client bundle. These keys are public by design (RLS is the boundary).
-# Only ignore local, potentially-secret overrides.
-.env.local
-.env.*.local
+# Environment files are local/runtime configuration and must never be committed.
+# Keep the documented, value-free template only.
+.env
+.env.*
+!.env.example
 
 # Package managers (this project uses bun — bun.lock is the source of truth)
 package-lock.json
