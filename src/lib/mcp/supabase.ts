@@ -45,3 +45,22 @@ export function supabaseForUser(ctx: ToolContext) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
+
+export function fail(text: string) {
+  return { content: [{ type: "text" as const, text }], isError: true };
+}
+
+export async function loadCalendars(sb: ReturnType<typeof supabaseForUser>) {
+  const { data, error } = await sb
+    .from("user_luma_calendars")
+    .select("id, calendar_id, calendar_name, calendar_slug, calendar_url, source, provider, ownership, is_mine, is_default")
+    .is("merged_into_id", null)
+    .order("is_default", { ascending: false })
+    .limit(1000);
+  if (error) {
+    console.error("loadCalendars", error);
+    return { ok: false as const };
+  }
+  const rows = (data ?? []).map((r) => ({ ...r, is_mine: r.is_mine ?? r.ownership === "connected" }));
+  return { ok: true as const, rows };
+}
