@@ -37,7 +37,7 @@ export function healthResponse(): Response {
   const requestId = `req_${crypto.randomUUID()}`;
   return json(
     200,
-    { ok: true, service: "luma-card-event-router", apiVersion: "v1" },
+    { ok: true, service: "event-aggregator", apiVersion: "v1" },
     { "x-request-id": requestId },
   );
 }

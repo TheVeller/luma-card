@@ -101,15 +101,15 @@ export const Route = createFileRoute("/_authenticated/events")({
   }),
   head: () => ({
     meta: [
-      { title: "Your events — Event Router" },
+      { title: "Events — Event Aggregator" },
       {
         name: "description",
-        content: "Browse aggregated events and generate personalized shareable badges.",
+        content: "Browse, filter, and organize events from all your connected sources.",
       },
       { property: "og:title", content: "Your aggregated events" },
       {
         property: "og:description",
-        content: "Personalized badges for every event on your Luma calendar.",
+        content: "A deduplicated event library across Luma, Meetup, and Eventbrite.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -441,7 +441,7 @@ function EventsPage() {
           </div>
           <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Your events</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Pick an event to generate a personalized badge for it.
+            Browse your consolidated event library across every connected source.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1222,7 +1222,7 @@ function GalleryView({
             </h3>
             <EventLabelChips event={ev} />
             <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent">
-              Generate badge <span aria-hidden>→</span>
+              View event <span aria-hidden>→</span>
             </div>
           </div>
         </Link>
@@ -1265,7 +1265,7 @@ function ListView({ events, showCalendarName }: { events: EventDTO[]; showCalend
               {ev.id.startsWith("scr-") ? "Scrape" : "API"}
             </span>
             <div className="text-xs font-medium text-accent sm:mt-3">
-              Generate badge <span aria-hidden>→</span>
+              View event <span aria-hidden>→</span>
             </div>
           </div>
         </Link>

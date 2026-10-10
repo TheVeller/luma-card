@@ -9,3 +9,5 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 - Admin mode is password-gated (ADMIN_PASSWORD) on top of the user_roles admin role; unlock is an 8h HMAC token bound to the user id, kept in sessionStorage (cookies fail in the embedded preview). Why: role alone isn't enough for the sensitive global catalog.
+
+- Product scope is event aggregation only; legacy badge/brand data stays stored but is not read or exposed. Why: historical data must remain recoverable while the active product stays focused.

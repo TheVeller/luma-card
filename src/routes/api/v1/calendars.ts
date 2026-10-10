@@ -85,7 +85,6 @@ export const Route = createFileRoute("/api/v1/calendars")({
                       (r.ownership ?? (r.source === "api" ? "connected" : "external")) ===
                         "connected",
                     providerSourceId: r.provider_source_id ?? null,
-                    brandKitId: r.brand_kit_id ?? null,
                     isDefault: r.is_default,
                     url: r.calendar_url,
                     avatarUrl: r.calendar_avatar_url,

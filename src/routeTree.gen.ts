@@ -13,16 +13,12 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as McpRouteImport } from './routes/mcp'
-import { Route as Phase2RouteImport } from './routes/phase-2'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
-import { Route as AuthenticatedGalleryRouteImport } from './routes/_authenticated/gallery'
 import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
-import { Route as AuthenticatedTemplatesRouteImport } from './routes/_authenticated/templates'
-import { Route as ApiChatBadgeRouteImport } from './routes/api/chat-badge'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as AuthenticatedEEventIdRouteImport } from './routes/_authenticated/e.$eventId'
@@ -52,11 +48,6 @@ const McpRoute = McpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Phase2Route = Phase2RouteImport.update({
-  id: '/phase-2',
-  path: '/phase-2',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const Char91DotmcpChar93ListToolsRoute =
   Char91DotmcpChar93ListToolsRouteImport.update({
     id: '/.mcp/list-tools',
@@ -79,11 +70,6 @@ const AuthenticatedEventsRoute = AuthenticatedEventsRouteImport.update({
   path: '/events',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedGalleryRoute = AuthenticatedGalleryRouteImport.update({
-  id: '/gallery',
-  path: '/gallery',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedImportRoute = AuthenticatedImportRouteImport.update({
   id: '/import',
   path: '/import',
@@ -93,16 +79,6 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedTemplatesRoute = AuthenticatedTemplatesRouteImport.update({
-  id: '/templates',
-  path: '/templates',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const ApiChatBadgeRoute = ApiChatBadgeRouteImport.update({
-  id: '/api/chat-badge',
-  path: '/api/chat-badge',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
   id: '/.lovable/oauth/consent',
@@ -155,16 +131,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
-  '/phase-2': typeof Phase2Route
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/events': typeof AuthenticatedEventsRoute
-  '/gallery': typeof AuthenticatedGalleryRoute
   '/import': typeof AuthenticatedImportRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/templates': typeof AuthenticatedTemplatesRoute
-  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -179,16 +151,12 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
-  '/phase-2': typeof Phase2Route
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/events': typeof AuthenticatedEventsRoute
-  '/gallery': typeof AuthenticatedGalleryRoute
   '/import': typeof AuthenticatedImportRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/templates': typeof AuthenticatedTemplatesRoute
-  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -205,16 +173,12 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
-  '/phase-2': typeof Phase2Route
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/events': typeof AuthenticatedEventsRoute
-  '/_authenticated/gallery': typeof AuthenticatedGalleryRoute
   '/_authenticated/import': typeof AuthenticatedImportRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
-  '/_authenticated/templates': typeof AuthenticatedTemplatesRoute
-  '/api/chat-badge': typeof ApiChatBadgeRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/_authenticated/e/$eventId': typeof AuthenticatedEEventIdRoute
@@ -231,16 +195,12 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/mcp'
-    | '/phase-2'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/admin'
     | '/events'
-    | '/gallery'
     | '/import'
     | '/settings'
-    | '/templates'
-    | '/api/chat-badge'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/e/$eventId'
@@ -255,16 +215,12 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/mcp'
-    | '/phase-2'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/admin'
     | '/events'
-    | '/gallery'
     | '/import'
     | '/settings'
-    | '/templates'
-    | '/api/chat-badge'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/e/$eventId'
@@ -280,16 +236,12 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/mcp'
-    | '/phase-2'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/admin'
     | '/_authenticated/events'
-    | '/_authenticated/gallery'
     | '/_authenticated/import'
     | '/_authenticated/settings'
-    | '/_authenticated/templates'
-    | '/api/chat-badge'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/_authenticated/e/$eventId'
@@ -306,10 +258,8 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   McpRoute: typeof McpRoute
-  Phase2Route: typeof Phase2Route
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  ApiChatBadgeRoute: typeof ApiChatBadgeRoute
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicImageRoute: typeof ApiPublicImageRoute
@@ -348,13 +298,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/phase-2': {
-      id: '/phase-2'
-      path: '/phase-2'
-      fullPath: '/phase-2'
-      preLoaderRoute: typeof Phase2RouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/.mcp/list-tools': {
       id: '/.mcp/list-tools'
       path: '/.mcp/list-tools'
@@ -383,13 +326,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEventsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/gallery': {
-      id: '/_authenticated/gallery'
-      path: '/gallery'
-      fullPath: '/gallery'
-      preLoaderRoute: typeof AuthenticatedGalleryRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/import': {
       id: '/_authenticated/import'
       path: '/import'
@@ -403,20 +339,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/templates': {
-      id: '/_authenticated/templates'
-      path: '/templates'
-      fullPath: '/templates'
-      preLoaderRoute: typeof AuthenticatedTemplatesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/api/chat-badge': {
-      id: '/api/chat-badge'
-      path: '/api/chat-badge'
-      fullPath: '/api/chat-badge'
-      preLoaderRoute: typeof ApiChatBadgeRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/.lovable/oauth/consent': {
       id: '/.lovable/oauth/consent'
@@ -487,20 +409,16 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedEventsRoute: typeof AuthenticatedEventsRoute
-  AuthenticatedGalleryRoute: typeof AuthenticatedGalleryRoute
   AuthenticatedImportRoute: typeof AuthenticatedImportRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
-  AuthenticatedTemplatesRoute: typeof AuthenticatedTemplatesRoute
   AuthenticatedEEventIdRoute: typeof AuthenticatedEEventIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedEventsRoute: AuthenticatedEventsRoute,
-  AuthenticatedGalleryRoute: AuthenticatedGalleryRoute,
   AuthenticatedImportRoute: AuthenticatedImportRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
-  AuthenticatedTemplatesRoute: AuthenticatedTemplatesRoute,
   AuthenticatedEEventIdRoute: AuthenticatedEEventIdRoute,
 }
 
@@ -526,11 +444,9 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   McpRoute: McpRoute,
-  Phase2Route: Phase2Route,
   Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
-  ApiChatBadgeRoute: ApiChatBadgeRoute,
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicImageRoute: ApiPublicImageRoute,

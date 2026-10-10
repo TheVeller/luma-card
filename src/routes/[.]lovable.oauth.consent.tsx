@@ -90,11 +90,11 @@ function Consent() {
     <main className="grid min-h-screen place-items-center bg-background px-6 py-16 text-foreground">
       <div className="w-full max-w-[460px] rounded-2xl border border-hairline bg-surface/80 p-8 backdrop-blur">
         <h1 className="text-center font-display text-2xl font-semibold tracking-tight">
-          Connect {clientName} to Luma Badge Studio
+          Connect {clientName} to Event Aggregator
         </h1>
         <p className="mx-auto mt-3 max-w-sm text-center text-sm text-muted-foreground">
-          {clientName} will be able to use this app as you — reading your connected Luma calendars,
-          generated badges, and saved style presets. This does not bypass the app's permissions.
+          {clientName} will be able to use this app as you — reading your connected calendars and
+          consolidated events. This does not bypass the app's permissions.
         </p>
         {error && (
           <p role="alert" className="mt-4 text-center text-sm text-red-500">

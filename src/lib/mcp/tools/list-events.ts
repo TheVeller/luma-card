@@ -4,7 +4,7 @@ import { supabaseForUser } from "../supabase";
 
 export default defineTool({
   name: "list_calendars",
-  title: "List my Luma calendars",
+  title: "List my calendars",
   description:
     "List the signed-in user's connected calendars (Luma API-linked, Eventbrite, Meetup, or scraped). Use mine=true to only get calendars marked as the user's own.",
   inputSchema: {
