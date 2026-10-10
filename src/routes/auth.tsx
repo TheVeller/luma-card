@@ -24,13 +24,13 @@ export const Route = createFileRoute("/auth")({
   },
   head: () => ({
     meta: [
-      { title: "Sign in — Luma Badge Studio" },
+      { title: "Sign in — Event Aggregator" },
       {
         name: "description",
-        content: "Sign in to Luma Badge Studio to generate personalized event badges.",
+        content: "Sign in to connect calendars and manage your event library.",
       },
-      { property: "og:title", content: "Sign in — Luma Badge Studio" },
-      { property: "og:description", content: "Personalized badges for every Luma event." },
+      { property: "og:title", content: "Sign in — Event Aggregator" },
+      { property: "og:description", content: "One event library across Luma, Meetup, and Eventbrite." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -86,15 +86,15 @@ function AuthPage() {
         <div className="mb-6 flex items-center justify-center gap-2">
           <div className="h-6 w-6 rounded-md bg-accent" />
           <span className="font-display text-sm font-semibold tracking-tight">
-            Luma Badge Studio
+            Event Aggregator
           </span>
         </div>
         <div className="rounded-2xl border border-hairline bg-surface/80 p-8 backdrop-blur">
           <h1 className="text-center font-display text-2xl font-semibold tracking-tight">
-            Sign in to your studio
+            Sign in to your event library
           </h1>
           <p className="mx-auto mt-2 max-w-sm text-center text-sm text-muted-foreground">
-            Continuamos con Google para guardar tu Luma API key de forma segura.
+            Continue with Google to connect and organize your event sources securely.
           </p>
 
           <button
@@ -124,7 +124,7 @@ function AuthPage() {
           </button>
           {error && <p className="mt-3 text-center text-xs text-destructive">{error}</p>}
           <p className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-            Your Luma API key stays encrypted
+            Your provider credentials stay encrypted
           </p>
         </div>
       </div>

@@ -65,7 +65,7 @@ export function CalendarSwitcher() {
         )}
         <div className="leading-tight text-left">
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-            Event Router · Badge Studio
+            Event Aggregator
           </div>
           <div className="flex items-center gap-1 font-display text-sm font-semibold tracking-tight">
             <span className="max-w-[180px] truncate">{active.name}</span>

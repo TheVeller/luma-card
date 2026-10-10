@@ -28,7 +28,7 @@ describe("external API helpers", () => {
     expect(response.headers.get("x-request-id")).toMatch(/^req_/);
     expect(await response.json()).toEqual({
       ok: true,
-      service: "luma-card-event-router",
+      service: "event-aggregator",
       apiVersion: "v1",
     });
   });

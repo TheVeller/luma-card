@@ -6,7 +6,7 @@ import { EventSourceImporter } from "@/components/EventSourceImporter";
 export const Route = createFileRoute("/_authenticated/import")({
   head: () => ({
     meta: [
-      { title: "Import from a link — Badge Studio" },
+      { title: "Import from a link — Event Aggregator" },
       {
         name: "description",
         content: "Import a Luma calendar or a single event by URL — no API key required.",
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/import")({
       { property: "og:title", content: "Import from a link" },
       {
         property: "og:description",
-        content: "Turn any Luma calendar or event URL into personalized badges.",
+        content: "Add public events and calendars to your unified event library.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -62,7 +62,7 @@ function ImportPage() {
 
       <p className="mt-6 font-mono text-[11px] leading-relaxed text-muted-foreground">
         Public sources stay in the unified calendar switcher. Connect an organizer account in
-        Settings for authoritative Eventbrite or Meetup sync and owned-event branding.
+        Settings for authoritative Eventbrite or Meetup sync and ownership tracking.
       </p>
     </div>
   );

@@ -46,9 +46,6 @@ import {
   listProviderConnections,
   removeProviderConnection,
 } from "@/lib/provider-connections.functions";
-import { assignCalendarBrandKit, listBrandKits, saveBrandKit } from "@/lib/brand-kits.functions";
-import { DEFAULT_STYLE_SPEC } from "@/lib/style-spec";
-import { CLASSIC_BADGE_DOC } from "@/lib/badge-doc/presets/classic";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -213,13 +210,6 @@ function SettingsPage() {
       qc.invalidateQueries({ queryKey: ["luma-events"] });
       qc.invalidateQueries({ queryKey: ["event-library-stats"] });
     },
-  });
-  const fetchBrandKits = useServerFn(listBrandKits);
-  const createBrandKit = useServerFn(saveBrandKit);
-  const assignBrandKit = useServerFn(assignCalendarBrandKit);
-  const { data: brandKits = [], refetch: refetchBrandKits } = useQuery({
-    queryKey: ["brand-kits"],
-    queryFn: () => fetchBrandKits(),
   });
   const [brandKitName, setBrandKitName] = useState("");
   const brandKitMut = useMutation({
@@ -442,8 +432,7 @@ function SettingsPage() {
         <h2 className="mt-1 font-display text-xl font-semibold">API and MCP access</h2>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
           Connect Event Aggregator to agents, automations, and other apps. Create an API key for
-          REST requests, or use the MCP server for authenticated access to calendars, events,
-          badges, and style presets.
+          REST requests, or use the MCP server for authenticated access to calendars and events.
         </p>
         <div
           className={`mt-4 rounded-xl border p-3 text-xs ${
@@ -689,7 +678,6 @@ function SettingsPage() {
         ) : (
           <CalendarOrganizer
             calendars={cals!}
-            brandKits={brandKits}
             busy={busy}
             onSetDefault={onSetDefault}
             onRemove={onRemove}
@@ -697,10 +685,6 @@ function SettingsPage() {
             syncing={syncMut.isPending}
             onSync={async (calendarId, scope) => {
               await syncMut.mutateAsync({ sourceId: calendarId, scope });
-            }}
-            onAssignBrandKit={async (calendarId, brandKitId) => {
-              await assignBrandKit({ data: { calendarId, brandKitId } });
-              await refetch();
             }}
           />
         )}
@@ -851,38 +835,6 @@ function SettingsPage() {
         </CollapsibleContent>
       </Collapsible>
 
-      <div className="mt-6 rounded-2xl border border-hairline bg-surface/70 p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-          Design automation
-        </div>
-        <h2 className="mt-1 font-display text-xl font-semibold">Brand kits</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Owned calendars can prefill the badge editor with a reusable style and layout. Create a
-          starter kit, then assign it beside a calendar above.
-        </p>
-        <div className="mt-4 flex gap-2">
-          <input
-            value={brandKitName}
-            onChange={(event) => setBrandKitName(event.target.value)}
-            placeholder="Brand kit name"
-            className="min-w-0 flex-1 rounded-xl border border-hairline bg-background px-4 py-2.5 text-sm"
-          />
-          <button
-            onClick={() => brandKitMut.mutate()}
-            disabled={brandKitMut.isPending || !brandKitName.trim()}
-            className="rounded-full border border-hairline px-4 py-2 text-xs font-semibold disabled:opacity-40"
-          >
-            Create
-          </button>
-        </div>
-        {brandKits.length > 0 && (
-          <div className="mt-3 font-mono text-[10px] text-muted-foreground">
-            {brandKits.map((kit) => `${kit.name}${kit.isDefault ? " (default)" : ""}`).join(" · ")}
-          </div>
-        )}
-      </div>
-
-
     </div>
   );
 }
@@ -891,24 +843,20 @@ type OwnershipTab = "all" | "mine" | "connected" | "not_mine";
 
 function CalendarOrganizer({
   calendars,
-  brandKits,
   busy,
   onSetDefault,
   onRemove,
   onChanged,
   syncing,
   onSync,
-  onAssignBrandKit,
 }: {
   calendars: UserCalendarDTO[];
-  brandKits: Array<{ id: string; name: string }>;
   busy: boolean;
   onSetDefault: (id: string) => Promise<void>;
   onRemove: (id: string, name: string) => Promise<void>;
   onChanged: () => Promise<unknown>;
   syncing: boolean;
   onSync: (calendarId: string, scope: "auto" | "full") => Promise<void>;
-  onAssignBrandKit: (calendarId: string, brandKitId: string | null) => Promise<void>;
 }) {
   const qc = useQueryClient();
   const fetchGroups = useServerFn(listCalendarGroups);
@@ -1416,29 +1364,6 @@ function CalendarOrganizer({
                                 {group.name}
                               </DropdownMenuItem>
                             ))}
-                            {calendar.ownership === "connected" && brandKits.length > 0 && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                  Brand kit
-                                </DropdownMenuLabel>
-                                <DropdownMenuItem
-                                  onSelect={() => onAssignBrandKit(calendar.id, null)}
-                                  disabled={!calendar.brandKitId}
-                                >
-                                  Default kit
-                                </DropdownMenuItem>
-                                {brandKits.map((kit) => (
-                                  <DropdownMenuItem
-                                    key={kit.id}
-                                    onSelect={() => onAssignBrandKit(calendar.id, kit.id)}
-                                    disabled={calendar.brandKitId === kit.id}
-                                  >
-                                    {kit.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </>
-                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"

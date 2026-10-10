@@ -1,22 +1,22 @@
-# Event Router API
+# Event Aggregator API
 
 This document covers the public integration surface for pulling a user's
-canonical calendars and events from Luma Card into another app. The router
+canonical calendars and events from Event Aggregator into another app. The service
 supports Luma, Eventbrite, and Meetup sources while preserving source lineage,
 provider identity, enrichment, taxonomy labels, and sync metadata.
 
 There are two API surfaces:
 
-- **Calendar Router REST API**: simple Bearer-token JSON endpoints for apps,
+- **Event Aggregator REST API**: simple Bearer-token JSON endpoints for apps,
   scripts, automations, and backends.
-- **MCP router**: OAuth-backed tool endpoints for MCP-capable clients.
+- **MCP server**: OAuth-backed tool endpoints for MCP-capable clients.
 
 ## Base URL
 
 Use the deployed app origin:
 
 ```txt
-https://your-luma-card-deployment.example
+https://your-event-aggregator.example
 ```
 
 In local development this is usually:
@@ -35,8 +35,8 @@ event data protected with the Bearer token described below.
 Verify the origin before configuring a client:
 
 ```bash
-curl -i "https://your-luma-card-deployment.example/api/v1/health"
-# {"ok":true,"service":"luma-card-event-router","apiVersion":"v1"}
+curl -i "https://your-event-aggregator.example/api/v1/health"
+# {"ok":true,"service":"event-aggregator","apiVersion":"v1"}
 ```
 
 ## Authentication
@@ -44,7 +44,7 @@ curl -i "https://your-luma-card-deployment.example/api/v1/health"
 Create an external API token in the app:
 
 1. Open **Settings**.
-2. Go to **Calendar router API**.
+2. Go to **API and MCP access**.
 3. Create a token.
 4. Copy it immediately. The raw token is shown only once.
 
@@ -66,14 +66,14 @@ and are rate-limited per token.
 
 ```bash
 curl -H "Authorization: Bearer luma_sk_..." \
-  "https://your-luma-card-deployment.example/api/v1/events?calendar=all&limit=50"
+  "https://your-event-aggregator.example/api/v1/events?calendar=all&limit=50"
 ```
 
 ```ts
-const apiBase = "https://your-luma-card-deployment.example";
-const token = process.env.LUMA_CARD_API_TOKEN!;
+const apiBase = "https://your-event-aggregator.example";
+const token = process.env.EVENT_AGGREGATOR_API_TOKEN!;
 
-async function lumaCardFetch<T>(path: string): Promise<T> {
+async function eventAggregatorFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${apiBase}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -86,7 +86,7 @@ async function lumaCardFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const { events } = await lumaCardFetch<EventsResponse>("/api/v1/events?calendar=all&limit=50");
+const { events } = await eventAggregatorFetch<EventsResponse>("/api/v1/events?calendar=all&limit=50");
 ```
 
 ## REST Endpoints
@@ -98,18 +98,18 @@ redirects in the application and returns CORS headers with `Cache-Control:
 no-store`.
 
 ```json
-{"ok":true,"service":"luma-card-event-router","apiVersion":"v1"}
+{"ok":true,"service":"event-aggregator","apiVersion":"v1"}
 ```
 
 ### `GET /api/v1/calendars`
 
 Lists the caller's connected and imported calendars. Use this to discover valid
-`calendar` filter values, provider identities, groups, branding, event counts,
+`calendar` filter values, provider identities, groups, images, event counts,
 and sync status for `/api/v1/events`.
 
 ```bash
 curl -H "Authorization: Bearer luma_sk_..." \
-  "https://your-luma-card-deployment.example/api/v1/calendars"
+  "https://your-event-aggregator.example/api/v1/calendars"
 ```
 
 Response:
@@ -191,7 +191,7 @@ Calendar fields:
 | `isMine`              | `boolean`                                     | Whether the user marked this calendar as their own. Filter the list with `?mine=true\|false`. |
 | `isDefault`           | `boolean`                                     | User's default calendar in this app.                                                    |
 | `url`                 | `string \| null`                              | Calendar URL when known.                                                                |
-| `avatarUrl`           | `string \| null`                              | Calendar/profile logo with branding fallbacks applied.                                  |
+| `avatarUrl`           | `string \| null`                              | Calendar/profile logo with media fallbacks applied.                                  |
 | `coverUrl`            | `string \| null`                              | Calendar cover or social image.                                                         |
 | `description`         | `string \| null`                              | Latest public description.                                                              |
 | `color`               | `string \| null`                              | Luma tint color when available.                                                         |
@@ -206,7 +206,6 @@ Calendar fields:
 | `remoteName`          | `string \| null`                              | Latest name reported by Luma.                                                           |
 | `suggestedGroup`      | `object \| null`                              | Deterministic grouping suggestion awaiting approval.                                    |
 | `providerSourceId`     | `string \| null`                              | Provider-specific source/group identifier when available.                               |
-| `brandKitId`           | `string \| null`                              | Associated user-owned brand kit when configured.                                        |
 | `sync`                | `object`                                      | Status, counts, last successful/attempted timestamps, scope, and historical completion. |
 
 Sync status is one of `idle`, `queued`, `running`, `completed`, `partial`,
@@ -241,7 +240,7 @@ Example:
 
 ```bash
 curl -H "Authorization: Bearer luma_sk_..." \
-  "https://your-luma-card-deployment.example/api/v1/events?calendar=all&from=2026-07-01T00:00:00Z&limit=25"
+  "https://your-event-aggregator.example/api/v1/events?calendar=all&from=2026-07-01T00:00:00Z&limit=25"
 ```
 
 Response:
@@ -350,7 +349,7 @@ do {
   const qs = new URLSearchParams({ calendar: "all", limit: "100" });
   if (cursor) qs.set("cursor", cursor);
 
-  const page = await lumaCardFetch<EventsResponse>(`/api/v1/events?${qs}`);
+  const page = await eventAggregatorFetch<EventsResponse>(`/api/v1/events?${qs}`);
   allEvents.push(...page.events);
   cursor = page.page.nextCursor;
 } while (cursor);
@@ -406,8 +405,6 @@ Current tools:
 | -------------------------- | ------------------------------------------------ |
 | `whoami`                   | Verify the authenticated user id and email.      |
 | `list_calendars`           | List connected and imported calendars.           |
-| `list_my_badges`           | List generated badges, optionally by `event_id`. |
-| `list_event_style_presets` | List saved AI style presets for an event.        |
 
 Use the REST API for ordinary app integrations. Use MCP when the consumer is an
 agent/client that already speaks MCP and can complete the Supabase OAuth flow.
@@ -422,7 +419,7 @@ as the collection endpoint. Use the `canonicalId` returned by
 ```bash
 curl \
   -H "Authorization: Bearer luma_sk_..." \
-  "https://your-luma-card-deployment.example/api/v1/events/00000000-0000-0000-0000-000000000001"
+  "https://your-event-aggregator.example/api/v1/events/00000000-0000-0000-0000-000000000001"
 ```
 
 ## TypeScript Types
@@ -461,7 +458,6 @@ type CalendarDTO = {
   group: CalendarGroupDTO | null;
   order: number;
   providerSourceId: string | null;
-  brandKitId: string | null;
 };
 
 type EventCalendarDTO = {
