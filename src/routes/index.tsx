@@ -1,6 +1,9 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 
+const description =
+  "Aggregate events from Luma, Meetup, and Eventbrite into one organized, searchable, deduplicated calendar library.";
+
 export const Route = createFileRoute("/")({
   ssr: false,
   beforeLoad: async () => {
@@ -10,18 +13,10 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "Event Aggregator — Discover events & branded badges" },
-      {
-        name: "description",
-        content:
-          "Aggregate events from Luma, Meetup, and Eventbrite, organize your calendars, and create shareable, on-brand badges with AI.",
-      },
-      { property: "og:title", content: "Event Aggregator — Discover events & branded badges" },
-      {
-        property: "og:description",
-        content:
-          "Aggregate events from Luma, Meetup, and Eventbrite, organize your calendars, and create shareable, on-brand badges with AI.",
-      },
+      { title: "Event Aggregator — One library for every event" },
+      { name: "description", content: description },
+      { property: "og:title", content: "Event Aggregator — One library for every event" },
+      { property: "og:description", content: description },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -36,87 +31,63 @@ function Landing() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-md bg-accent" />
-            <span className="font-display text-sm font-semibold tracking-tight">
-              Event Aggregator
-            </span>
+            <span className="font-display text-sm font-semibold">Event Aggregator</span>
           </div>
           <Link
             to="/auth"
-            className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+            className="rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"
           >
             Sign in
           </Link>
         </div>
       </header>
 
-      <section className="mx-auto max-w-3xl px-6 pt-24 pb-16 text-center">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-          Bring your own Luma calendar
-        </div>
-        <h1 className="font-display text-5xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
-          Turn every event into a<br />
-          <span className="text-accent">badge worth sharing.</span>
-        </h1>
-        <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-          Bring your own Luma API key. We detect each event's artwork and auto-brand a stamp-style
-          badge — photo, colors, typography, and QR.
-        </p>
-
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+      <main>
+        <section className="mx-auto max-w-4xl px-6 pb-16 pt-24 text-center sm:pt-28">
+          <div className="mb-6 font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+            Luma · Meetup · Eventbrite
+          </div>
+          <h1 className="font-display text-5xl font-bold leading-[1.05] sm:text-7xl">
+            Every event source,
+            <br />
+            one clean library.
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
+            Connect calendars or import public links. Event Aggregator normalizes, deduplicates,
+            and organizes every event for people, APIs, and agents.
+          </p>
           <Link
             to="/auth"
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            className="mt-9 inline-flex rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
-            Continue with Google
-            <span aria-hidden>→</span>
+            Open your event library →
           </Link>
-          <Link
-            to="/phase-2"
-            className="inline-flex items-center rounded-full border border-hairline px-6 py-3 text-sm font-semibold text-foreground hover:bg-surface"
-          >
-            Phase 2 roadmap
-          </Link>
-        </div>
-      </section>
+        </section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-24">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {[
-            {
-              n: "01",
-              t: "Pull",
-              d: "Paste your Luma API key. We detect your calendar and events.",
-            },
-            {
-              n: "02",
-              t: "Theme",
-              d: "AI extracts the palette and typography from each event's art.",
-            },
-            {
-              n: "03",
-              t: "Share",
-              d: "Photo + QR + one-click buttons for X and LinkedIn. Social loop.",
-            },
-          ].map((s) => (
-            <div
-              key={s.n}
-              className="rounded-2xl border border-hairline bg-surface/70 p-5 backdrop-blur"
-            >
-              <div className="font-mono text-[10px] tracking-[0.24em] text-muted-foreground">
-                {s.n}
+        <section className="mx-auto max-w-5xl px-6 pb-24">
+          <div className="grid border-y border-hairline sm:grid-cols-3">
+            {[
+              ["01", "Connect", "Add provider accounts, calendars, groups, or individual event links."],
+              ["02", "Consolidate", "Normalize and deduplicate events without losing source history."],
+              ["03", "Route", "Browse the library or connect it to apps and agents through REST and MCP."],
+            ].map(([number, title, copy], index) => (
+              <div
+                key={number}
+                className={`py-7 sm:px-7 ${index > 0 ? "border-t border-hairline sm:border-l sm:border-t-0" : ""}`}
+              >
+                <div className="font-mono text-[10px] text-muted-foreground">{number}</div>
+                <h2 className="mt-2 font-display text-xl font-semibold">{title}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{copy}</p>
               </div>
-              <div className="mt-2 font-display text-xl font-semibold">{s.t}</div>
-              <p className="mt-1 text-sm text-muted-foreground">{s.d}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      </main>
 
       <footer className="border-t border-hairline">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 text-xs text-muted-foreground">
           <span>Event Aggregator</span>
-          <span className="font-mono tracking-[0.24em]">· BREW · SHIP · SHARE ·</span>
+          <span className="font-mono uppercase tracking-[0.18em]">One canonical library</span>
         </div>
       </footer>
     </div>
