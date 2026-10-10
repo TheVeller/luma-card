@@ -401,10 +401,12 @@ The app also exposes an MCP server for OAuth-capable clients:
 
 Current tools:
 
-| Tool                       | Purpose                                          |
-| -------------------------- | ------------------------------------------------ |
-| `whoami`                   | Verify the authenticated user id and email.      |
-| `list_calendars`           | List connected and imported calendars.           |
+| Tool             | Purpose                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `whoami`         | Verify the authenticated user id and email.                                               |
+| `list_calendars` | List connected and imported calendars (`mine` filter).                                    |
+| `list_events`    | Consolidated events; filters `mine`, `calendar_id`, `status`, `q`, `from`, `to`; `cursor`. |
+| `get_event`      | One event with description, venue, tags and all its sources.                              |
 
 Use the REST API for ordinary app integrations. Use MCP when the consumer is an
 agent/client that already speaks MCP and can complete the Supabase OAuth flow.
