@@ -5,4 +5,4 @@
 - [x] Remove badge/style tools from MCP and API contracts.
 - [x] Rewrite product copy and documentation for Event Aggregator.
 - [x] Remove unused badge-only code and dependencies.
-- [ ] Verify aggregator flows, tests, and preview.
+- [x] Verify aggregator flows, tests, and preview.

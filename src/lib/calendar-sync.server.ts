@@ -46,11 +46,10 @@ export type SyncSourceRow = {
   provider_connection_id: string | null;
   ownership: "connected" | "external";
   sync_all_events: boolean;
-  brand_kit_id: string | null;
 };
 
 const SOURCE_COLUMNS =
-  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,last_sync_attempted_at,historical_sync_completed_at,last_sync_scope,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason,luma_calendar_id,merged_into_id,source,organization_manual,provider,provider_source_id,provider_connection_id,ownership,sync_all_events,brand_kit_id";
+  "id,user_id,calendar_id,calendar_name,curated_name,remote_name,calendar_url,source_kind,sync_status,sync_error,event_limit,discovered_count,imported_count,last_synced_at,last_sync_attempted_at,historical_sync_completed_at,last_sync_scope,next_sync_at,source_metadata,calendar_avatar_url,calendar_cover_url,calendar_description,calendar_tint_color,metadata_version,group_id,sort_order,suggested_group_name,suggested_group_reason,luma_calendar_id,merged_into_id,source,organization_manual,provider,provider_source_id,provider_connection_id,ownership,sync_all_events";
 
 const CALENDAR_METADATA_VERSION = 1;
 const MAINTENANCE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;

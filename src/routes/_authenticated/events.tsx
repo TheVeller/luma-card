@@ -441,7 +441,7 @@ function EventsPage() {
           </div>
           <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight">Your events</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Pick an event to generate a personalized badge for it.
+            Browse your consolidated event library across every connected source.
           </p>
         </div>
         <div className="flex items-center gap-2">
