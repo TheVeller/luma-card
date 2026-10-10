@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "event-aggregator-mcp",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "title": "Event Aggregator"
     },
     "tools": [
@@ -35,7 +35,7 @@
       {
         "name": "list_calendars",
         "title": "List my calendars",
-        "description": "List the signed-in user's connected calendars (Luma API-linked, Eventbrite, Meetup, or scraped). Use mine=true to only get calendars marked as the user's own.",
+        "description": "List the signed-in user's connected calendars (Luma, Eventbrite, Meetup, or link-imported). Use mine=true for calendars marked as the user's own.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -56,7 +56,7 @@
       {
         "name": "list_events",
         "title": "List my events",
-        "description": "List the signed-in user's consolidated (canonical) events across all connected calendars. Filter by mine (only events from calendars marked as the user's own), calendar_id, or temporal status.",
+        "description": "List the signed-in user's consolidated events across connected calendars, with filters for ownership, calendar, status, date range and name search. Paginate with cursor.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -67,30 +67,77 @@
           "type": "object",
           "properties": {
             "mine": {
-              "description": "true = only events from calendars marked as mine; false = only from calendars not marked as mine.",
+              "description": "true = only calendars marked as mine; false = only others.",
               "type": "boolean"
             },
             "calendar_id": {
-              "description": "Restrict to a single calendar (its public calendar_id from list_calendars).",
+              "description": "Restrict to one calendar (calendar_id from list_calendars).",
               "type": "string"
             },
             "status": {
-              "description": "Temporal status filter (default all).",
+              "description": "upcoming includes ongoing events. Default all.",
               "type": "string",
               "enum": [
                 "all",
                 "upcoming",
-                "ongoing",
                 "past"
               ]
             },
+            "q": {
+              "description": "Case-insensitive search in event name.",
+              "type": "string",
+              "maxLength": 200
+            },
+            "from": {
+              "description": "Only events starting at/after this ISO time.",
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "to": {
+              "description": "Only events starting before this ISO time.",
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
             "limit": {
-              "description": "Max events (default 25).",
+              "description": "Page size (default 25).",
               "type": "integer",
               "minimum": 1,
               "maximum": 100
+            },
+            "cursor": {
+              "description": "nextCursor from a previous call.",
+              "type": "string",
+              "pattern": "^\\d+$"
             }
           }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_event",
+        "title": "Get event details",
+        "description": "Get one consolidated event by id (from list_events), including description, venue, tags and every source it was found in.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "Event id from list_events."
+            }
+          },
+          "required": [
+            "id"
+          ]
         },
         "outputSchema": null
       }
