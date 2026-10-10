@@ -211,24 +211,6 @@ function SettingsPage() {
       qc.invalidateQueries({ queryKey: ["event-library-stats"] });
     },
   });
-  const [brandKitName, setBrandKitName] = useState("");
-  const brandKitMut = useMutation({
-    mutationFn: () =>
-      createBrandKit({
-        data: {
-          name: brandKitName.trim(),
-          styleSpec: DEFAULT_STYLE_SPEC,
-          badgeDoc: CLASSIC_BADGE_DOC,
-          logos: [],
-          isDefault: brandKits.length === 0,
-        },
-      }),
-    onSuccess: async () => {
-      setBrandKitName("");
-      await refetchBrandKits();
-    },
-  });
-
   async function onCreateToken() {
     if (!tokenName.trim()) return;
     setTokenBusy(true);

@@ -1,5 +1,5 @@
 {
-  "name": "luma-card",
+  "name": "event-aggregator",
   "private": true,
   "sideEffects": false,
   "type": "module",
